@@ -1,0 +1,323 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_easyloading/flutter_easyloading.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:hive_ce/hive.dart';
+import 'package:hive_ce_flutter/hive_flutter.dart';
+import 'package:qr_machine_scanner/global_state.dart';
+import 'package:qr_machine_scanner/src/login/login_screen.dart';
+import 'package:qr_machine_scanner/src/model/check.dart';
+import 'package:qr_machine_scanner/src/model/machine.dart';
+import 'package:qr_machine_scanner/src/qr/qr_screen.dart';
+import 'package:qr_machine_scanner/src/qr_result/qr_result_screen.dart';
+import 'package:qr_machine_scanner/src/splash/splash_screen.dart';
+import 'package:qr_machine_scanner/src/utils/dependent.dart';
+import 'package:go_router/go_router.dart';
+import 'package:logging/logging.dart';
+import 'package:provider/provider.dart';
+
+import 'src/app_lifecycle/app_lifecycle.dart';
+import 'src/data/data_provider.dart';
+import 'src/http/api.dart';
+import 'src/model/user.dart';
+import 'src/settings/persistence/local_storage_settings_persistence.dart';
+import 'src/settings/persistence/settings_persistence.dart';
+import 'src/settings/settings.dart';
+import 'src/style/my_transition.dart';
+import 'src/style/palette.dart';
+import 'src/style/text_styles.dart';
+import 'src/style/snack_bar.dart';
+
+Future<void> main() async {
+  if (kReleaseMode) {
+    // Don't log anything below warnings in production.
+    Logger.root.level = Level.WARNING;
+  }
+  Logger.root.onRecord.listen((record) {
+    debugPrint('${record.level.name}: ${record.time}: '
+        '${record.loggerName}: '
+        '${record.message}');
+  });
+  WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    // DeviceOrientation.landscapeRight,
+    // DeviceOrientation.landscapeLeft,
+  ]);
+  // SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge, overlays: []);
+  // SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
+  if (!kIsWeb && (Platform.isIOS || Platform.isAndroid)) {
+    /// Prepare the google_mobile_ads plugin so that the first ad loads
+    /// faster. This can be done later or with a delay if startup
+    /// experience suffers.
+  }
+  // await SpUtil().init();
+  // await PersistentValue.load();
+
+  await Hive.initFlutter();
+  Hive.registerAdapter(UserAdapter());
+  Hive.registerAdapter(MachineAdapter());
+  Hive.registerAdapter(MachineCheckAdapter());
+
+  var dataProvider = DataProvider(
+    api: API(),
+    userBox: await Hive.openBox<User>('users'),
+    machineBox: await Hive.openBox<Machine>('machines'),
+    machineCheckBox: await Hive.openBox<Check>('machineChecks'),
+  );
+
+  GlobalState.loginBox = await Hive.openBox<User>('login');
+  // GlobalState.loginBox.clear();
+  GlobalState.dataProvider = dataProvider;
+
+  // await dataProvider.checkConnectivityAndSync();
+  dataProvider.startSyncing();
+
+  Future.sync(() async {
+    // return;
+    while (true) {
+      await GlobalState.updateDebug();
+      await Future.delayed(Duration(seconds: 15));
+    }
+  });
+
+  // debugPrint(dataProvider.userBox.values.length.toString());
+  // debugPrint(dataProvider.users.length.toString());
+  // for (var m in dataProvider.machines) {
+  //   var d = GlobalState.digest("machine" + m.id.toString());
+  //   debugPrint(d);
+  // }
+
+  runApp(
+    MyApp(
+      dataProvider: dataProvider,
+      settingsPersistence: LocalStorageSettingsPersistence(),
+    ),
+  );
+}
+
+class MyApp extends StatelessWidget {
+  static final _router = GoRouter(
+    redirect: (BuildContext context, GoRouterState state) async {
+      print("check redirect");
+      final bool isAuthenticated = GlobalState.isAuthorized;
+
+      final bool isGoingToProtectedRoute =
+          state.matchedLocation.startsWith('/qr_scanner');
+
+      print("isAuthenticated ${isAuthenticated}");
+
+      if (!isAuthenticated && isGoingToProtectedRoute) {
+        return '/login';
+      }
+
+      print(state.matchedLocation);
+
+      if (isAuthenticated && state.matchedLocation == '/login') {
+        return '/qr_scanner';
+      }
+
+      return null;
+    },
+    routes: [
+      GoRoute(
+          path: '/',
+          builder: (context, state) {
+            return SplashScreen();
+            return FutureBuilder<bool>(
+              future: Future.sync(() async {
+                await GlobalState.dataProvider.checkConnectivityAndSync();
+                return true;
+              }),
+              builder: (context, snapshot) {
+
+                if (snapshot.connectionState == ConnectionState.done) {
+                  // WidgetsBinding.instance.addPostFrameCallback((_) {
+                  //   GoRouter.of(context).go('/login');
+                  // });
+                }
+
+                return Scaffold(
+                    body: Stack(
+                  children: [
+                    Center(
+                        child: CircularProgressIndicator(
+                      color: Colors.black,
+                      strokeWidth: 8,
+                      constraints:
+                          BoxConstraints(minHeight: 128, minWidth: 128),
+                    )),
+                    Center(
+                        child: Container(
+                      child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16.0),
+                          child: const Image(
+                              image: AssetImage('assets/images/icon.png'))),
+                      width: 64,
+                    ))
+                  ],
+                ));
+              },
+            );
+
+            // const QRScreen(key: Key('main')),
+            return QRResultScreen(GlobalState.dataProvider.machines[0],
+                key: Key('main'));
+            // return LoginScreen(key: Key('main'));
+          },
+          routes: [
+            GoRoute(
+              path: 'login',
+              builder: (context, state) {
+                // const QRScreen(key: Key('main')),
+                // return QRResultScreen(GlobalState.dataProvider.machines[0],
+                //     key: Key('main'));
+                return LoginScreen(key: Key('main'));
+              },
+            ),
+            GoRoute(
+              path: 'qr_scanner',
+              pageBuilder: (context, state) {
+                return buildMyTransition<void>(
+                  child: const QRScreen(key: Key('qr_scanner')),
+                  color: context.watch<Palette>().backgroundMain,
+                );
+              },
+              routes: [
+                GoRoute(
+                  path: 'qr_result',
+                  pageBuilder: (context, state) {
+                    final machine = state.extra! as Machine;
+                    return buildMyTransition<void>(
+                      child: QRResultScreen(
+                        machine,
+                        key: const Key('qr_result'),
+                      ),
+                      color: context.watch<Palette>().backgroundMain,
+                    );
+                  },
+                )
+              ]
+            ),
+          ]),
+    ],
+  );
+
+  final SettingsPersistence settingsPersistence;
+
+  final DataProvider dataProvider;
+
+  const MyApp({
+    required this.settingsPersistence,
+    super.key,
+    required this.dataProvider,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ScreenUtilInit(
+      designSize: const Size(750, 1067),
+      minTextAdapt: true,
+      splitScreenMode: true,
+      builder: (context, child) {
+        return AppLifecycleObserver(
+          child: MultiProvider(
+            providers: [
+              // ChangeNotifierProvider(
+              //   create: (_) => dataProvider,
+              // ),
+              Provider(
+                create: (context) => dataProvider,
+              ),
+              Provider<SettingsController>(
+                lazy: false,
+                create: (context) => SettingsController(
+                  persistence: settingsPersistence,
+                )..loadStateFromPersistence(),
+              ),
+              Provider(
+                create: (context) => Palette(),
+              ),
+              Provider(
+                create: (context) => TextStyles(),
+              ),
+            ],
+            child: Builder(builder: (context) {
+              final palette = context.watch<Palette>();
+
+              var app = MaterialApp.router(
+                builder: EasyLoading.init(),
+                title: 'QR Machine Scanner',
+                // theme: ThemeData(
+                //   scaffoldBackgroundColor: palette.backgroundMain,
+                //   // buttonTheme: ButtonThemeData(
+                //   //   buttonColor: Colors.red,
+                //   //   height: 50
+                //   // ),
+                //   // dividerColor: Colors.red,
+                //   // cardColor: Colors.red,
+                //   // useMaterial3: true,
+                //   // primarySwatch: Colors.blue,
+                //   // The line below forces the theme to iOS.
+                //   platform: TargetPlatform.iOS,
+                // ),
+                theme: ThemeData.from(
+                  colorScheme: ColorScheme.fromSeed(
+                      seedColor: Colors.blue,
+                      contrastLevel: -1,
+                      secondary: Colors.black,
+                      primary: Colors.black),
+                  // colorScheme: ColorScheme.fromSeed(
+                  //   seedColor: palette.btnOkColor,
+                  //   background: palette.backgroundMain,
+                  // ),
+                  textTheme: TextTheme(
+                    bodyMedium: TextStyle(
+                      color: palette.textColor,
+                    ),
+                  ),
+                  useMaterial3: true,
+                ),
+                routeInformationProvider: _router.routeInformationProvider,
+                routeInformationParser: _router.routeInformationParser,
+                routerDelegate: _router.routerDelegate,
+                scaffoldMessengerKey: scaffoldMessengerKey,
+                showPerformanceOverlay: false,
+              );
+              // return app;
+              return PopScope(
+                child: SafeArea(
+                    child: Column(
+                  children: [
+                    Expanded(child: app),
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 8),
+                      color: Colors.black,
+                      alignment: Alignment.centerLeft,
+                      height: 36,
+                      child: Dependent(
+                          value: GlobalState.debug,
+                          builder: (context, value, widget) {
+                            return Text(
+                              value,
+                              textScaler: TextScaler.linear(0.9),
+                              style: TextStyle(color: Colors.white),
+                              textDirection: TextDirection.ltr,
+                            );
+                          }),
+                    ),
+                  ],
+                )),
+                canPop: false,
+              );
+            }),
+          ),
+        );
+      },
+    );
+  }
+}

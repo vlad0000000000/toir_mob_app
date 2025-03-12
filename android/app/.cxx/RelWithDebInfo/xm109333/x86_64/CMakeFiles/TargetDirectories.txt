@@ -1,0 +1,2 @@
+L:/AndroidStudioProjects/qr_scan_industry/android/app/.cxx/RelWithDebInfo/xm109333/x86_64/CMakeFiles/edit_cache.dir
+L:/AndroidStudioProjects/qr_scan_industry/android/app/.cxx/RelWithDebInfo/xm109333/x86_64/CMakeFiles/rebuild_cache.dir

@@ -1,0 +1,170 @@
+import 'dart:ui';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:go_router/go_router.dart';
+import 'package:flutter/services.dart';
+import 'dart:async';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:provider/provider.dart';
+import 'package:qr_machine_scanner/global_state.dart';
+import 'package:qr_machine_scanner/src/app_bar/app_bar.dart';
+import 'package:qr_machine_scanner/src/data/data_provider.dart';
+import 'package:qr_machine_scanner/src/utils/dialogs.dart';
+import 'package:qr_machine_scanner/strings.dart';
+import 'scanner_button_widgets.dart';
+import 'scanner_error_widget.dart';
+
+class BarcodeScannerWithController extends StatefulWidget {
+  const BarcodeScannerWithController({super.key});
+
+  @override
+  State<BarcodeScannerWithController> createState() =>
+      _BarcodeScannerWithControllerState();
+}
+
+class _BarcodeScannerWithControllerState
+    extends State<BarcodeScannerWithController> with WidgetsBindingObserver {
+  final MobileScannerController controller = MobileScannerController(
+    autoStart: false,
+    // torchEnabled: true,
+    autoZoom: true,
+    // invertImage: true,
+  );
+
+  // bool allowScan = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(controller.start());
+  }
+
+  // @override
+  // void didChangeDependencies() {
+  //   super.didChangeDependencies();
+  // }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!controller.value.hasCameraPermission) {
+      return;
+    }
+
+    switch (state) {
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+        return;
+      case AppLifecycleState.resumed:
+        unawaited(controller.start());
+      case AppLifecycleState.inactive:
+        unawaited(controller.stop());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dataProvider = context.watch<DataProvider>();
+    final scanWindow = Rect.fromCenter(
+      center: MediaQuery.sizeOf(context).center(Offset.zero),
+      width: 200,
+      height: 200,
+    );
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: MyAppBar.build(context) as AppBar,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(
+            child: MobileScanner(
+              onDetect: (barcodes) async {
+                // if (!allowScan) {
+                //   return;
+                // }
+                if (barcodes.barcodes.length > 0) {
+                  for (var barcode in barcodes.barcodes) {
+                    // debugPrint("barcode = " + barcode.displayValue.toString());
+                    for (var machine in dataProvider.machines) {
+                      // debugPrint(machine.getQRValue());
+                      if (machine.getQRValue() ==
+                          barcode.displayValue.toString()) {
+                        GoRouter.of(context).go('/qr_scanner/qr_result', extra: machine);
+                        return;
+                      }
+                    }
+                  }
+
+                  // allowScan = false;
+                  // // await Future.microtask(() {
+                  // //   controller.stop();
+                  // // });
+                  // await controller.stop();
+                  // await Dialogs.notify(context, Strings.qrDetectFailTitle,
+                  //     Strings.qrDetectFailDesc);
+                  // allowScan = true;
+                  // await Future.microtask(() {
+                  //   controller.start();
+                  // });
+                }
+              },
+              fit: BoxFit.contain,
+              controller: controller,
+              scanWindow: scanWindow,
+              errorBuilder: (context, error) {
+                return ScannerErrorWidget(error: error);
+              },
+            ),
+          ),
+          ValueListenableBuilder(
+            valueListenable: controller,
+            builder: (context, value, child) {
+              if (!value.isInitialized ||
+                  !value.isRunning ||
+                  value.error != null ||
+                  scanWindow.isEmpty) {
+                return const SizedBox();
+              }
+
+              return ScanWindowOverlay(
+                controller: controller,
+                scanWindow: scanWindow,
+              );
+            },
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  ToggleFlashlightButton(controller: controller),
+                  SwitchCameraButton(controller: controller),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Future<void> dispose() async {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+    await controller.dispose();
+  }
+}
+
+class QRScreen extends StatelessWidget {
+  const QRScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return BarcodeScannerWithController();
+  }
+}

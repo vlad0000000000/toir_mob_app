@@ -1,0 +1,21 @@
+services:
+
+  app-dev:
+    container_name: app-dev
+    build:
+      context: .
+      target: production
+    tty: true
+    working_dir: /opt/server
+    env_file:
+      - .env
+    expose:
+      - '3000'
+    command: npm run start
+    networks:
+      - kvasnet
+
+
+networks:
+  kvasnet:
+    external: true
