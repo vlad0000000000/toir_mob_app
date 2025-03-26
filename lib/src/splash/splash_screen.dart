@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_machine_scanner/global_state.dart';
+import 'package:qr_machine_scanner/src/utils/go_router_ext.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -34,7 +35,7 @@ class _SplashScreenState extends State<SplashScreen> {
       timer.cancel();
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          GoRouter.of(context).go('/login');
+          GoRouter.of(context).clearStackAndNavigate('/login');
         });
       }
     } else {

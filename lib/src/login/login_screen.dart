@@ -5,9 +5,9 @@ import 'package:provider/provider.dart';
 import 'package:qr_machine_scanner/global_state.dart';
 import 'package:qr_machine_scanner/src/data/data_provider.dart';
 import 'package:qr_machine_scanner/src/utils/dialogs.dart';
+import 'package:qr_machine_scanner/src/utils/go_router_ext.dart';
 import 'package:qr_machine_scanner/strings.dart';
 import 'package:themed/themed.dart';
-import '../style/palette.dart';
 
 class LoginScreen extends StatefulWidget {
   LoginScreen({super.key});
@@ -32,7 +32,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.watch<Palette>();
     final dataProvider = context.watch<DataProvider>();
 
     return Scaffold(
@@ -104,7 +103,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             GlobalState.digest(passwordController.text)) {
                           GlobalState.authUser = user;
                           await GlobalState.updateDebug();
-                          GoRouter.of(context).go("/qr_scanner");
+                          GoRouter.of(context).clearStackAndNavigate("/qr_scanner");
                           return;
                         }
                       }

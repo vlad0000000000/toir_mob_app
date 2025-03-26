@@ -1,9 +1,7 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_machine_scanner/global_state.dart';
@@ -12,7 +10,7 @@ import 'package:qr_machine_scanner/src/data/data_provider.dart';
 import 'package:qr_machine_scanner/src/model/check.dart';
 import 'package:qr_machine_scanner/src/model/machine.dart';
 import 'package:qr_machine_scanner/src/utils/dialogs.dart';
-import 'package:qr_machine_scanner/src/widgets/button_with_select_dialog.dart';
+import 'package:qr_machine_scanner/src/utils/go_router_ext.dart';
 import 'package:qr_machine_scanner/src/widgets/select_image_button.dart';
 import 'package:qr_machine_scanner/src/widgets/square_button.dart';
 import 'package:qr_machine_scanner/strings.dart';
@@ -261,7 +259,7 @@ ${widget.machine.description}
                                     : problemController.text,
                                 ts: GlobalState.now));
                             // await dataProvider.syncChecks();
-                            GoRouter.of(context).go("/qr_scanner");
+                            GoRouter.of(context).clearStackAndNavigate("/qr_scanner");
                           });
                         },
                         child: Text("Отправить"))),

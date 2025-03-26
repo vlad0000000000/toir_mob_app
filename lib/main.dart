@@ -23,9 +23,6 @@ import 'src/app_lifecycle/app_lifecycle.dart';
 import 'src/data/data_provider.dart';
 import 'src/http/api.dart';
 import 'src/model/user.dart';
-import 'src/settings/persistence/local_storage_settings_persistence.dart';
-import 'src/settings/persistence/settings_persistence.dart';
-import 'src/settings/settings.dart';
 import 'src/style/my_transition.dart';
 import 'src/style/palette.dart';
 import 'src/style/text_styles.dart';
@@ -87,7 +84,6 @@ Future<void> main() async {
   runApp(
     MyApp(
       dataProvider: dataProvider,
-      settingsPersistence: LocalStorageSettingsPersistence(),
     ),
   );
 }
@@ -113,59 +109,153 @@ class MyApp extends StatelessWidget {
     },
     routes: [
       GoRoute(
-          path: '/',
-          builder: (context, state) {
-            return SplashScreen();
-          },
-          routes: [
-            GoRoute(
-              path: 'login',
-              builder: (context, state) {
-                // const QRScreen(key: Key('main')),
-                // return QRResultScreen(GlobalState.dataProvider.machines[0],
-                //     key: Key('main'));
-                return LoginScreen(key: Key('main'));
-              },
+        path: '/',
+        builder: (context, state) {
+          return SplashScreen();
+        },
+      ),
+      GoRoute(
+        path: '/login',
+        builder: (context, state) {
+          // const QRScreen(key: Key('main')),
+          // return QRResultScreen(GlobalState.dataProvider.machines[0],
+          //     key: Key('main'));
+          return LoginScreen(key: Key('main'));
+        },
+      ),
+      GoRoute(
+        path: '/qr_scanner',
+        pageBuilder: (context, state) {
+          return buildMyTransition<void>(
+            child: const QRScreen(key: Key('qr_scanner')),
+            color: context.watch<Palette>().backgroundMain,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/qr_result',
+        pageBuilder: (context, state) {
+          final machine = state.extra! as Machine;
+          return buildMyTransition<void>(
+            child: QRResultScreen(
+              machine,
+              key: const Key('qr_result'),
             ),
-            GoRoute(
-                path: 'qr_scanner',
-                pageBuilder: (context, state) {
-                  return buildMyTransition<void>(
-                    child: const QRScreen(key: Key('qr_scanner')),
-                    color: context.watch<Palette>().backgroundMain,
-                  );
-                },
-                routes: [
-                  GoRoute(
-                    path: 'qr_result',
-                    pageBuilder: (context, state) {
-                      final machine = state.extra! as Machine;
-                      return buildMyTransition<void>(
-                        child: QRResultScreen(
-                          machine,
-                          key: const Key('qr_result'),
-                        ),
-                        color: context.watch<Palette>().backgroundMain,
-                      );
-                    },
-                  )
-                ]),
-          ]),
+            color: context.watch<Palette>().backgroundMain,
+          );
+        },
+      )
     ],
   );
-
-  final SettingsPersistence settingsPersistence;
 
   final DataProvider dataProvider;
 
   const MyApp({
-    required this.settingsPersistence,
     super.key,
     required this.dataProvider,
   });
 
   @override
   Widget build(BuildContext context) {
+    // return PopScope(
+    //   child: ScreenUtilInit(
+    //     designSize: const Size(750, 1067),
+    //     minTextAdapt: true,
+    //     splitScreenMode: true,
+    //     builder: (context, child) {
+    //       return AppLifecycleObserver(
+    //         child: MultiProvider(
+    //           providers: [
+    //             // ChangeNotifierProvider(
+    //             //   create: (_) => dataProvider,
+    //             // ),
+    //             Provider(
+    //               create: (context) => dataProvider,
+    //             ),
+    //             Provider(
+    //               create: (context) => Palette(),
+    //             ),
+    //             Provider(
+    //               create: (context) => TextStyles(),
+    //             ),
+    //           ],
+    //           child: Builder(builder: (context) {
+    //             final palette = context.watch<Palette>();
+    //
+    //             var app = MaterialApp.router(
+    //               builder: EasyLoading.init(),
+    //               title: 'QR Machine Scanner',
+    //               // theme: ThemeData(
+    //               //   scaffoldBackgroundColor: palette.backgroundMain,
+    //               //   // buttonTheme: ButtonThemeData(
+    //               //   //   buttonColor: Colors.red,
+    //               //   //   height: 50
+    //               //   // ),
+    //               //   // dividerColor: Colors.red,
+    //               //   // cardColor: Colors.red,
+    //               //   // useMaterial3: true,
+    //               //   // primarySwatch: Colors.blue,
+    //               //   // The line below forces the theme to iOS.
+    //               //   platform: TargetPlatform.iOS,
+    //               // ),
+    //               theme: ThemeData.from(
+    //                 colorScheme: ColorScheme.fromSeed(
+    //                     seedColor: Colors.blue,
+    //                     contrastLevel: -1,
+    //                     secondary: Colors.black,
+    //                     primary: Colors.black),
+    //                 // colorScheme: ColorScheme.fromSeed(
+    //                 //   seedColor: palette.btnOkColor,
+    //                 //   background: palette.backgroundMain,
+    //                 // ),
+    //                 textTheme: TextTheme(
+    //                   bodyMedium: TextStyle(
+    //                     color: palette.textColor,
+    //                   ),
+    //                 ),
+    //                 useMaterial3: true,
+    //               ),
+    //               routeInformationProvider: _router.routeInformationProvider,
+    //               routeInformationParser: _router.routeInformationParser,
+    //               routerDelegate: _router.routerDelegate,
+    //               scaffoldMessengerKey: scaffoldMessengerKey,
+    //               showPerformanceOverlay: false,
+    //             );
+    //             // return app;
+    //             // return BackButtonListener(
+    //             //     child: app,
+    //             //     onBackButtonPressed: () async {
+    //             //       return false;
+    //             //     });
+    //             return SafeArea(
+    //                 child: Column(
+    //               children: [
+    //                 Expanded(child: app),
+    //                 Container(
+    //                   padding: EdgeInsets.symmetric(horizontal: 8),
+    //                   color: Colors.black,
+    //                   alignment: Alignment.centerLeft,
+    //                   height: 36,
+    //                   child: Dependent(
+    //                       value: GlobalState.debug,
+    //                       builder: (context, value, widget) {
+    //                         return Text(
+    //                           value,
+    //                           textScaler: TextScaler.linear(0.9),
+    //                           style: TextStyle(color: Colors.white),
+    //                           textDirection: TextDirection.ltr,
+    //                         );
+    //                       }),
+    //                 ),
+    //               ],
+    //             ));
+    //           }),
+    //         ),
+    //       );
+    //     },
+    //   ),
+    //   canPop: false,
+    // );
     return ScreenUtilInit(
       designSize: const Size(750, 1067),
       minTextAdapt: true,
@@ -179,12 +269,6 @@ class MyApp extends StatelessWidget {
               // ),
               Provider(
                 create: (context) => dataProvider,
-              ),
-              Provider<SettingsController>(
-                lazy: false,
-                create: (context) => SettingsController(
-                  persistence: settingsPersistence,
-                )..loadStateFromPersistence(),
               ),
               Provider(
                 create: (context) => Palette(),
@@ -241,31 +325,28 @@ class MyApp extends StatelessWidget {
               //     onBackButtonPressed: () async {
               //       return false;
               //     });
-              return PopScope(
-                child: SafeArea(
-                    child: Column(
-                      children: [
-                        Expanded(child: app),
-                        Container(
-                          padding: EdgeInsets.symmetric(horizontal: 8),
-                          color: Colors.black,
-                          alignment: Alignment.centerLeft,
-                          height: 36,
-                          child: Dependent(
-                              value: GlobalState.debug,
-                              builder: (context, value, widget) {
-                                return Text(
-                                  value,
-                                  textScaler: TextScaler.linear(0.9),
-                                  style: TextStyle(color: Colors.white),
-                                  textDirection: TextDirection.ltr,
-                                );
-                              }),
-                        ),
-                      ],
-                    )),
-                canPop: false,
-              );
+              return SafeArea(
+                  child: Column(
+                children: [
+                  Expanded(child: app),
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 8),
+                    color: Colors.black,
+                    alignment: Alignment.centerLeft,
+                    height: 36,
+                    child: Dependent(
+                        value: GlobalState.debug,
+                        builder: (context, value, widget) {
+                          return Text(
+                            value,
+                            textScaler: TextScaler.linear(0.9),
+                            style: TextStyle(color: Colors.white),
+                            textDirection: TextDirection.ltr,
+                          );
+                        }),
+                  ),
+                ],
+              ));
             }),
           ),
         );

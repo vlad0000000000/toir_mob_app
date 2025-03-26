@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
-import 'package:qr_machine_scanner/global_state.dart';
 import 'package:qr_machine_scanner/src/model/check.dart';
 import 'package:qr_machine_scanner/src/model/machine.dart';
 import 'package:qr_machine_scanner/src/model/user.dart';
