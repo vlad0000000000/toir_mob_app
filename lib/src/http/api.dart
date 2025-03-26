@@ -1,13 +1,13 @@
 import 'dart:convert';
 
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:qr_machine_scanner/src/model/check.dart';
 import 'package:qr_machine_scanner/src/model/machine.dart';
 import 'package:qr_machine_scanner/src/model/user.dart';
 
 class API {
-  // static String baseUrl = 'http://localhost:4000';
-  static String baseUrl = 'http://89.23.117.229:4000';
+  static String baseUrl = dotenv.env["API_ENDPOINT"]!;
 
   // Получить список пользователей
   Future<List<User>> getUsers() async {

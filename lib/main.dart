@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:hive_ce/hive.dart';
@@ -54,7 +55,8 @@ Future<void> main() async {
   }
   // await SpUtil().init();
   // await PersistentValue.load();
-
+  await dotenv.load(fileName: ".env");
+  print(dotenv.env);
   await Hive.initFlutter();
   Hive.registerAdapter(UserAdapter());
   Hive.registerAdapter(MachineAdapter());

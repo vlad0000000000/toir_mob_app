@@ -52,6 +52,7 @@ dependencies:
   flutter_markdown: ^0.7.6+2
   hive_ce: ^2.10.1
   hive_ce_flutter: ^2.2.0
+  flutter_dotenv: ^5.2.1
 #  rive: 0.11.1
 #  mixpanel_flutter: ^2.0.0
 
@@ -68,8 +69,6 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/
-    - assets/pdf/
-    - assets/text/
 
 # dart run flutter_launcher_icons
 flutter_launcher_icons:
