@@ -15,6 +15,7 @@ import 'package:qr_machine_scanner/src/model/machine.dart';
 import 'package:qr_machine_scanner/src/qr/qr_screen.dart';
 import 'package:qr_machine_scanner/src/qr_result/qr_result_screen.dart';
 import 'package:qr_machine_scanner/src/splash/splash_screen.dart';
+import 'package:qr_machine_scanner/src/style/snack_bar.dart';
 import 'package:qr_machine_scanner/src/utils/dependent.dart';
 import 'package:go_router/go_router.dart';
 import 'package:logging/logging.dart';
@@ -26,8 +27,6 @@ import 'src/http/api.dart';
 import 'src/model/user.dart';
 import 'src/style/my_transition.dart';
 import 'src/style/palette.dart';
-import 'src/style/text_styles.dart';
-import 'src/style/snack_bar.dart';
 
 Future<void> main() async {
   if (kReleaseMode) {
@@ -274,9 +273,6 @@ class MyApp extends StatelessWidget {
               ),
               Provider(
                 create: (context) => Palette(),
-              ),
-              Provider(
-                create: (context) => TextStyles(),
               ),
             ],
             child: Builder(builder: (context) {

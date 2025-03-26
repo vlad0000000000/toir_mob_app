@@ -14,8 +14,6 @@ import 'package:qr_machine_scanner/src/utils/go_router_ext.dart';
 import 'package:qr_machine_scanner/src/widgets/select_image_button.dart';
 import 'package:qr_machine_scanner/src/widgets/square_button.dart';
 import 'package:qr_machine_scanner/strings.dart';
-import '../style/palette.dart';
-import '../style/text_styles.dart';
 
 class ResultControls extends StatefulWidget {
   final TextEditingController descController;
@@ -204,15 +202,10 @@ ${widget.machine.description}
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.watch<Palette>();
-    final textStyles = context.watch<TextStyles>();
     final dataProvider = context.watch<DataProvider>();
 
     return Scaffold(
       appBar: MyAppBar.build(context) as AppBar,
-      // appBar: AppBar(
-      //   title: Text(Strings.qrResultScreenTitle),
-      // ),
       body: Padding(
         padding: EdgeInsets.symmetric(horizontal: 8),
         child: Column(

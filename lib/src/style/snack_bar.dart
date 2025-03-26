@@ -15,4 +15,4 @@ void showSnackBar(String message) {
 
 /// Use this when creating [MaterialApp] if you want [showSnackBar] to work.
 final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey =
-    GlobalKey(debugLabel: 'scaffoldMessengerKey');
+GlobalKey(debugLabel: 'scaffoldMessengerKey');
