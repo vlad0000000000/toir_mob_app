@@ -41,19 +41,13 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
-    // DeviceOrientation.landscapeRight,
-    // DeviceOrientation.landscapeLeft,
   ]);
-  // SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge, overlays: []);
-  // SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
   if (!kIsWeb && (Platform.isIOS || Platform.isAndroid)) {
     /// Prepare the google_mobile_ads plugin so that the first ad loads
     /// faster. This can be done later or with a delay if startup
     /// experience suffers.
   }
-  // await SpUtil().init();
-  // await PersistentValue.load();
   await dotenv.load(fileName: ".env");
   print(dotenv.env);
   await Hive.initFlutter();
@@ -158,105 +152,6 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // return PopScope(
-    //   child: ScreenUtilInit(
-    //     designSize: const Size(750, 1067),
-    //     minTextAdapt: true,
-    //     splitScreenMode: true,
-    //     builder: (context, child) {
-    //       return AppLifecycleObserver(
-    //         child: MultiProvider(
-    //           providers: [
-    //             // ChangeNotifierProvider(
-    //             //   create: (_) => dataProvider,
-    //             // ),
-    //             Provider(
-    //               create: (context) => dataProvider,
-    //             ),
-    //             Provider(
-    //               create: (context) => Palette(),
-    //             ),
-    //             Provider(
-    //               create: (context) => TextStyles(),
-    //             ),
-    //           ],
-    //           child: Builder(builder: (context) {
-    //             final palette = context.watch<Palette>();
-    //
-    //             var app = MaterialApp.router(
-    //               builder: EasyLoading.init(),
-    //               title: 'QR Machine Scanner',
-    //               // theme: ThemeData(
-    //               //   scaffoldBackgroundColor: palette.backgroundMain,
-    //               //   // buttonTheme: ButtonThemeData(
-    //               //   //   buttonColor: Colors.red,
-    //               //   //   height: 50
-    //               //   // ),
-    //               //   // dividerColor: Colors.red,
-    //               //   // cardColor: Colors.red,
-    //               //   // useMaterial3: true,
-    //               //   // primarySwatch: Colors.blue,
-    //               //   // The line below forces the theme to iOS.
-    //               //   platform: TargetPlatform.iOS,
-    //               // ),
-    //               theme: ThemeData.from(
-    //                 colorScheme: ColorScheme.fromSeed(
-    //                     seedColor: Colors.blue,
-    //                     contrastLevel: -1,
-    //                     secondary: Colors.black,
-    //                     primary: Colors.black),
-    //                 // colorScheme: ColorScheme.fromSeed(
-    //                 //   seedColor: palette.btnOkColor,
-    //                 //   background: palette.backgroundMain,
-    //                 // ),
-    //                 textTheme: TextTheme(
-    //                   bodyMedium: TextStyle(
-    //                     color: palette.textColor,
-    //                   ),
-    //                 ),
-    //                 useMaterial3: true,
-    //               ),
-    //               routeInformationProvider: _router.routeInformationProvider,
-    //               routeInformationParser: _router.routeInformationParser,
-    //               routerDelegate: _router.routerDelegate,
-    //               scaffoldMessengerKey: scaffoldMessengerKey,
-    //               showPerformanceOverlay: false,
-    //             );
-    //             // return app;
-    //             // return BackButtonListener(
-    //             //     child: app,
-    //             //     onBackButtonPressed: () async {
-    //             //       return false;
-    //             //     });
-    //             return SafeArea(
-    //                 child: Column(
-    //               children: [
-    //                 Expanded(child: app),
-    //                 Container(
-    //                   padding: EdgeInsets.symmetric(horizontal: 8),
-    //                   color: Colors.black,
-    //                   alignment: Alignment.centerLeft,
-    //                   height: 36,
-    //                   child: Dependent(
-    //                       value: GlobalState.debug,
-    //                       builder: (context, value, widget) {
-    //                         return Text(
-    //                           value,
-    //                           textScaler: TextScaler.linear(0.9),
-    //                           style: TextStyle(color: Colors.white),
-    //                           textDirection: TextDirection.ltr,
-    //                         );
-    //                       }),
-    //                 ),
-    //               ],
-    //             ));
-    //           }),
-    //         ),
-    //       );
-    //     },
-    //   ),
-    //   canPop: false,
-    // );
     return ScreenUtilInit(
       designSize: const Size(750, 1067),
       minTextAdapt: true,
@@ -265,9 +160,6 @@ class MyApp extends StatelessWidget {
         return AppLifecycleObserver(
           child: MultiProvider(
             providers: [
-              // ChangeNotifierProvider(
-              //   create: (_) => dataProvider,
-              // ),
               Provider(
                 create: (context) => dataProvider,
               ),
@@ -281,29 +173,12 @@ class MyApp extends StatelessWidget {
               var app = MaterialApp.router(
                 builder: EasyLoading.init(),
                 title: 'QR Machine Scanner',
-                // theme: ThemeData(
-                //   scaffoldBackgroundColor: palette.backgroundMain,
-                //   // buttonTheme: ButtonThemeData(
-                //   //   buttonColor: Colors.red,
-                //   //   height: 50
-                //   // ),
-                //   // dividerColor: Colors.red,
-                //   // cardColor: Colors.red,
-                //   // useMaterial3: true,
-                //   // primarySwatch: Colors.blue,
-                //   // The line below forces the theme to iOS.
-                //   platform: TargetPlatform.iOS,
-                // ),
                 theme: ThemeData.from(
                   colorScheme: ColorScheme.fromSeed(
                       seedColor: Colors.blue,
                       contrastLevel: -1,
                       secondary: Colors.black,
                       primary: Colors.black),
-                  // colorScheme: ColorScheme.fromSeed(
-                  //   seedColor: palette.btnOkColor,
-                  //   background: palette.backgroundMain,
-                  // ),
                   textTheme: TextTheme(
                     bodyMedium: TextStyle(
                       color: palette.textColor,
@@ -317,12 +192,6 @@ class MyApp extends StatelessWidget {
                 scaffoldMessengerKey: scaffoldMessengerKey,
                 showPerformanceOverlay: false,
               );
-              // return app;
-              // return BackButtonListener(
-              //     child: app,
-              //     onBackButtonPressed: () async {
-              //       return false;
-              //     });
               return SafeArea(
                   child: Column(
                 children: [
