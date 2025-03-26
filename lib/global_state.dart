@@ -49,12 +49,6 @@ class GlobalState {
 
   static Future<void> updateDebug() async {
 
-    // String hasConnection = "нет";
-    // final connectivityResult = await Connectivity().checkConnectivity();
-    // if (connectivityResult != ConnectivityResult.none) {
-    //   hasConnection = "есть";
-    // }
-
     String serverAccess = "доступен";
     if (!(await GlobalState.hasConnectionToServer)) {
       serverAccess = "не доступен";
@@ -72,8 +66,6 @@ class GlobalState {
   }
 
   static Future<bool> get hasConnectionToServer async {
-    // await Future.delayed(Duration(seconds: 5));
-    // return false;
     return API().isAlive();
   }
 }
