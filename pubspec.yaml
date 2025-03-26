@@ -54,6 +54,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/
+    - .env
 
 # dart run flutter_launcher_icons
 flutter_launcher_icons:
