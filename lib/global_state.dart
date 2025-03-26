@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
@@ -49,8 +48,6 @@ class GlobalState {
   }
 
   static Future<void> updateDebug() async {
-    debugPrint("users: " + dataProvider.users.length.toString());
-    debugPrint("machines: " + dataProvider.machines.length.toString());
 
     // String hasConnection = "нет";
     // final connectivityResult = await Connectivity().checkConnectivity();
@@ -64,29 +61,19 @@ class GlobalState {
     }
     String pendingChecks =
         dataProvider.machineCheckBox.values.length.toString();
+    String db = "Локальные данные: (станки: ${dataProvider.machines.length.toString()}, пользователи: ${dataProvider.users.length.toString()}, осмотры: ${pendingChecks})";
     String loggedUser = "";
     if (GlobalState.isAuthorized) {
       loggedUser = GlobalState.authUser!.login;
     }
 
     GlobalState.debug.value =
-        "Сервер: ${serverAccess}  |  Осмотров не отправлено: ${pendingChecks}  |  Пользователь: ${loggedUser}";
+        "Сервер: ${serverAccess}  |  ${db}   |  Пользователь: ${loggedUser}";
   }
 
   static Future<bool> get hasConnectionToServer async {
-    await Future.delayed(Duration(seconds: 5));
-    return API().isAlive();
-    // if (kIsWeb) {
-    //   return true;
-    // }
-    // try {
-    //   final result = await InternetAddress.lookup(API.baseUrl);
-    //   if (result.isNotEmpty && result[0].rawAddress.isNotEmpty) {
-    //     return true;
-    //   }
-    // } on SocketException catch (_) {
-    //   return false;
-    // }
+    // await Future.delayed(Duration(seconds: 5));
     // return false;
+    return API().isAlive();
   }
 }

@@ -71,7 +71,7 @@ class SettingsScreen extends StatelessWidget {
             'About',
             Container(),
             onSelected: () {
-              GoRouter.of(context).push('/settings/about');
+              GoRouter.of(context).go('/settings/about');
             },
           ),
           _gap,

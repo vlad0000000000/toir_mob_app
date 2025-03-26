@@ -7,8 +7,8 @@ import 'package:qr_machine_scanner/src/model/machine.dart';
 import 'package:qr_machine_scanner/src/model/user.dart';
 
 class API {
-  static String baseUrl = 'http://localhost:4000';
-  // static String baseUrl = 'http://92.255.107.158:4000';
+  // static String baseUrl = 'http://localhost:4000';
+  static String baseUrl = 'http://89.23.117.229:4000';
 
   // Получить список пользователей
   Future<List<User>> getUsers() async {
@@ -24,6 +24,22 @@ class API {
       return data.map((json) => User.fromJson(json)).toList();
     } else {
       throw Exception('Failed to load users');
+    }
+  }
+
+  Future<bool> notify() async {
+    try {
+      final response = await http
+          .get(Uri.parse('$baseUrl/notify'))
+          .timeout(Duration(seconds: 10));
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return true;
+      } else {
+        return false;
+      }
+    } on Exception catch (_) {
+      return false;
     }
   }
 

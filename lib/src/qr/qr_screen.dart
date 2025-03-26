@@ -67,73 +67,155 @@ class _BarcodeScannerWithControllerState
   @override
   Widget build(BuildContext context) {
     final dataProvider = context.watch<DataProvider>();
-    final scanWindow = Rect.fromCenter(
-      center: MediaQuery.sizeOf(context).center(Offset.zero),
-      width: 200,
-      height: 200,
-    );
+    // final scanWindow = Rect.fromCenter(
+    //   center: MediaQuery.sizeOf(context).center(Offset.zero),
+    //   // center: Offset(0, 0),
+    //   width: 200,
+    //   height: 200,
+    // );
+    // var body =  Scaffold(
+    //   backgroundColor: Colors.black,
+    //   appBar: MyAppBar.build(context) as AppBar,
+    //   body: Stack(
+    //     fit: StackFit.expand,
+    //     children: [
+    //       Center(
+    //         child: MobileScanner(
+    //           onDetect: (barcodes) async {
+    //             // if (!allowScan) {
+    //             //   return;
+    //             // }
+    //             if (barcodes.barcodes.length > 0) {
+    //               for (var barcode in barcodes.barcodes) {
+    //                 // debugPrint("barcode = " + barcode.displayValue.toString());
+    //                 for (var machine in dataProvider.machines) {
+    //                   // debugPrint(machine.getQRValue());
+    //                   if (machine.getQRValue() ==
+    //                       barcode.displayValue.toString()) {
+    //                     GoRouter.of(context)
+    //                         .go('/qr_scanner/qr_result', extra: machine);
+    //                     return;
+    //                   }
+    //                 }
+    //               }
+    //
+    //               // allowScan = false;
+    //               // // await Future.microtask(() {
+    //               // //   controller.stop();
+    //               // // });
+    //               // await controller.stop();
+    //               // await Dialogs.notify(context, Strings.qrDetectFailTitle,
+    //               //     Strings.qrDetectFailDesc);
+    //               // allowScan = true;
+    //               // await Future.microtask(() {
+    //               //   controller.start();
+    //               // });
+    //             }
+    //           },
+    //           fit: BoxFit.contain,
+    //           controller: controller,
+    //           scanWindow: scanWindow,
+    //           errorBuilder: (context, error) {
+    //             return ScannerErrorWidget(error: error);
+    //           },
+    //         ),
+    //       ),
+    //       ValueListenableBuilder(
+    //         valueListenable: controller,
+    //         builder: (context, value, child) {
+    //           if (!value.isInitialized ||
+    //               !value.isRunning ||
+    //               value.error != null ||
+    //               scanWindow.isEmpty) {
+    //             return const SizedBox();
+    //           }
+    //
+    //           return ScanWindowOverlay(
+    //             controller: controller,
+    //             scanWindow: scanWindow,
+    //           );
+    //         },
+    //       ),
+    //       Align(
+    //         alignment: Alignment.bottomCenter,
+    //         child: Padding(
+    //           padding: const EdgeInsets.all(16.0),
+    //           child: Row(
+    //             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+    //             children: [
+    //               ToggleFlashlightButton(controller: controller),
+    //               SwitchCameraButton(controller: controller),
+    //             ],
+    //           ),
+    //         ),
+    //       ),
+    //     ],
+    //   ),
+    // );
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: MyAppBar.build(context) as AppBar,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Center(
-            child: MobileScanner(
-              onDetect: (barcodes) async {
-                // if (!allowScan) {
-                //   return;
-                // }
-                if (barcodes.barcodes.length > 0) {
-                  for (var barcode in barcodes.barcodes) {
-                    // debugPrint("barcode = " + barcode.displayValue.toString());
-                    for (var machine in dataProvider.machines) {
-                      // debugPrint(machine.getQRValue());
-                      if (machine.getQRValue() ==
-                          barcode.displayValue.toString()) {
-                        GoRouter.of(context).go('/qr_scanner/qr_result', extra: machine);
-                        return;
+          LayoutBuilder(builder: (context, constraints) {
+            final scanWindow = Rect.fromCenter(
+              // center: MediaQuery.sizeOf(context).center(Offset.zero),
+              center: Offset(constraints.maxWidth / 2, constraints.maxHeight / 2),
+              // center: Offset(0, 0),
+              width: 200,
+              height: 200,
+            );
+            return Stack(
+              children: [
+                Center(
+                  child: MobileScanner(
+                    onDetect: (barcodes) async {
+                      // if (!allowScan) {
+                      //   return;
+                      // }
+                      if (barcodes.barcodes.length > 0) {
+                        for (var barcode in barcodes.barcodes) {
+                          // debugPrint("barcode = " + barcode.displayValue.toString());
+                          for (var machine in dataProvider.machines) {
+                            // debugPrint(machine.getQRValue());
+                            if (machine.getQRValue() ==
+                                barcode.displayValue.toString()) {
+                              GoRouter.of(context)
+                                  .go('/qr_scanner/qr_result', extra: machine);
+                              return;
+                            }
+                          }
+                        }
                       }
+                    },
+                    fit: BoxFit.contain,
+                    controller: controller,
+                    scanWindow: scanWindow,
+                    errorBuilder: (context, error) {
+                      return ScannerErrorWidget(error: error);
+                    },
+                  ),
+                ),
+                ValueListenableBuilder(
+                  valueListenable: controller,
+                  builder: (context, value, child) {
+                    if (!value.isInitialized ||
+                        !value.isRunning ||
+                        value.error != null ||
+                        scanWindow.isEmpty) {
+                      return const SizedBox();
                     }
-                  }
 
-                  // allowScan = false;
-                  // // await Future.microtask(() {
-                  // //   controller.stop();
-                  // // });
-                  // await controller.stop();
-                  // await Dialogs.notify(context, Strings.qrDetectFailTitle,
-                  //     Strings.qrDetectFailDesc);
-                  // allowScan = true;
-                  // await Future.microtask(() {
-                  //   controller.start();
-                  // });
-                }
-              },
-              fit: BoxFit.contain,
-              controller: controller,
-              scanWindow: scanWindow,
-              errorBuilder: (context, error) {
-                return ScannerErrorWidget(error: error);
-              },
-            ),
-          ),
-          ValueListenableBuilder(
-            valueListenable: controller,
-            builder: (context, value, child) {
-              if (!value.isInitialized ||
-                  !value.isRunning ||
-                  value.error != null ||
-                  scanWindow.isEmpty) {
-                return const SizedBox();
-              }
-
-              return ScanWindowOverlay(
-                controller: controller,
-                scanWindow: scanWindow,
-              );
-            },
-          ),
+                    return ScanWindowOverlay(
+                      controller: controller,
+                      scanWindow: scanWindow,
+                    );
+                  },
+                ),
+              ],
+            );
+          },),
           Align(
             alignment: Alignment.bottomCenter,
             child: Padding(

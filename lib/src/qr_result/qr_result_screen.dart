@@ -19,43 +19,106 @@ import 'package:qr_machine_scanner/strings.dart';
 import '../style/palette.dart';
 import '../style/text_styles.dart';
 
-class QRResultScreen extends StatefulWidget {
-  final Machine machine;
+class ResultControls extends StatefulWidget {
+  final TextEditingController descController;
+  final SelectImageButtonController imageData1Controller;
+  final SelectImageButtonController imageData2Controller;
+  final SelectImageButtonController imageData3Controller;
+  final TextEditingController priorityController;
+  final TextEditingController problemController;
 
-  const QRResultScreen(this.machine, {super.key});
+  const ResultControls(
+      {super.key,
+      required this.descController,
+      required this.imageData1Controller,
+      required this.imageData2Controller,
+      required this.imageData3Controller,
+      required this.priorityController,
+      required this.problemController});
 
   @override
-  State<QRResultScreen> createState() => _QRResultScreenState();
+  State<ResultControls> createState() => _ResultControlsState();
 }
 
-class _QRResultScreenState extends State<QRResultScreen> {
-  final descController = TextEditingController();
-  final imageData1Controller = SelectImageButtonController();
-  final imageData2Controller = SelectImageButtonController();
-  final imageData3Controller = SelectImageButtonController();
-  final priorityController = TextEditingController();
-  final problemController = TextEditingController();
-  String problem = '';
-
-  Widget checkControls() {
+class _ResultControlsState extends State<ResultControls> {
+  @override
+  Widget build(BuildContext context) {
     List<Widget> addButtons = [
       SelectImageButton(
-        controller: imageData1Controller,
+        controller: widget.imageData1Controller,
       ),
       SelectImageButton(
-        controller: imageData2Controller,
+        controller: widget.imageData2Controller,
       ),
       SelectImageButton(
-        controller: imageData3Controller,
+        controller: widget.imageData3Controller,
       ),
     ];
 
-    return Column(spacing: 8, children: [
+    Widget problemSelect = Row(
+      children: [
+        Expanded(
+            child: DropdownMenu(
+          requestFocusOnTap: true,
+          onSelected: (value) {
+            setState(() {});
+          },
+          controller: widget.problemController,
+          expandedInsets: EdgeInsets.zero,
+          label: Text("Проблема"),
+          initialSelection: "Проблем нет",
+          dropdownMenuEntries: [
+            "Проблем нет",
+            "Не включается",
+            "Не выключается",
+            "Шумит",
+            "Искрит",
+            "Дымит",
+            "Другое"
+          ].map((x) {
+            return DropdownMenuEntry(value: x, label: x);
+          }).toList(),
+        )),
+      ],
+    );
+
+    Widget prioritySelect = Row(
+      children: [
+        Expanded(
+            child: DropdownMenu(
+          // menuStyle: MenuStyle(
+          //   backgroundColor: WidgetStatePropertyAll(Colors.red),
+          // ),
+          requestFocusOnTap: true,
+          controller: widget.priorityController,
+          label: Text("Приоритет"),
+          expandedInsets: EdgeInsets.zero,
+          dropdownMenuEntries: [
+            ["Низкий", Colors.yellow],
+            ["Средний", Colors.orange],
+            ["Высокий", Colors.red],
+          ].map((x) {
+            return DropdownMenuEntry(
+                value: x[0],
+                label: x[0] as String,
+                style: ButtonStyle(
+                  backgroundColor: WidgetStatePropertyAll(x[1] as Color),
+                ),
+                labelWidget: Text(
+                  x[0] as String,
+                  style: TextStyle(color: Colors.black),
+                ));
+          }).toList(),
+        )),
+      ],
+    );
+
+    Widget rest = Column(spacing: 8, children: [
       TextFormField(
         // obscureText:false,
         maxLines: 8,
         // expands:true,
-        controller: descController,
+        controller: widget.descController,
         // obscureText: true,
         // style: TextStyle(backgroundColor: Colors.white,decorationColor: Colors.white, color: Colors.white),
         decoration: InputDecoration(
@@ -73,86 +136,6 @@ class _QRResultScreenState extends State<QRResultScreen> {
           return null;
         },
       ),
-      Row(
-        spacing: 8,
-        children: [
-          Expanded(
-              child: Column(
-            spacing: 4,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                      child: DropdownMenu(
-                    controller: problemController,
-                    expandedInsets: EdgeInsets.zero,
-                    label: Text("Проблема"),
-                    dropdownMenuEntries: [
-                      "Не включается",
-                      "Не выключается",
-                      "Шумит",
-                      "Искрит",
-                      "Дымит"
-                    ].map((x) {
-                      return DropdownMenuEntry(value: x, label: x);
-                    }).toList(),
-                  )),
-                ],
-              )
-            ],
-          )),
-          Expanded(
-              child: Column(
-            spacing: 4,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  // Expanded(
-                  //     child: DropdownButton(
-                  //   onChanged: (x) {},
-                  //
-                  //   items: [
-                  //     "Низкий",
-                  //     "Средний",
-                  //     "Высокий",
-                  //   ].map((x) {
-                  //     return DropdownMenuItem(
-                  //       value: x,
-                  //       child: Text(x),
-                  //     );
-                  //   }).toList(),
-                  // )),
-                  Expanded(
-                      child: DropdownMenu(
-                    controller: priorityController,
-                    label: Text("Приоритет"),
-                    expandedInsets: EdgeInsets.zero,
-                    dropdownMenuEntries: [
-                      ["Низкий", Colors.yellow],
-                      ["Средний", Colors.orange],
-                      ["Высокий", Colors.red],
-                    ].map((x) {
-                      return DropdownMenuEntry(
-                          value: x[0],
-                          label: x[0] as String,
-                          style: ButtonStyle(
-                            backgroundColor:
-                                WidgetStatePropertyAll(x[1] as Color),
-                          ),
-                          labelWidget: Text(
-                            x[0] as String,
-                            style: TextStyle(color: Colors.black),
-                          ));
-                    }).toList(),
-                  )),
-                ],
-              )
-            ],
-          )),
-        ],
-      ),
       SizedBox(
           height: 160,
           child: Row(
@@ -162,36 +145,43 @@ class _QRResultScreenState extends State<QRResultScreen> {
           )),
       SizedBox()
     ]);
+
+    if (widget.problemController.text.length == 0 ||
+        widget.problemController.text == 'Проблем нет') {
+      return Column(
+        spacing: 8,
+        children: [problemSelect],
+      );
+    }
+
+    return Column(
+      spacing: 8,
+      children: [problemSelect, prioritySelect, rest],
+    );
   }
+}
+
+class QRResultScreen extends StatefulWidget {
+  final Machine machine;
+
+  const QRResultScreen(this.machine, {super.key});
+
+  @override
+  State<QRResultScreen> createState() => _QRResultScreenState();
+}
+
+class _QRResultScreenState extends State<QRResultScreen> {
+  final descController = TextEditingController();
+  final imageData1Controller = SelectImageButtonController();
+  final imageData2Controller = SelectImageButtonController();
+  final imageData3Controller = SelectImageButtonController();
+  final priorityController = TextEditingController();
+  final problemController = TextEditingController();
 
   Widget passport() {
     var passportType = 1;
     // image + text
     if (passportType == 1) {
-//       return Container(
-//         color: Colors.white,
-//         child: ClipRRect(
-//             borderRadius: BorderRadius.circular(16.0),
-//             child: Column(
-//               spacing: 8,
-//               mainAxisAlignment: MainAxisAlignment.start,
-//               children: [
-//                 // const Image(image: AssetImage('assets/images/lathe.jpg')),
-//                 Image.memory(base64Decode(widget.machine.imageData)),
-//                 Row(
-//                   children: [
-//                     Expanded(child: MarkdownBody(data: """
-// **Название**: ${widget.machine.name}
-//
-// **Номер**: ${widget.machine.id}
-//
-// ${widget.machine.description}
-//     """))
-//                   ],
-//                 ),
-//               ],
-//             ),
-//       ));
       return Column(
         spacing: 8,
         mainAxisAlignment: MainAxisAlignment.start,
@@ -201,10 +191,6 @@ class _QRResultScreenState extends State<QRResultScreen> {
           Row(
             children: [
               Expanded(child: MarkdownBody(data: """
-**Название**: ${widget.machine.name}
-
-**Номер**: ${widget.machine.id}
-
 ${widget.machine.description}
     """))
             ],
@@ -224,7 +210,6 @@ ${widget.machine.description}
     final textStyles = context.watch<TextStyles>();
     final dataProvider = context.watch<DataProvider>();
 
-
     return Scaffold(
       appBar: MyAppBar.build(context) as AppBar,
       // appBar: AppBar(
@@ -241,30 +226,14 @@ ${widget.machine.description}
                 spacing: 16,
                 children: [
                   passport(),
-                  checkControls(),
-                  // Row(children: [
-                  //   Expanded(
-                  //       child: SquareButton(
-                  //           onPressed: () {
-                  //             Dialogs.areYouSure(context, onOk: () async {
-                  //               await dataProvider.sendMachineCheck(Check(
-                  //                   userId: GlobalState.authUser.id,
-                  //                   machineId: widget.machine.id,
-                  //                   status: 1,
-                  //                   images: [
-                  //                     imageData1Controller.value,
-                  //                     imageData2Controller.value,
-                  //                     imageData3Controller.value,
-                  //                   ],
-                  //                   description: descController.text,
-                  //                   priority: priorityController.text,
-                  //                   problem: problemController.text,
-                  //                   ts: GlobalState.now));
-                  //               GoRouter.of(context).go("/qr_scanner");
-                  //             });
-                  //           },
-                  //           child: Text("Отправить")))
-                  // ],)
+                  ResultControls(
+                    descController: descController,
+                    imageData1Controller: imageData1Controller,
+                    imageData2Controller: imageData2Controller,
+                    imageData3Controller: imageData3Controller,
+                    priorityController: priorityController,
+                    problemController: problemController,
+                  )
                 ],
               ),
             )),
@@ -287,38 +256,15 @@ ${widget.machine.description}
                                 ],
                                 description: descController.text,
                                 priority: priorityController.text,
-                                problem: problemController.text,
+                                problem: problemController.text == 'Проблем нет'
+                                    ? ''
+                                    : problemController.text,
                                 ts: GlobalState.now));
+                            // await dataProvider.syncChecks();
                             GoRouter.of(context).go("/qr_scanner");
                           });
                         },
                         child: Text("Отправить"))),
-                // Expanded(
-                //     child: SquareButton(
-                //         color: Colors.red,
-                //         onPressed: () async {
-                //           Dialogs.areYouSure(context, onOk: () async {
-                //             await dataProvider.sendMachineCheck(Check(
-                //                 userId: GlobalState.authUser.id,
-                //                 machineId: widget.machine.id,
-                //                 status: 2,
-                //                 images: [
-                //                   imageData1Controller.value,
-                //                   imageData2Controller.value,
-                //                   imageData3Controller.value,
-                //                 ],
-                //                 description: descController.text,
-                //                 priority: priorityController.value,
-                //                 problem: problemController.value,
-                //                 ts: GlobalState.now));
-                //             GoRouter.of(context).go("/qr_scanner");
-                //           });
-                //         },
-                //         child: Icon(
-                //           Icons.thumb_down,
-                //           color: Colors.white,
-                //           size: 32,
-                //         ))),
               ],
             ),
             // checkControls()

@@ -102,15 +102,16 @@ class DataProvider {
   void startSyncing() {
     Future.sync(() async {
       while (true) {
-        await Future.delayed(Duration(seconds: 60));
+        await Future.delayed(Duration(seconds: 10));
         if (await GlobalState.hasConnectionToServer) {
           await syncChecks();
+          await api.notify();
         }
       }
     });
     Future.sync(() async {
       while (true) {
-        await Future.delayed(Duration(seconds: 300));
+        await Future.delayed(Duration(seconds: 30));
         if (await GlobalState.hasConnectionToServer) {
           await syncUsersAndMachines();
         }

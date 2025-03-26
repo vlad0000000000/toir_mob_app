@@ -78,19 +78,11 @@ Future<void> main() async {
   dataProvider.startSyncing();
 
   Future.sync(() async {
-    // return;
     while (true) {
       await GlobalState.updateDebug();
       await Future.delayed(Duration(seconds: 15));
     }
   });
-
-  // debugPrint(dataProvider.userBox.values.length.toString());
-  // debugPrint(dataProvider.users.length.toString());
-  // for (var m in dataProvider.machines) {
-  //   var d = GlobalState.digest("machine" + m.id.toString());
-  //   debugPrint(d);
-  // }
 
   runApp(
     MyApp(
@@ -102,20 +94,16 @@ Future<void> main() async {
 
 class MyApp extends StatelessWidget {
   static final _router = GoRouter(
+    routerNeglect: true,
     redirect: (BuildContext context, GoRouterState state) async {
-      print("check redirect");
       final bool isAuthenticated = GlobalState.isAuthorized;
 
       final bool isGoingToProtectedRoute =
           state.matchedLocation.startsWith('/qr_scanner');
 
-      print("isAuthenticated ${isAuthenticated}");
-
       if (!isAuthenticated && isGoingToProtectedRoute) {
         return '/login';
       }
-
-      print(state.matchedLocation);
 
       if (isAuthenticated && state.matchedLocation == '/login') {
         return '/qr_scanner';
@@ -128,46 +116,6 @@ class MyApp extends StatelessWidget {
           path: '/',
           builder: (context, state) {
             return SplashScreen();
-            return FutureBuilder<bool>(
-              future: Future.sync(() async {
-                await GlobalState.dataProvider.checkConnectivityAndSync();
-                return true;
-              }),
-              builder: (context, snapshot) {
-
-                if (snapshot.connectionState == ConnectionState.done) {
-                  // WidgetsBinding.instance.addPostFrameCallback((_) {
-                  //   GoRouter.of(context).go('/login');
-                  // });
-                }
-
-                return Scaffold(
-                    body: Stack(
-                  children: [
-                    Center(
-                        child: CircularProgressIndicator(
-                      color: Colors.black,
-                      strokeWidth: 8,
-                      constraints:
-                          BoxConstraints(minHeight: 128, minWidth: 128),
-                    )),
-                    Center(
-                        child: Container(
-                      child: ClipRRect(
-                          borderRadius: BorderRadius.circular(16.0),
-                          child: const Image(
-                              image: AssetImage('assets/images/icon.png'))),
-                      width: 64,
-                    ))
-                  ],
-                ));
-              },
-            );
-
-            // const QRScreen(key: Key('main')),
-            return QRResultScreen(GlobalState.dataProvider.machines[0],
-                key: Key('main'));
-            // return LoginScreen(key: Key('main'));
           },
           routes: [
             GoRoute(
@@ -180,29 +128,28 @@ class MyApp extends StatelessWidget {
               },
             ),
             GoRoute(
-              path: 'qr_scanner',
-              pageBuilder: (context, state) {
-                return buildMyTransition<void>(
-                  child: const QRScreen(key: Key('qr_scanner')),
-                  color: context.watch<Palette>().backgroundMain,
-                );
-              },
-              routes: [
-                GoRoute(
-                  path: 'qr_result',
-                  pageBuilder: (context, state) {
-                    final machine = state.extra! as Machine;
-                    return buildMyTransition<void>(
-                      child: QRResultScreen(
-                        machine,
-                        key: const Key('qr_result'),
-                      ),
-                      color: context.watch<Palette>().backgroundMain,
-                    );
-                  },
-                )
-              ]
-            ),
+                path: 'qr_scanner',
+                pageBuilder: (context, state) {
+                  return buildMyTransition<void>(
+                    child: const QRScreen(key: Key('qr_scanner')),
+                    color: context.watch<Palette>().backgroundMain,
+                  );
+                },
+                routes: [
+                  GoRoute(
+                    path: 'qr_result',
+                    pageBuilder: (context, state) {
+                      final machine = state.extra! as Machine;
+                      return buildMyTransition<void>(
+                        child: QRResultScreen(
+                          machine,
+                          key: const Key('qr_result'),
+                        ),
+                        color: context.watch<Palette>().backgroundMain,
+                      );
+                    },
+                  )
+                ]),
           ]),
     ],
   );
@@ -289,29 +236,34 @@ class MyApp extends StatelessWidget {
                 showPerformanceOverlay: false,
               );
               // return app;
+              // return BackButtonListener(
+              //     child: app,
+              //     onBackButtonPressed: () async {
+              //       return false;
+              //     });
               return PopScope(
                 child: SafeArea(
                     child: Column(
-                  children: [
-                    Expanded(child: app),
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: 8),
-                      color: Colors.black,
-                      alignment: Alignment.centerLeft,
-                      height: 36,
-                      child: Dependent(
-                          value: GlobalState.debug,
-                          builder: (context, value, widget) {
-                            return Text(
-                              value,
-                              textScaler: TextScaler.linear(0.9),
-                              style: TextStyle(color: Colors.white),
-                              textDirection: TextDirection.ltr,
-                            );
-                          }),
-                    ),
-                  ],
-                )),
+                      children: [
+                        Expanded(child: app),
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 8),
+                          color: Colors.black,
+                          alignment: Alignment.centerLeft,
+                          height: 36,
+                          child: Dependent(
+                              value: GlobalState.debug,
+                              builder: (context, value, widget) {
+                                return Text(
+                                  value,
+                                  textScaler: TextScaler.linear(0.9),
+                                  style: TextStyle(color: Colors.white),
+                                  textDirection: TextDirection.ltr,
+                                );
+                              }),
+                        ),
+                      ],
+                    )),
                 canPop: false,
               );
             }),

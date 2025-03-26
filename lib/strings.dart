@@ -34,7 +34,7 @@ class Strings {
   }
 
   static get checkDescription {
-    return {'ru': 'Комментарий к проверке'}[Strings.locale];
+    return {'ru': 'Комментарий'}[Strings.locale];
   }
 
   static get problemDescription {
