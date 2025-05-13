@@ -49,7 +49,7 @@ Future<void> main() async {
     /// experience suffers.
   }
   await dotenv.load(fileName: ".env");
-  print(dotenv.env);
+  // print(dotenv.env);
   await Hive.initFlutter();
   Hive.registerAdapter(UserAdapter());
   Hive.registerAdapter(MachineAdapter());

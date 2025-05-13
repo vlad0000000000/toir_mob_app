@@ -8,11 +8,17 @@ import 'package:qr_machine_scanner/src/model/user.dart';
 
 class API {
   static String baseUrl = dotenv.env["API_ENDPOINT"]!;
+  static String username = dotenv.env["API_USER"]!;
+  static String password = dotenv.env["API_PASSWORD"]!;
+  static String basicAuth =
+      'Basic ' + base64.encode(utf8.encode('$username:$password'));
 
   // Получить список пользователей
   Future<List<User>> getUsers() async {
-
-    final response = await http.get(Uri.parse('$baseUrl/users'));
+    final response = await http.get(
+      Uri.parse('$baseUrl/users'),
+      headers: {'Authorization': basicAuth},
+    );
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       final List<dynamic> data = jsonDecode(response.body);
@@ -24,9 +30,10 @@ class API {
 
   Future<bool> notify() async {
     try {
-      final response = await http
-          .get(Uri.parse('$baseUrl/notify'))
-          .timeout(Duration(seconds: 10));
+      final response = await http.get(
+        Uri.parse('$baseUrl/notify'),
+        headers: {'Authorization': basicAuth},
+      ).timeout(Duration(seconds: 10));
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         return true;
@@ -40,9 +47,10 @@ class API {
 
   Future<bool> isAlive() async {
     try {
-      final response = await http
-          .get(Uri.parse('$baseUrl/test'))
-          .timeout(Duration(seconds: 10));
+      final response = await http.get(
+        Uri.parse('$baseUrl/test'),
+        headers: {'Authorization': basicAuth},
+      ).timeout(Duration(seconds: 10));
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         return true;
@@ -56,8 +64,10 @@ class API {
 
   // Получить список машин
   Future<List<Machine>> getMachines() async {
-
-    final response = await http.get(Uri.parse('$baseUrl/machines'));
+    final response = await http.get(
+      Uri.parse('$baseUrl/machines'),
+      headers: {'Authorization': basicAuth},
+    );
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       final List<dynamic> data = jsonDecode(response.body);
@@ -73,7 +83,7 @@ class API {
     // return;
     final response = await http.post(
       Uri.parse('$baseUrl/checks'),
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'Authorization': basicAuth},
       body: jsonEncode(check.toJson()),
     );
 
