@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'dart:async';
@@ -22,12 +21,8 @@ class _BarcodeScannerWithControllerState
     extends State<BarcodeScannerWithController> with WidgetsBindingObserver {
   final MobileScannerController controller = MobileScannerController(
     autoStart: false,
-    // torchEnabled: true,
     autoZoom: true,
-    // invertImage: true,
   );
-
-  // bool allowScan = true;
 
   @override
   void initState() {
@@ -35,11 +30,6 @@ class _BarcodeScannerWithControllerState
     WidgetsBinding.instance.addObserver(this);
     unawaited(controller.start());
   }
-
-  // @override
-  // void didChangeDependencies() {
-  //   super.didChangeDependencies();
-  // }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -70,9 +60,7 @@ class _BarcodeScannerWithControllerState
         children: [
           LayoutBuilder(builder: (context, constraints) {
             final scanWindow = Rect.fromCenter(
-              // center: MediaQuery.sizeOf(context).center(Offset.zero),
               center: Offset(constraints.maxWidth / 2, constraints.maxHeight / 2),
-              // center: Offset(0, 0),
               width: 200,
               height: 200,
             );
