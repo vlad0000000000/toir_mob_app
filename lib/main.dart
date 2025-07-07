@@ -172,7 +172,7 @@ class MyApp extends StatelessWidget {
 
               var app = MaterialApp.router(
                 builder: EasyLoading.init(),
-                title: 'QR Machine Scanner Avangard',
+                title: 'QR Machine Scanner TappiHouse',
                 theme: ThemeData.from(
                   colorScheme: ColorScheme.fromSeed(
                       seedColor: Colors.blue,
