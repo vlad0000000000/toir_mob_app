@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:qr_machine_scanner/global_state.dart';
 
@@ -16,7 +17,8 @@ class Machine {
       required this.description});
 
   String getQRValue() {
-    return GlobalState.digest("machine" + id.toString());
+    String projectName = dotenv.env["PROJECT_NAME"]!;
+    return GlobalState.digest("${projectName}_machine" + id.toString());
   }
 
   factory Machine.fromJson(Map<String, dynamic> json) {
