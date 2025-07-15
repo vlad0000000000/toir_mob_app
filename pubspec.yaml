@@ -1,5 +1,5 @@
 name: qr_machine_scanner
-description: QR Machine Scanner TappiHouse
+description: QR Machine Scanner RLA
 
 # Prevent accidental publishing to pub.dev.
 publish_to: 'none'
