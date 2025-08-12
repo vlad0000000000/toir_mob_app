@@ -103,7 +103,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             GlobalState.digest(passwordController.text)) {
                           GlobalState.authUser = user;
                           await GlobalState.updateDebug();
-                          GoRouter.of(context).clearStackAndNavigate("/qr_scanner");
+                          GoRouter.of(context).clearStackAndNavigate("/actions");
                           return;
                         }
                       }

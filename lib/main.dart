@@ -13,9 +13,11 @@ import 'package:qr_machine_scanner/src/login/login_screen.dart';
 import 'package:qr_machine_scanner/src/model/check.dart';
 import 'package:qr_machine_scanner/src/model/machine.dart';
 import 'package:qr_machine_scanner/src/qr/qr_screen.dart';
+import 'package:qr_machine_scanner/src/qr_actions/qa_actions.dart';
 import 'package:qr_machine_scanner/src/qr_result/qr_result_screen.dart';
 import 'package:qr_machine_scanner/src/splash/splash_screen.dart';
 import 'package:qr_machine_scanner/src/style/snack_bar.dart';
+import 'package:qr_machine_scanner/src/tasks/tasks.dart';
 import 'package:qr_machine_scanner/src/utils/dependent.dart';
 import 'package:go_router/go_router.dart';
 import 'package:logging/logging.dart';
@@ -87,17 +89,18 @@ class MyApp extends StatelessWidget {
   static final _router = GoRouter(
     routerNeglect: true,
     redirect: (BuildContext context, GoRouterState state) async {
+      // return '/qr_scanner';
       final bool isAuthenticated = GlobalState.isAuthorized;
 
       final bool isGoingToProtectedRoute =
-          state.matchedLocation.startsWith('/qr_scanner');
+          !state.matchedLocation.startsWith('/login');
 
       if (!isAuthenticated && isGoingToProtectedRoute) {
         return '/login';
       }
 
       if (isAuthenticated && state.matchedLocation == '/login') {
-        return '/qr_scanner';
+        return '/actions';
       }
 
       return null;
@@ -119,10 +122,45 @@ class MyApp extends StatelessWidget {
         },
       ),
       GoRoute(
+        path: '/actions',
+        pageBuilder: (context, state) {
+          return buildMyTransition<void>(
+            child: const QRActions(key: Key('qr_actions')),
+            color: context.watch<Palette>().backgroundMain,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/tasks',
+        pageBuilder: (context, state) {
+          return buildMyTransition<void>(
+            child: EquipmentListScreen(
+              key: Key('tasks'),
+              equipmentList: EquipmentListScreen.equipmentListAll,
+            ),
+            color: context.watch<Palette>().backgroundMain,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/details/:index',
+        pageBuilder: (context, state) {
+          final index = int.parse(state.pathParameters['index']!);
+          return buildMyTransition<void>(
+            child: EquipmentDetailScreen(
+              equipment: EquipmentListScreen.equipmentListAll[index],
+            ),
+            // child: const QRTabsScreen(key: Key('qr_scanner')),
+            color: context.watch<Palette>().backgroundMain,
+          );
+        },
+      ),
+      GoRoute(
         path: '/qr_scanner',
         pageBuilder: (context, state) {
           return buildMyTransition<void>(
             child: const QRScreen(key: Key('qr_scanner')),
+            // child: const QRTabsScreen(key: Key('qr_scanner')),
             color: context.watch<Palette>().backgroundMain,
           );
         },
@@ -152,6 +190,8 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // return NestedTabNavigationExampleApp();
+    // return MyTabApp();
     return ScreenUtilInit(
       designSize: const Size(750, 1067),
       minTextAdapt: true,

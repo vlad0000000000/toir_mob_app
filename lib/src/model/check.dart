@@ -12,6 +12,7 @@ class Check {
   final List<String> images;
   final int status;
   final int ts;
+  final String task;
 
   String key() {
     return GlobalState.digest(jsonEncode(toJson()));
@@ -35,7 +36,8 @@ class Check {
       required this.problem,
       required this.images,
       required this.status,
-      required this.ts});
+      required this.ts,
+      required this.task});
 
   Map<String, dynamic> toJson() {
     return {
@@ -47,6 +49,7 @@ class Check {
       'status': status,
       'images': images,
       'ts': ts,
+      'task': task
     };
   }
 }
@@ -65,7 +68,8 @@ class MachineCheckAdapter extends TypeAdapter<Check> {
         priority: reader.read(),
         images: reader.read(),
         status: reader.read(),
-        ts: reader.read());
+        ts: reader.read(),
+        task: reader.read());
   }
 
   @override
@@ -78,5 +82,6 @@ class MachineCheckAdapter extends TypeAdapter<Check> {
     writer.write(obj.images);
     writer.write(obj.status);
     writer.write(obj.ts);
+    writer.write(obj.task);
   }
 }

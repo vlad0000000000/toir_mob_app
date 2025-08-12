@@ -9,9 +9,11 @@ import 'package:qr_machine_scanner/src/app_bar/app_bar.dart';
 import 'package:qr_machine_scanner/src/data/data_provider.dart';
 import 'package:qr_machine_scanner/src/model/check.dart';
 import 'package:qr_machine_scanner/src/model/machine.dart';
+import 'package:qr_machine_scanner/src/tasks/tasks.dart';
 import 'package:qr_machine_scanner/src/utils/dialogs.dart';
 import 'package:qr_machine_scanner/src/utils/go_router_ext.dart';
 import 'package:qr_machine_scanner/src/widgets/select_image_button.dart';
+import 'package:qr_machine_scanner/src/widgets/select_task_button.dart';
 import 'package:qr_machine_scanner/src/widgets/square_button.dart';
 import 'package:qr_machine_scanner/strings.dart';
 
@@ -22,15 +24,20 @@ class ResultControls extends StatefulWidget {
   final SelectImageButtonController imageData3Controller;
   final TextEditingController priorityController;
   final TextEditingController problemController;
+  final SelectTaskButtonController taskController;
+  final Machine machine;
 
-  const ResultControls(
-      {super.key,
-      required this.descController,
-      required this.imageData1Controller,
-      required this.imageData2Controller,
-      required this.imageData3Controller,
-      required this.priorityController,
-      required this.problemController});
+  const ResultControls({
+    super.key,
+    required this.descController,
+    required this.imageData1Controller,
+    required this.imageData2Controller,
+    required this.imageData3Controller,
+    required this.priorityController,
+    required this.problemController,
+    required this.taskController,
+    required this.machine,
+  });
 
   @override
   State<ResultControls> createState() => _ResultControlsState();
@@ -142,17 +149,30 @@ class _ResultControlsState extends State<ResultControls> {
       SizedBox()
     ]);
 
+    Widget selectTask = SizedBox(
+      height: 0,
+    );
+    if (EquipmentListScreen.machineIdToEquipment
+        .containsKey(widget.machine.id)) {
+      selectTask = Row(children: [
+        SelectTaskButton(
+          machine: widget.machine,
+          controller: widget.taskController,
+        )
+      ]);
+    }
+
     if (widget.problemController.text.length == 0 ||
         widget.problemController.text == 'Проблем нет') {
       return Column(
         spacing: 8,
-        children: [problemSelect],
+        children: [selectTask, problemSelect],
       );
     }
 
     return Column(
       spacing: 8,
-      children: [problemSelect, prioritySelect, rest],
+      children: [selectTask, problemSelect, prioritySelect, rest],
     );
   }
 }
@@ -173,6 +193,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
   final imageData3Controller = SelectImageButtonController();
   final priorityController = TextEditingController();
   final problemController = TextEditingController();
+  final taskController = SelectTaskButtonController();
 
   Widget passport() {
     var passportType = 1;
@@ -218,12 +239,14 @@ ${widget.machine.description}
                 children: [
                   passport(),
                   ResultControls(
+                    machine: widget.machine,
                     descController: descController,
                     imageData1Controller: imageData1Controller,
                     imageData2Controller: imageData2Controller,
                     imageData3Controller: imageData3Controller,
                     priorityController: priorityController,
                     problemController: problemController,
+                    taskController: taskController,
                   )
                 ],
               ),
@@ -246,13 +269,15 @@ ${widget.machine.description}
                                   imageData3Controller.value,
                                 ],
                                 description: descController.text,
+                                task: taskController.value == null ? '' : jsonEncode(taskController.value!.toJson()),
                                 priority: priorityController.text,
                                 problem: problemController.text == 'Проблем нет'
                                     ? ''
                                     : problemController.text,
                                 ts: GlobalState.now));
                             // await dataProvider.syncChecks();
-                            GoRouter.of(context).clearStackAndNavigate("/qr_scanner");
+                            GoRouter.of(context)
+                                .clearStackAndNavigate("/qr_scanner");
                           });
                         },
                         child: Text("Отправить"))),
