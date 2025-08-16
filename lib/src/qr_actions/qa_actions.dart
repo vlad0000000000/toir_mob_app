@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:qr_machine_scanner/global_state.dart';
 import 'package:qr_machine_scanner/src/app_bar/app_bar.dart';
 import 'package:qr_machine_scanner/src/model/machine.dart';
 import 'package:qr_machine_scanner/src/qr/qr_screen.dart';
@@ -23,13 +24,14 @@ class QRActions extends StatelessWidget {
               crossAxisSpacing: 16, // Горизонтальный отступ
               mainAxisSpacing: 16, // Вертикальный отступ
             ),
-            itemCount: 3,
+            itemCount: 2,
             itemBuilder: (context, index) {
               if (index == 0) {
                 return SquareButton(
                   icon: Icons.qr_code_scanner,
                   label: Strings.scanner,
                   onPressed: () {
+                    GlobalState.needTasksSync = true;
                     GoRouter.of(context).clearStackAndNavigate('/qr_scanner');
                   },
                 );
@@ -39,14 +41,10 @@ class QRActions extends StatelessWidget {
                   icon: Icons.list_alt,
                   label: Strings.tasks,
                   onPressed: () {
+                    GlobalState.needTasksSync = true;
                     GoRouter.of(context).clearStackAndNavigate('/tasks');
                   },
                 );
-              }
-              if (index == 2) {
-                return SelectTaskButton(
-                    machine: Machine(
-                        id: 1, name: '', imageData: '', description: ''));
               }
               return SquareButton(
                 label: '',

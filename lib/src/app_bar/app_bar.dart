@@ -91,16 +91,7 @@ class MyAppBar {
       automaticallyImplyLeading: false,
       backgroundColor: Colors.black,
       actions: [
-        TextButton(
-            onPressed: () async {
-              Dialogs.areYouSure(context, onOk: () async {
-                await GlobalState.loginBox.clear();
-                GlobalState.updateDebug();
-                GoRouter.of(context).clearStackAndNavigate('/login');
-              });
-            },
-            child: Text(Strings.logout,
-                style: TextStyle(color: Colors.white, fontSize: 14)))
+        logoutWhiteText
       ],
     );
   }

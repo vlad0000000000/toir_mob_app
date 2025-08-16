@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'dart:async';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
+import 'package:qr_machine_scanner/global_state.dart';
 import 'package:qr_machine_scanner/src/app_bar/app_bar.dart';
 import 'package:qr_machine_scanner/src/data/data_provider.dart';
 import 'package:qr_machine_scanner/src/utils/go_router_ext.dart';
@@ -79,6 +80,7 @@ class _BarcodeScannerWithControllerState
                             // debugPrint(machine.getQRValue());
                             if (machine.getQRValue() ==
                                 barcode.displayValue.toString()) {
+                              GlobalState.needTaskSync = true;
                               GoRouter.of(context)
                                   .clearStackAndNavigate('/qr_result', extra: machine);
                               return;

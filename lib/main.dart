@@ -12,6 +12,7 @@ import 'package:qr_machine_scanner/global_state.dart';
 import 'package:qr_machine_scanner/src/login/login_screen.dart';
 import 'package:qr_machine_scanner/src/model/check.dart';
 import 'package:qr_machine_scanner/src/model/machine.dart';
+import 'package:qr_machine_scanner/src/model/task.dart';
 import 'package:qr_machine_scanner/src/qr/qr_screen.dart';
 import 'package:qr_machine_scanner/src/qr_actions/qa_actions.dart';
 import 'package:qr_machine_scanner/src/qr_result/qr_result_screen.dart';
@@ -56,19 +57,18 @@ Future<void> main() async {
   Hive.registerAdapter(UserAdapter());
   Hive.registerAdapter(MachineAdapter());
   Hive.registerAdapter(MachineCheckAdapter());
+  Hive.registerAdapter(TaskAdapter());
 
   var dataProvider = DataProvider(
-    api: API(),
-    userBox: await Hive.openBox<User>('users'),
-    machineBox: await Hive.openBox<Machine>('machines'),
-    machineCheckBox: await Hive.openBox<Check>('machineChecks'),
-  );
+      api: API(),
+      userBox: await Hive.openBox<User>('users'),
+      machineBox: await Hive.openBox<Machine>('machines'),
+      machineCheckBox: await Hive.openBox<Check>('machineChecks'),
+      taskBox: await Hive.openBox<Task>('tasks'));
 
   GlobalState.loginBox = await Hive.openBox<User>('login');
-  // GlobalState.loginBox.clear();
   GlobalState.dataProvider = dataProvider;
 
-  // await dataProvider.checkConnectivityAndSync();
   dataProvider.startSyncing();
 
   Future.sync(() async {
@@ -136,7 +136,6 @@ class MyApp extends StatelessWidget {
           return buildMyTransition<void>(
             child: EquipmentListScreen(
               key: Key('tasks'),
-              equipmentList: EquipmentListScreen.equipmentListAll,
             ),
             color: context.watch<Palette>().backgroundMain,
           );
@@ -148,7 +147,7 @@ class MyApp extends StatelessWidget {
           final index = int.parse(state.pathParameters['index']!);
           return buildMyTransition<void>(
             child: EquipmentDetailScreen(
-              equipment: EquipmentListScreen.equipmentListAll[index],
+              equipment: GlobalState.dataProvider.machines[index],
             ),
             // child: const QRTabsScreen(key: Key('qr_scanner')),
             color: context.watch<Palette>().backgroundMain,

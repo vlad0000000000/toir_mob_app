@@ -25,6 +25,7 @@ class ResultControls extends StatefulWidget {
   final TextEditingController priorityController;
   final TextEditingController problemController;
   final SelectTaskButtonController taskController;
+  final EquipmentDetailController equipmentDetailController;
   final Machine machine;
 
   const ResultControls({
@@ -36,7 +37,7 @@ class ResultControls extends StatefulWidget {
     required this.priorityController,
     required this.problemController,
     required this.taskController,
-    required this.machine,
+    required this.machine, required this.equipmentDetailController,
   });
 
   @override
@@ -62,26 +63,26 @@ class _ResultControlsState extends State<ResultControls> {
       children: [
         Expanded(
             child: DropdownMenu(
-          requestFocusOnTap: true,
-          onSelected: (value) {
-            setState(() {});
-          },
-          controller: widget.problemController,
-          expandedInsets: EdgeInsets.zero,
-          label: Text("Проблема"),
-          initialSelection: "Проблем нет",
-          dropdownMenuEntries: [
-            "Проблем нет",
-            "Не включается",
-            "Не выключается",
-            "Шумит",
-            "Искрит",
-            "Дымит",
-            "Другое"
-          ].map((x) {
-            return DropdownMenuEntry(value: x, label: x);
-          }).toList(),
-        )),
+              requestFocusOnTap: true,
+              onSelected: (value) {
+                setState(() {});
+              },
+              controller: widget.problemController,
+              expandedInsets: EdgeInsets.zero,
+              label: Text("Проблема"),
+              initialSelection: "Проблем нет",
+              dropdownMenuEntries: [
+                "Проблем нет",
+                "Не включается",
+                "Не выключается",
+                "Шумит",
+                "Искрит",
+                "Дымит",
+                "Другое"
+              ].map((x) {
+                return DropdownMenuEntry(value: x, label: x);
+              }).toList(),
+            )),
       ],
     );
 
@@ -89,30 +90,30 @@ class _ResultControlsState extends State<ResultControls> {
       children: [
         Expanded(
             child: DropdownMenu(
-          // menuStyle: MenuStyle(
-          //   backgroundColor: WidgetStatePropertyAll(Colors.red),
-          // ),
-          requestFocusOnTap: true,
-          controller: widget.priorityController,
-          label: Text("Приоритет"),
-          expandedInsets: EdgeInsets.zero,
-          dropdownMenuEntries: [
-            ["Низкий", Colors.yellow],
-            ["Средний", Colors.orange],
-            ["Высокий", Colors.red],
-          ].map((x) {
-            return DropdownMenuEntry(
-                value: x[0],
-                label: x[0] as String,
-                style: ButtonStyle(
-                  backgroundColor: WidgetStatePropertyAll(x[1] as Color),
-                ),
-                labelWidget: Text(
-                  x[0] as String,
-                  style: TextStyle(color: Colors.black),
-                ));
-          }).toList(),
-        )),
+              // menuStyle: MenuStyle(
+              //   backgroundColor: WidgetStatePropertyAll(Colors.red),
+              // ),
+              requestFocusOnTap: true,
+              controller: widget.priorityController,
+              label: Text("Приоритет"),
+              expandedInsets: EdgeInsets.zero,
+              dropdownMenuEntries: [
+                ["Низкий", Colors.yellow],
+                ["Средний", Colors.orange],
+                ["Высокий", Colors.red],
+              ].map((x) {
+                return DropdownMenuEntry(
+                    value: x[0],
+                    label: x[0] as String,
+                    style: ButtonStyle(
+                      backgroundColor: WidgetStatePropertyAll(x[1] as Color),
+                    ),
+                    labelWidget: Text(
+                      x[0] as String,
+                      style: TextStyle(color: Colors.black),
+                    ));
+              }).toList(),
+            )),
       ],
     );
 
@@ -149,18 +150,57 @@ class _ResultControlsState extends State<ResultControls> {
       SizedBox()
     ]);
 
-    Widget selectTask = SizedBox(
-      height: 0,
-    );
-    if (EquipmentListScreen.machineIdToEquipment
-        .containsKey(widget.machine.id)) {
-      selectTask = Row(children: [
-        SelectTaskButton(
-          machine: widget.machine,
-          controller: widget.taskController,
-        )
-      ]);
-    }
+    Widget selectTask =
+    Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+      FutureBuilder(
+        future: GlobalState.syncTask(widget.machine.id),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.done) {
+            if (GlobalState.dataProvider
+                .loadTasks(widget.machine.id)
+                .length >
+                0) {
+              return SelectTaskButton(
+                  machine: widget.machine,
+                  controller: widget.taskController,
+                  equipmentDetailController: widget.equipmentDetailController
+              );
+            } else {
+              return Padding(
+                padding: EdgeInsets.symmetric(vertical: 10),
+                child: Text(
+                  'Нет активных задач',
+                  style: TextStyle(color: Colors.black26),
+                ),
+              );
+            }
+          }
+          return Padding(
+              padding: EdgeInsets.symmetric(vertical: 10),
+              child: Row(
+                children: [
+                  Text(
+                    'Загрузка задач',
+                    style: TextStyle(color: Colors.black26),
+                  ),
+                  SizedBox(
+                    width: 8,
+                  ),
+                  const Center(
+                      child: CircularProgressIndicator(
+                        color: Colors.black26,
+                        strokeWidth: 2,
+                        constraints: BoxConstraints(minHeight: 8, minWidth: 8),
+                      ))
+                ],
+              ));
+        },
+      ),
+      // SelectTaskButton(
+      //   machine: widget.machine,
+      //   controller: widget.taskController,
+      // )
+    ]);
 
     if (widget.problemController.text.length == 0 ||
         widget.problemController.text == 'Проблем нет') {
@@ -194,6 +234,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
   final priorityController = TextEditingController();
   final problemController = TextEditingController();
   final taskController = SelectTaskButtonController();
+  final equipmentController = EquipmentDetailController();
 
   Widget passport() {
     var passportType = 1;
@@ -234,23 +275,24 @@ ${widget.machine.description}
           children: [
             Expanded(
                 child: SingleChildScrollView(
-              child: Column(
-                spacing: 16,
-                children: [
-                  passport(),
-                  ResultControls(
-                    machine: widget.machine,
-                    descController: descController,
-                    imageData1Controller: imageData1Controller,
-                    imageData2Controller: imageData2Controller,
-                    imageData3Controller: imageData3Controller,
-                    priorityController: priorityController,
-                    problemController: problemController,
-                    taskController: taskController,
-                  )
-                ],
-              ),
-            )),
+                  child: Column(
+                    spacing: 16,
+                    children: [
+                      passport(),
+                      ResultControls(
+                        machine: widget.machine,
+                        descController: descController,
+                        imageData1Controller: imageData1Controller,
+                        imageData2Controller: imageData2Controller,
+                        imageData3Controller: imageData3Controller,
+                        priorityController: priorityController,
+                        problemController: problemController,
+                        taskController: taskController,
+                        equipmentDetailController: equipmentController,
+                      )
+                    ],
+                  ),
+                )),
             // passport(),
             Row(
               spacing: 8,
@@ -269,7 +311,8 @@ ${widget.machine.description}
                                   imageData3Controller.value,
                                 ],
                                 description: descController.text,
-                                task: taskController.value == null ? '' : jsonEncode(taskController.value!.toJson()),
+                                task_ids: equipmentController.value
+                                    .map((e) => e.id,).toList(),
                                 priority: priorityController.text,
                                 problem: problemController.text == 'Проблем нет'
                                     ? ''

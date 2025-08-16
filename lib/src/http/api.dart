@@ -1,9 +1,11 @@
 import 'dart:convert';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:qr_machine_scanner/src/model/check.dart';
 import 'package:qr_machine_scanner/src/model/machine.dart';
+import 'package:qr_machine_scanner/src/model/task.dart';
 import 'package:qr_machine_scanner/src/model/user.dart';
 
 class API {
@@ -62,7 +64,57 @@ class API {
     }
   }
 
-  // Получить список машин
+  Future<List<Task>> getAllCurrentTasks() async {
+    final url = Uri.parse('$baseUrl/machines/current_tasks');
+
+    try {
+      final response = await http.get(
+        url,
+        headers: {
+          'Authorization': basicAuth,
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        return data.map((json) => Task.fromJson(json)).toList();
+      } else {
+        throw Exception(
+            'Ошибка загрузки задач: ${response.statusCode}\n${response.body}'
+        );
+      }
+    } catch (e) {
+      throw Exception('Сетевая ошибка: $e');
+    }
+  }
+
+  Future<List<Task>> getCurrentTasks(int machineId) async {
+    final url = Uri.parse('$baseUrl/machines/$machineId/current_tasks');
+
+    try {
+      final response = await http.get(
+        url,
+        headers: {
+          'Authorization': basicAuth,
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        return data.map((json) => Task.fromJson(json)).toList();
+      } else {
+        throw Exception(
+            'Ошибка загрузки задач: ${response.statusCode}\n${response.body}'
+        );
+      }
+    } catch (e) {
+      throw Exception('Сетевая ошибка: $e');
+    }
+  }
+
+  // Получить список оборудования
   Future<List<Machine>> getMachines() async {
     final response = await http.get(
       Uri.parse('$baseUrl/machines'),

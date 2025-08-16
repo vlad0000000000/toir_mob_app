@@ -1,12 +1,11 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:qr_machine_scanner/global_state.dart';
 import 'package:qr_machine_scanner/src/model/machine.dart';
+import 'package:qr_machine_scanner/src/model/task.dart';
 import 'package:qr_machine_scanner/src/tasks/tasks.dart';
 import 'package:qr_machine_scanner/src/widgets/square_button.dart';
-import 'package:qr_machine_scanner/strings.dart';
-import 'package:themed/themed.dart';
 
 class SelectTaskButtonController {
   final ValueNotifier<Task?> _valueNotifier = ValueNotifier(null);
@@ -25,44 +24,75 @@ class SelectTaskButtonController {
 }
 
 class SelectTaskButton extends StatefulWidget {
-  late final SelectTaskButtonController controller;
+  final SelectTaskButtonController controller;
+  final EquipmentDetailController equipmentDetailController;
   Machine machine;
 
-  SelectTaskButton({required this.machine, super.key, controller = null}) {
-    if (controller == null) {
-      this.controller = SelectTaskButtonController();
-    } else {
-      this.controller = controller;
-    }
-  }
+  SelectTaskButton(
+      {required this.machine,
+      super.key,
+      required this.controller,
+      required this.equipmentDetailController}) {}
 
   @override
   State<SelectTaskButton> createState() => _SelectImageButton();
 }
 
 class _SelectImageButton extends State<SelectTaskButton> {
-  Task? task = null;
 
   @override
   void dispose() {
-    widget.controller.valueNotifier.removeListener(_onValueChanged);
+    // widget.controller.valueNotifier.removeListener(_onValueChanged);
+    widget.equipmentDetailController.valueNotifier.removeListener(_onValueChanged);
     super.dispose();
   }
 
   @override
   void initState() {
     super.initState();
-    widget.controller.valueNotifier.addListener(_onValueChanged);
+    // widget.controller.valueNotifier.addListener(_onValueChanged);
+    widget.equipmentDetailController.valueNotifier.addListener(_onValueChanged);
   }
 
   void _onValueChanged() {
-    setState(() {
-      task = widget.controller.value;
-    });
+    if (mounted) setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
+    if (widget.equipmentDetailController.selectedTasks.length > 0) {
+      return Expanded(
+          child: SquareButton(
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Flexible(
+                child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Выбрано задач: ' +
+                      widget.equipmentDetailController.selectedTasks.length
+                          .toString(),
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ],
+            )),
+            SizedBox(
+              width: 10,
+            ),
+            Icon(
+              Icons.close,
+              size: 24,
+            )
+          ],
+        ),
+        onPressed: () {
+          widget.equipmentDetailController.clearSelection();
+        },
+      ));
+    }
+
     if (widget.controller.value != null) {
       Task task = widget.controller.value!;
       return Expanded(
@@ -80,7 +110,7 @@ class _SelectImageButton extends State<SelectTaskButton> {
                   overflow: TextOverflow.ellipsis,
                 ),
                 Text(
-                  task.node,
+                  task.node!,
                   style: TextStyle(fontSize: 12),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -101,72 +131,11 @@ class _SelectImageButton extends State<SelectTaskButton> {
       ));
     }
 
-    // List<Widget> equipmentList = [];
-    // for (int ei
-    //     in EquipmentListScreen.machineIdToEquipment[widget.machine.id]!) {
-    //   equipmentList.add(Flexible(child: EquipmentDetailScreen(
-    //     isModal: true,
-    //     onTaskTap: (Task task) {
-    //       widget.controller.value = task;
-    //       Navigator.pop(context);
-    //     },
-    //     equipment: EquipmentListScreen.equipmentListAll[ei],
-    //   )));
-    //   equipmentList.add(SizedBox(height: 20,));
-    // }
-
-    // final mediaQuery = MediaQuery.of(context);
-    // final height = mediaQuery.size.height * 0.9;
-    // Widget modal = Container(
-    //   padding: EdgeInsets.symmetric(vertical: 10),
-    //   height: height,
-    //   child: Column(
-    //     children: [
-    //       SizedBox(
-    //         height: 10,
-    //       ),
-    //       Row(
-    //         mainAxisAlignment: MainAxisAlignment.end,
-    //         children: [
-    //           InkWell(
-    //             child: Icon(
-    //               Icons.close,
-    //               size: 32,
-    //             ),
-    //             onTap: () => Navigator.of(context).pop(),
-    //           ),
-    //           SizedBox(width: 20)
-    //         ],
-    //       ),
-    //       SizedBox(
-    //         height: 10,
-    //       ),
-    //       Expanded(child:     equipmentList[0])
-    //     ],
-    //   ),
-    //   margin: EdgeInsets.symmetric(
-    //     horizontal: 20,
-    //     vertical: 20,
-    //   ),
-    //   decoration: BoxDecoration(
-    //     color: Colors.white,
-    //     borderRadius: BorderRadius.circular(20),
-    //     boxShadow: [
-    //       BoxShadow(
-    //         color: Colors.black.withOpacity(0.3),
-    //         blurRadius: 20,
-    //         spreadRadius: 5,
-    //       )
-    //     ],
-    //   ),
-    // );
-
-    // Widget modal = equipmentList[0];
-
     return Expanded(
         child: SquareButton(
       child: Text('Выбрать задачу'),
       onPressed: () {
+        // GlobalState.needTaskSync = true;
         showModalBottomSheet(
             barrierColor: Colors.black54,
             context: context,
@@ -175,21 +144,16 @@ class _SelectImageButton extends State<SelectTaskButton> {
             isScrollControlled: true,
             // Ключевой параметр для полного экрана
             backgroundColor: Colors.transparent,
-            // builder: (context) {
-            //   return Column(
-            //     children: equipmentList,
-            //   );
-            // }
-            // builder: (context) => modal,
-            builder: (context) => EquipmentDetailScreen(
+            builder: (context) => Modal(
+                    child: EquipmentDetailScreen(
                   isModal: true,
+                  controller: widget.equipmentDetailController,
                   onTaskTap: (Task task) {
                     widget.controller.value = task;
                     Navigator.pop(context);
                   },
-                  equipment: EquipmentListScreen.equipmentListAll[EquipmentListScreen.machineIdToEquipment[widget.machine.id]![0]],
-                )
-            );
+                  equipment: widget.machine,
+                )));
       },
     ));
   }
