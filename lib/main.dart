@@ -147,7 +147,7 @@ class MyApp extends StatelessWidget {
           final index = int.parse(state.pathParameters['index']!);
           return buildMyTransition<void>(
             child: EquipmentDetailScreen(
-              equipment: GlobalState.dataProvider.machines[index],
+              equipment: GlobalState.dataProvider.machines.where((element) => element.id == index).first,
             ),
             // child: const QRTabsScreen(key: Key('qr_scanner')),
             color: context.watch<Palette>().backgroundMain,

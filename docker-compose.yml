@@ -1,21 +1,14 @@
 services:
-
-  app-dev:
-    container_name: app-dev
-    build:
-      context: .
-      target: production
-    tty: true
-    working_dir: /opt/server
+  build-app:
+    build: .
+    volumes:
+      - ./build_output:/app/build_output
     env_file:
       - .env
-    expose:
-      - '3000'
-    command: npm run start
-    networks:
-      - kvasnet
-
-
-networks:
-  kvasnet:
-    external: true
+    working_dir: /app
+    command: >
+      sh -c '
+      flutter pub get &&
+      flutter build apk &&
+      cp -r build/app/outputs /app/build_output/
+      '

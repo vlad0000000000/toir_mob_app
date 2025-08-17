@@ -124,7 +124,7 @@ class EquipmentListScreen extends StatelessWidget {
                             ),
                       ),
                       trailing: const Icon(Icons.arrow_forward),
-                      onTap: () => GoRouter.of(context).go('/details/$index'),
+                      onTap: () => GoRouter.of(context).go('/details/${equipment.id}'),
                     ));
               },
             );

@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:connectivity_plus/connectivity_plus.dart';
+// import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:qr_machine_scanner/src/data/data_provider.dart';
@@ -57,13 +57,13 @@ class GlobalState {
 
   static ValueNotifier<String> debug = ValueNotifier('');
 
-  static Future<bool> get hasConnectionToNetwork async {
-    final connectivityResult = await Connectivity().checkConnectivity();
-    if (connectivityResult != ConnectivityResult.none) {
-      return true;
-    }
-    return false;
-  }
+  // static Future<bool> get hasConnectionToNetwork async {
+  //   final connectivityResult = await Connectivity().checkConnectivity();
+  //   if (connectivityResult != ConnectivityResult.none) {
+  //     return true;
+  //   }
+  //   return false;
+  // }
 
   static Future<void> updateDebug() async {
     String serverAccess = "доступен";
