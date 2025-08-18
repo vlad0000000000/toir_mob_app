@@ -7,7 +7,11 @@ import 'package:qr_machine_scanner/strings.dart';
 
 class MyAppBar {
   static Widget build(BuildContext context) {
+    ButtonStyle style = ButtonStyle(
+      backgroundColor: WidgetStatePropertyAll(Colors.transparent)
+    );
     Widget logoutBlackText = TextButton(
+      style: style,
         onPressed: () async {
           Dialogs.areYouSure(context, onOk: () async {
             await GlobalState.loginBox.clear();
@@ -18,6 +22,7 @@ class MyAppBar {
         child: Text(Strings.logout,
             style: TextStyle(color: Colors.black, fontSize: 14)));
     Widget logoutWhiteText = TextButton(
+        style: style,
         onPressed: () async {
           Dialogs.areYouSure(context, onOk: () async {
             await GlobalState.loginBox.clear();

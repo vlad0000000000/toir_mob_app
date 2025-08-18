@@ -60,7 +60,7 @@ class _SelectImageButton extends State<SelectTaskButton> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.equipmentDetailController.selectedTasks.length > 0) {
+    if (widget.equipmentDetailController.selectedTasks.length > 0 && false) {
       return Expanded(
           child: SquareButton(
         child: Row(
@@ -133,7 +133,12 @@ class _SelectImageButton extends State<SelectTaskButton> {
 
     return Expanded(
         child: SquareButton(
-      child: Text('Выбрать задачу'),
+      child: widget.equipmentDetailController.selectedTasks.length > 0 ? Text(
+        'Выбрано задач: ' +
+            widget.equipmentDetailController.selectedTasks.length
+                .toString(),
+        style: TextStyle(fontWeight: FontWeight.bold),
+      ) :Text('Выбрать задачу'),
       onPressed: () {
         // GlobalState.needTaskSync = true;
         showModalBottomSheet(
@@ -152,7 +157,7 @@ class _SelectImageButton extends State<SelectTaskButton> {
                     widget.controller.value = task;
                     Navigator.pop(context);
                   },
-                  equipment: widget.machine,
+                  machine: widget.machine,
                 )));
       },
     ));

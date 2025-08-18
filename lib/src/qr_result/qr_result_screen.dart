@@ -206,13 +206,13 @@ class _ResultControlsState extends State<ResultControls> {
         widget.problemController.text == 'Проблем нет') {
       return Column(
         spacing: 8,
-        children: [selectTask, problemSelect],
+        children: [selectTask, SizedBox(height: 8,), problemSelect, SizedBox(height: 8,),],
       );
     }
 
     return Column(
       spacing: 8,
-      children: [selectTask, problemSelect, prioritySelect, rest],
+      children: [selectTask, SizedBox(height: 8,), problemSelect, prioritySelect, rest, SizedBox(height: 8,),],
     );
   }
 }

@@ -4,6 +4,7 @@ import 'package:qr_machine_scanner/global_state.dart';
 import 'package:qr_machine_scanner/src/app_bar/app_bar.dart';
 import 'package:qr_machine_scanner/src/model/machine.dart';
 import 'package:qr_machine_scanner/src/model/task.dart';
+import 'package:qr_machine_scanner/src/widgets/square_button.dart';
 
 // models.dart
 class Equipment {
@@ -23,7 +24,6 @@ class Checklist {
 
 // Добавляем контроллер для управления выбором задач
 class EquipmentDetailController {
-
   final ValueNotifier<List<Task>> _valueNotifier = ValueNotifier([]);
 
   ValueNotifier<List<Task>> get valueNotifier => _valueNotifier;
@@ -120,11 +120,12 @@ class EquipmentListScreen extends StatelessWidget {
                             ')',
                         style: const TextStyle(
                             // color: Colors.blue,
-                            // fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.bold,
                             ),
                       ),
                       trailing: const Icon(Icons.arrow_forward),
-                      onTap: () => GoRouter.of(context).go('/details/${equipment.id}'),
+                      onTap: () =>
+                          GoRouter.of(context).go('/details/${equipment.id}'),
                     ));
               },
             );
@@ -222,14 +223,14 @@ class Modal extends StatelessWidget {
 }
 
 class EquipmentDetailScreen extends StatefulWidget {
-  final Machine equipment;
+  final Machine machine;
   final bool isModal;
   final void Function(Task)? onTaskTap;
   final EquipmentDetailController? controller; // Добавляем контроллер
 
   const EquipmentDetailScreen({
     super.key,
-    required this.equipment,
+    required this.machine,
     this.isModal = false,
     this.onTaskTap,
     this.controller, // Новый параметр для контроллера
@@ -244,12 +245,14 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
   bool get _isSelectionMode => widget.controller != null;
 
+  late Equipment equipment;
+
   @override
   void initState() {
     super.initState();
+    equipment = createEquipment(widget.machine);
     // Используем переданный контроллер или создаем локальный
-    _selectionController = widget.controller ??
-        EquipmentDetailController();
+    _selectionController = widget.controller ?? EquipmentDetailController();
     _selectionController.onSelectionChanged = _handleSelectionChanged;
   }
 
@@ -285,8 +288,21 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         equipment.checklists.expand((checklist) => checklist.tasks).toList();
 
     Widget list = ListView.builder(
-      itemCount: equipment.checklists.length,
+      itemCount: equipment.checklists.length + (widget.isModal ? 1 : 0),
       itemBuilder: (context, index) {
+        if (index == equipment.checklists.length) {
+          return Card(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: SquareButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                  },
+                  child: Text("Завершить")));
+        }
         final checklist = equipment.checklists[index];
 
         return Card(
@@ -302,12 +318,12 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                 top: 0,
                 bottom: 0,
                 child: Container(
-                  width: 6,
+                  width: 12,
                   decoration: BoxDecoration(
                     color: periodColors[checklist.period],
                     borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(12),
-                      bottomLeft: Radius.circular(12),
+                      topLeft: Radius.circular(16),
+                      bottomLeft: Radius.circular(16),
                     ),
                   ),
                 ),
@@ -315,10 +331,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
               ExpansionTile(
                 shape: const Border(),
                 title: Text(
-                  checklist.period + ' (${checklist.tasks.length})',
+                  " " + checklist.period + ' (${checklist.tasks.length})',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
-                    fontSize: 18,
+                    // fontSize: 18,
                   ),
                 ),
                 trailing: Icon(
@@ -328,7 +344,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                 childrenPadding:
                     const EdgeInsets.only(left: 16, right: 16, bottom: 16),
                 children: checklist.tasks.map((task) {
-                  return _buildTaskItem(task);
+                  return Padding(padding: EdgeInsets.only(left: 8), child: _buildTaskItem(task),);
                 }).toList(),
                 onExpansionChanged: (expanded) {
                   setState(() {
@@ -348,10 +364,11 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         Padding(
           padding: EdgeInsets.symmetric(horizontal: 30),
           child: Text(
-            widget.equipment.name,
+            widget.machine.name,
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24),
           ),
         ),
+        SizedBox(height: 4,),
         // Панель действий при множественном выборе
         if (_isSelectionMode && widget.isModal)
           Container(
@@ -387,14 +404,13 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             ),
           ),
         Expanded(child: list),
-
       ],
     );
   }
 
   Widget _buildTaskItem(Task task) {
-    final isSelected = _isSelectionMode &&
-        _selectionController.selectedTasks.contains(task);
+    final isSelected =
+        _isSelectionMode && _selectionController.selectedTasks.contains(task);
 
     // Основное содержимое задачи
     final content = Column(
@@ -459,7 +475,8 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             children: [
               Checkbox(
                 value: isSelected,
-                onChanged: (_) => _selectionController.toggleTaskSelection(task),
+                onChanged: (_) =>
+                    _selectionController.toggleTaskSelection(task),
               ),
               const SizedBox(width: 12),
               Expanded(child: content),
@@ -482,163 +499,18 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     );
   }
 
-  Widget buildBodyOld(Equipment equipment) {
-    Widget list = ListView.builder(
-      itemCount: equipment.checklists.length,
-      itemBuilder: (context, index) {
-        final checklist = equipment.checklists[index];
-
-        return Card(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          elevation: 2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Stack(
-            children: [
-              Positioned(
-                left: 0,
-                top: 0,
-                bottom: 0,
-                child: Container(
-                  width: 6,
-                  decoration: BoxDecoration(
-                    color: periodColors[checklist.period],
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(12),
-                      bottomLeft: Radius.circular(12),
-                    ),
-                  ),
-                ),
-              ),
-              ExpansionTile(
-                shape: const Border(),
-                title: Text(
-                  checklist.period + ' (${checklist.tasks.length})',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                  ),
-                ),
-                trailing: Icon(
-                  checklist.isExpanded ? Icons.remove : Icons.add,
-                  size: 28,
-                ),
-                childrenPadding:
-                    const EdgeInsets.only(left: 16, right: 16, bottom: 16),
-                children: checklist.tasks.map((task) {
-                  return _buildTaskItem(task);
-                }).toList(),
-                onExpansionChanged: (expanded) {
-                  setState(() {
-                    checklist.isExpanded = expanded;
-                  });
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    return Column(
-      children: [
-        Padding(
-          padding: EdgeInsets.symmetric(horizontal: 30),
-          child: Text(
-            widget.equipment.name,
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          ),
-        ),
-        Expanded(child: list)
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    if (widget.isModal) {
-      return buildBody(createEquipment(widget.equipment));
-    }
 
-    Widget body = buildBody(createEquipment(widget.equipment));
+    Widget body = buildBody(equipment);
+
+    if (widget.isModal) {
+      return body;
+    }
 
     return Scaffold(
       appBar: MyAppBar.build(context) as AppBar,
       body: body,
-    );
-  }
-
-  Widget _buildTaskItemOld(Task task) {
-    Widget col = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Операция
-        Text(
-          task.operation,
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-            color: Colors.blue,
-          ),
-        ),
-
-        const SizedBox(height: 8),
-
-        // Узел
-        Text(
-          task.node!,
-          style: const TextStyle(
-            fontSize: 15,
-          ),
-        ),
-        SizedBox(
-          width: MediaQuery.of(context).size.width,
-        ),
-        // Дополнительная информация (если есть)
-        if ((task.quantity != null && task.quantity!.length > 0) ||
-            (task.material != null && task.material!.length > 0))
-          Padding(
-            padding: const EdgeInsets.only(top: 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (task.quantity != null && task.quantity!.length > 0)
-                  _buildDetailRow('Количество:', task.quantity!.toString()),
-                if (task.material != null && task.material!.length > 0)
-                  _buildDetailRow('Материал:', task.material!),
-              ],
-            ),
-          ),
-      ],
-    );
-    if (widget.isModal) {
-      return Container(
-          margin: const EdgeInsets.only(top: 10),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.grey[50],
-            borderRadius: BorderRadius.circular(10),
-            // border: Border.all(color: Colors.grey[200]!),
-          ),
-          child: InkWell(
-            child: col,
-            onTap: () {
-              if (widget.onTaskTap != null) {
-                widget.onTaskTap!(task);
-              }
-            },
-          ));
-    }
-    return Container(
-      margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.grey[50],
-        borderRadius: BorderRadius.circular(10),
-        // border: Border.all(color: Colors.grey[200]!),
-      ),
-      child: col,
     );
   }
 

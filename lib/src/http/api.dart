@@ -30,23 +30,6 @@ class API {
     }
   }
 
-  Future<bool> notify() async {
-    try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/notify'),
-        headers: {'Authorization': basicAuth},
-      ).timeout(Duration(seconds: 10));
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        return true;
-      } else {
-        return false;
-      }
-    } on Exception catch (_) {
-      return false;
-    }
-  }
-
   Future<bool> isAlive() async {
     try {
       final response = await http.get(
