@@ -80,7 +80,7 @@ class GlobalState {
     }
 
     GlobalState.debug.value =
-        "Сервер: ${serverAccess}  |  ${db}   |  Пользователь: ${loggedUser}";
+        "Сервер: ${serverAccess}  |  ${db}  |  Пользователь: ${loggedUser}";
   }
 
   static bool? _cachedResult;

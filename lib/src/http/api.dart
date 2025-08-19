@@ -20,7 +20,7 @@ class API {
     final response = await http.get(
       Uri.parse('$baseUrl/users'),
       headers: {'Authorization': basicAuth},
-    );
+    ).timeout(Duration(seconds: 5));
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       final List<dynamic> data = jsonDecode(response.body);
@@ -35,7 +35,7 @@ class API {
       final response = await http.get(
         Uri.parse('$baseUrl/test'),
         headers: {'Authorization': basicAuth},
-      ).timeout(Duration(seconds: 10));
+      ).timeout(Duration(seconds: 5));
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         return true;
@@ -57,7 +57,7 @@ class API {
           'Authorization': basicAuth,
           'Content-Type': 'application/json',
         },
-      );
+      ).timeout(Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -82,7 +82,7 @@ class API {
           'Authorization': basicAuth,
           'Content-Type': 'application/json',
         },
-      );
+      ).timeout(Duration(seconds: 5));
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -102,7 +102,7 @@ class API {
     final response = await http.get(
       Uri.parse('$baseUrl/machines'),
       headers: {'Authorization': basicAuth},
-    );
+    ).timeout(Duration(seconds: 10));
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       final List<dynamic> data = jsonDecode(response.body);
@@ -120,7 +120,7 @@ class API {
       Uri.parse('$baseUrl/checks'),
       headers: {'Content-Type': 'application/json', 'Authorization': basicAuth},
       body: jsonEncode(check.toJson()),
-    );
+    ).timeout(Duration(seconds: 5));
 
     if (response.statusCode != 200 && response.statusCode != 201) {
       throw Exception('Failed to send machine check');

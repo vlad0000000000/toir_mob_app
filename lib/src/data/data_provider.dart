@@ -162,13 +162,21 @@ class DataProvider {
     });
   }
 
+  // TODO: как можно меньше await
   Future<void> syncChecks() async {
     final checks = machineCheckBox.values.toList();
     for (final check in checks) {
+      if (check.isSyncing) {
+        continue;
+      }
       try {
+        check.isSyncing = true;
+        await machineCheckBox.put(check.key(), check);
         await api.sendMachineCheck(check);
-        machineCheckBox.delete(check.key());
+        await machineCheckBox.delete(check.key());
       } catch (e) {
+        check.isSyncing = false;
+        await machineCheckBox.put(check.key(), check);
         print('Error syncing data: $e');
       }
     }

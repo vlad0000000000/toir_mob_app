@@ -311,7 +311,7 @@ ${widget.machine.description}
                                   imageData3Controller.value,
                                 ],
                                 description: descController.text,
-                                task_ids: equipmentController.value
+                                taskIds: equipmentController.value
                                     .map((e) => e.id,).toList(),
                                 priority: priorityController.text,
                                 problem: problemController.text == 'Проблем нет'
