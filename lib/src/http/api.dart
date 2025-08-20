@@ -17,10 +17,12 @@ class API {
 
   // Получить список пользователей
   Future<List<User>> getUsers() async {
+    debugPrint('$baseUrl/users');
+
     final response = await http.get(
       Uri.parse('$baseUrl/users'),
       headers: {'Authorization': basicAuth},
-    ).timeout(Duration(seconds: 5));
+    ).timeout(Duration(seconds: 10));
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       final List<dynamic> data = jsonDecode(response.body);

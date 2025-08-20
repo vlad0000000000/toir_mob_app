@@ -4,7 +4,7 @@ class User {
   final int id;
   final String login;
   final String passwordHash;
-  final int role;
+  final int? role;
 
   const User(
       {required this.id,
@@ -18,7 +18,7 @@ class User {
         'password_hash': String passwordHash,
         'id': int id,
         'login': String login,
-        'role': int role
+        'role': int? role
       } =>
         User(passwordHash: passwordHash, id: id, login: login, role: role),
       _ => throw const FormatException('Failed to load user.'),
