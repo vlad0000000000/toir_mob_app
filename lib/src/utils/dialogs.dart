@@ -3,6 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:qr_machine_scanner/strings.dart';
 
 class Dialogs {
+
+  static ButtonStyle style = ButtonStyle(
+      padding: WidgetStatePropertyAll(
+          EdgeInsets.symmetric(vertical: 16, horizontal: 16))
+  );
+
   static Future<dynamic> notify(context, title, desc) async {
     return AwesomeDialog(
       reverseBtnOrder: true,
@@ -13,6 +19,7 @@ class Dialogs {
       title: title,
       desc: desc,
       btnOk: ElevatedButton(
+          style: style,
           onPressed: () {
             Navigator.pop(context);
           },
@@ -30,6 +37,7 @@ class Dialogs {
       title: Strings.areYouSure,
       // desc: desc,
       btnOk: ElevatedButton(
+          style: style,
           onPressed: () {
             Navigator.pop(context);
             if (onOk != null) {
@@ -38,6 +46,7 @@ class Dialogs {
           },
           child: Text(Strings.yes)),
       btnCancel: ElevatedButton(
+          style: style,
           onPressed: () {
             Navigator.pop(context);
           },

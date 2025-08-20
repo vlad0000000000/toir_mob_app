@@ -1,9 +1,11 @@
 import 'dart:convert';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:qr_machine_scanner/src/model/check.dart';
 import 'package:qr_machine_scanner/src/model/machine.dart';
+import 'package:qr_machine_scanner/src/model/task.dart';
 import 'package:qr_machine_scanner/src/model/user.dart';
 
 class API {
@@ -18,7 +20,7 @@ class API {
     final response = await http.get(
       Uri.parse('$baseUrl/users'),
       headers: {'Authorization': basicAuth},
-    );
+    ).timeout(Duration(seconds: 5));
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       final List<dynamic> data = jsonDecode(response.body);
@@ -28,29 +30,12 @@ class API {
     }
   }
 
-  Future<bool> notify() async {
-    try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/notify'),
-        headers: {'Authorization': basicAuth},
-      ).timeout(Duration(seconds: 10));
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        return true;
-      } else {
-        return false;
-      }
-    } on Exception catch (_) {
-      return false;
-    }
-  }
-
   Future<bool> isAlive() async {
     try {
       final response = await http.get(
         Uri.parse('$baseUrl/test'),
         headers: {'Authorization': basicAuth},
-      ).timeout(Duration(seconds: 10));
+      ).timeout(Duration(seconds: 5));
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         return true;
@@ -62,12 +47,62 @@ class API {
     }
   }
 
-  // Получить список машин
+  Future<List<Task>> getAllCurrentTasks() async {
+    final url = Uri.parse('$baseUrl/machines/current_tasks');
+
+    try {
+      final response = await http.get(
+        url,
+        headers: {
+          'Authorization': basicAuth,
+          'Content-Type': 'application/json',
+        },
+      ).timeout(Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        return data.map((json) => Task.fromJson(json)).toList();
+      } else {
+        throw Exception(
+            'Ошибка загрузки задач: ${response.statusCode}\n${response.body}'
+        );
+      }
+    } catch (e) {
+      throw Exception('Сетевая ошибка: $e');
+    }
+  }
+
+  Future<List<Task>> getCurrentTasks(int machineId) async {
+    final url = Uri.parse('$baseUrl/machines/$machineId/current_tasks');
+
+    try {
+      final response = await http.get(
+        url,
+        headers: {
+          'Authorization': basicAuth,
+          'Content-Type': 'application/json',
+        },
+      ).timeout(Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        return data.map((json) => Task.fromJson(json)).toList();
+      } else {
+        throw Exception(
+            'Ошибка загрузки задач: ${response.statusCode}\n${response.body}'
+        );
+      }
+    } catch (e) {
+      throw Exception('Сетевая ошибка: $e');
+    }
+  }
+
+  // Получить список оборудования
   Future<List<Machine>> getMachines() async {
     final response = await http.get(
       Uri.parse('$baseUrl/machines'),
       headers: {'Authorization': basicAuth},
-    );
+    ).timeout(Duration(seconds: 10));
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       final List<dynamic> data = jsonDecode(response.body);
@@ -85,7 +120,7 @@ class API {
       Uri.parse('$baseUrl/checks'),
       headers: {'Content-Type': 'application/json', 'Authorization': basicAuth},
       body: jsonEncode(check.toJson()),
-    );
+    ).timeout(Duration(seconds: 5));
 
     if (response.statusCode != 200 && response.statusCode != 201) {
       throw Exception('Failed to send machine check');

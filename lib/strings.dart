@@ -88,4 +88,12 @@ class Strings {
   static get loginHelp {
     return {'ru': 'Пожалуйста, введите ваш логин'}[Strings.locale];
   }
+
+  static get scanner {
+    return {'ru': 'Сканер'}[Strings.locale];
+  }
+
+  static get tasks {
+    return {'ru': 'Задачи'}[Strings.locale];
+  }
 }

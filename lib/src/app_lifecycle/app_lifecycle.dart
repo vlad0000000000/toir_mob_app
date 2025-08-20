@@ -43,6 +43,7 @@ class _AppLifecycleObserverState extends State<AppLifecycleObserver>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _log.info(() => 'didChangeAppLifecycleState: $state');
     lifecycleListenable.value = state;
+    GlobalState.dataProvider.checkConnectivityAndSync();
     GlobalState.updateDebug();
   }
 

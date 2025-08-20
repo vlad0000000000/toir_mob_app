@@ -12,8 +12,10 @@
         </intent>
     </queries>
     <application
-        android:label="QR Machine Scanner Demo"
+        android:label="QR Machine Scanner RLA"
         android:name="${applicationName}"
+        android:allowBackup="false"
+        android:fullBackupOnly="false"
         android:icon="@mipmap/launcher_icon">
         <activity
             android:name=".MainActivity"

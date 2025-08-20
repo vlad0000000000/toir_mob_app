@@ -39,7 +39,12 @@ class _SplashScreenState extends State<SplashScreen> {
         });
       }
     } else {
-      await GlobalState.dataProvider.checkConnectivityAndSync();
+      // await GlobalState.dataProvider.checkConnectivityAndSync();
+      if (await GlobalState.hasConnectionToServer) {
+        await GlobalState.dataProvider.syncUsersAndMachines();
+        // await syncChecks();
+        // await syncTasks();
+      }
       setState(() {
         showConnectionNotify = true;
       });

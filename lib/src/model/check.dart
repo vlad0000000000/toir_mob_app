@@ -12,6 +12,8 @@ class Check {
   final List<String> images;
   final int status;
   final int ts;
+  final List<int> taskIds;
+  bool isSyncing = false;
 
   String key() {
     return GlobalState.digest(jsonEncode(toJson()));
@@ -27,7 +29,7 @@ class Check {
     return "${userId.toString()}, ${machineId.toString()}, ${description}, ${problem}, ${priority}, ${status.toString()}, ${ts.toString()}, images: (${imagesString})";
   }
 
-  const Check(
+  Check(
       {required this.userId,
       required this.machineId,
       required this.description,
@@ -35,7 +37,9 @@ class Check {
       required this.problem,
       required this.images,
       required this.status,
-      required this.ts});
+      required this.ts,
+      required this.taskIds,
+      this.isSyncing = false});
 
   Map<String, dynamic> toJson() {
     return {
@@ -47,6 +51,7 @@ class Check {
       'status': status,
       'images': images,
       'ts': ts,
+      'task_ids': taskIds
     };
   }
 }
@@ -65,7 +70,9 @@ class MachineCheckAdapter extends TypeAdapter<Check> {
         priority: reader.read(),
         images: reader.read(),
         status: reader.read(),
-        ts: reader.read());
+        ts: reader.read(),
+        taskIds: reader.read(),
+        isSyncing: reader.read());
   }
 
   @override
@@ -78,5 +85,7 @@ class MachineCheckAdapter extends TypeAdapter<Check> {
     writer.write(obj.images);
     writer.write(obj.status);
     writer.write(obj.ts);
+    writer.write(obj.taskIds);
+    writer.write(obj.isSyncing);
   }
 }
