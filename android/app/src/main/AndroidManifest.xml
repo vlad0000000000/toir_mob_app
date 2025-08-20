@@ -12,7 +12,7 @@
         </intent>
     </queries>
     <application
-        android:label="QR Machine Scanner RLA"
+        android:label="QR Machine Scanner Demo"
         android:name="${applicationName}"
         android:allowBackup="false"
         android:fullBackupOnly="false"
