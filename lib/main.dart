@@ -8,6 +8,8 @@ import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:qr_machine_scanner/global_state.dart';
 import 'package:qr_machine_scanner/src/login/login_screen.dart';
 import 'package:qr_machine_scanner/src/model/check.dart';
@@ -23,6 +25,7 @@ import 'package:qr_machine_scanner/src/utils/dependent.dart';
 import 'package:go_router/go_router.dart';
 import 'package:logging/logging.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:themed/themed.dart';
 
 import 'src/app_lifecycle/app_lifecycle.dart';
@@ -54,7 +57,15 @@ Future<void> main() async {
   }
   await dotenv.load(fileName: ".env");
   // print(dotenv.env);
-  await Hive.initFlutter();
+
+  PackageInfo packageInfo = await PackageInfo.fromPlatform();
+  String directory = GlobalState.digest([packageInfo.appName, packageInfo.packageName, packageInfo.version, packageInfo.buildNumber].join('|'));
+  final appDocumentDir = await getApplicationDocumentsDirectory();
+  final customPath = '${appDocumentDir.path}/${directory}'; // Define your custom path
+  await Hive.initFlutter(customPath);
+
+  // await Hive.initFlutter();
+
   Hive.registerAdapter(UserAdapter());
   Hive.registerAdapter(MachineAdapter());
   Hive.registerAdapter(MachineCheckAdapter());
@@ -69,6 +80,16 @@ Future<void> main() async {
 
   GlobalState.loginBox = await Hive.openBox<User>('login');
   GlobalState.dataProvider = dataProvider;
+
+  // clear Hive of first launch
+  // final prefs = await SharedPreferences.getInstance();
+  // final isFirstLaunch = prefs.getBool('is_first_launch');
+  // if (isFirstLaunch == null || isFirstLaunch) {
+  //   // Clear all Hive boxes or specific boxes
+  //   await Hive.deleteFromDisk(); // Clears all boxes
+  //   // Or: await Hive.box('myBox').clear(); // Clears a specific box
+  //   await prefs.setBool('is_first_launch', false);
+  // }
 
   dataProvider.startSyncing();
 
