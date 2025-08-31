@@ -428,13 +428,14 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
         const SizedBox(height: 8),
 
-        // Узел
-        Text(
-          task.node!,
-          style: const TextStyle(
-            fontSize: 15,
+        if (task.node != null && task.node!.length > 0)
+          // Узел
+          Text(
+            task.node!,
+            style: const TextStyle(
+              fontSize: 15,
+            ),
           ),
-        ),
         SizedBox(
           width: MediaQuery.of(context).size.width,
         ),

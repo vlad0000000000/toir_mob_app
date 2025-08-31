@@ -39,11 +39,11 @@ class SelectTaskButton extends StatefulWidget {
 }
 
 class _SelectImageButton extends State<SelectTaskButton> {
-
   @override
   void dispose() {
     // widget.controller.valueNotifier.removeListener(_onValueChanged);
-    widget.equipmentDetailController.valueNotifier.removeListener(_onValueChanged);
+    widget.equipmentDetailController.valueNotifier
+        .removeListener(_onValueChanged);
     super.dispose();
   }
 
@@ -109,11 +109,12 @@ class _SelectImageButton extends State<SelectTaskButton> {
                   style: TextStyle(fontWeight: FontWeight.bold),
                   overflow: TextOverflow.ellipsis,
                 ),
-                Text(
-                  task.node!,
-                  style: TextStyle(fontSize: 12),
-                  overflow: TextOverflow.ellipsis,
-                ),
+                if (task.node != null && task.node!.length > 0)
+                  Text(
+                    task.node!,
+                    style: TextStyle(fontSize: 12),
+                    overflow: TextOverflow.ellipsis,
+                  ),
               ],
             )),
             SizedBox(
@@ -133,12 +134,14 @@ class _SelectImageButton extends State<SelectTaskButton> {
 
     return Expanded(
         child: SquareButton(
-      child: widget.equipmentDetailController.selectedTasks.length > 0 ? Text(
-        'Выбрано задач: ' +
-            widget.equipmentDetailController.selectedTasks.length
-                .toString(),
-        style: TextStyle(fontWeight: FontWeight.bold),
-      ) :Text('Выбрать задачу'),
+      child: widget.equipmentDetailController.selectedTasks.length > 0
+          ? Text(
+              'Выбрано задач: ' +
+                  widget.equipmentDetailController.selectedTasks.length
+                      .toString(),
+              style: TextStyle(fontWeight: FontWeight.bold),
+            )
+          : Text('Выбрать задачу'),
       onPressed: () {
         // GlobalState.needTaskSync = true;
         showModalBottomSheet(
