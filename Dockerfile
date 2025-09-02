@@ -10,7 +10,7 @@ RUN export JAVA_HOME
 COPY . /app
 
 WORKDIR /app
-RUN flutter build apk --release
+#RUN flutter build apk --release
 
 
 CMD ["flutter", "run"]

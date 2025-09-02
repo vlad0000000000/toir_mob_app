@@ -59,10 +59,20 @@ Future<void> main() async {
   // print(dotenv.env);
 
   PackageInfo packageInfo = await PackageInfo.fromPlatform();
-  String directory = GlobalState.digest([packageInfo.appName, packageInfo.packageName, packageInfo.version, packageInfo.buildNumber].join('|'));
-  final appDocumentDir = await getApplicationDocumentsDirectory();
-  final customPath = '${appDocumentDir.path}/${directory}'; // Define your custom path
-  await Hive.initFlutter(customPath);
+  String directory = GlobalState.digest([
+    packageInfo.appName,
+    packageInfo.packageName,
+    packageInfo.version,
+    packageInfo.buildNumber
+  ].join('|'));
+  if (kIsWeb) {
+    await Hive.initFlutter();
+  } else {
+    final appDocumentDir = await getApplicationDocumentsDirectory();
+    final customPath =
+        '${appDocumentDir.path}/${directory}'; // Define your custom path
+    await Hive.initFlutter(customPath);
+  }
 
   // await Hive.initFlutter();
 
@@ -236,14 +246,14 @@ class MyApp extends StatelessWidget {
         borderRadius: BorderRadius.all(Radius.circular(8)),
       ),
     )
-      //   .copyWith(backgroundColor: WidgetStateProperty.resolveWith<Color>(
-      // (states) {
-      //   // return Colors.white.withAlpha(200);
-      //   return Colors.yellow.lighter(0.2);
-      //   // return Colors.black.lighter(0.9);
-      //   // return states.first.
-      // },))
-    ;
+        //   .copyWith(backgroundColor: WidgetStateProperty.resolveWith<Color>(
+        // (states) {
+        //   // return Colors.white.withAlpha(200);
+        //   return Colors.yellow.lighter(0.2);
+        //   // return Colors.black.lighter(0.9);
+        //   // return states.first.
+        // },))
+        ;
     final ButtonStyle outlineButtonStyle = OutlinedButton.styleFrom(
       foregroundColor: Colors.black87,
       minimumSize: Size(88, 36),
@@ -302,16 +312,14 @@ class MyApp extends StatelessWidget {
                     ),
                   ),
                   useMaterial3: true,
-                )
-                    .copyWith(
+                ).copyWith(
                   textButtonTheme:
                       TextButtonThemeData(style: raisedButtonStyle),
                   elevatedButtonTheme:
                       ElevatedButtonThemeData(style: raisedButtonStyle),
                   outlinedButtonTheme:
                       OutlinedButtonThemeData(style: raisedButtonStyle),
-                )
-                ,
+                ),
                 routeInformationProvider: _router.routeInformationProvider,
                 routeInformationParser: _router.routeInformationParser,
                 routerDelegate: _router.routerDelegate,

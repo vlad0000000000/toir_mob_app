@@ -73,19 +73,6 @@ class EquipmentDetailController {
 class EquipmentListScreen extends StatelessWidget {
   final bool isModal;
 
-  static final machineIdToEquipment = {
-    1: [5],
-    2: [6],
-    3: [2],
-    4: [2],
-    5: [3],
-    6: [7, 8],
-    7: [11],
-    8: [10],
-    // 9: [0, 1],
-    9: [1],
-  };
-
   const EquipmentListScreen({super.key, this.isModal = false});
 
   @override
@@ -156,6 +143,7 @@ class EquipmentListScreen extends StatelessWidget {
 // import 'models.dart';
 
 final Map<String, Color> periodColors = {
+  'Ежедневно (каждые 2.5 часа)': Colors.red,
   'Ежедневно': Colors.red,
   'Еженедельно': Colors.yellow,
   "1 раз в 2 недели": Colors.orange,
@@ -164,6 +152,7 @@ final Map<String, Color> periodColors = {
   '1 раз в 6 месяцев': Colors.blue,
   '1 раз в год': Colors.blueGrey,
   '1 раз в 2 года': Colors.grey,
+  '1 раз в 3 года': Colors.grey,
   'Автоматический счетчик обслуживания': Colors.green,
 };
 
