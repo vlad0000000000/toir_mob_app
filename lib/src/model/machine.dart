@@ -18,6 +18,7 @@ class Machine {
 
   String getQRValue() {
     String projectName = dotenv.env["PROJECT_NAME"]!;
+    if (projectName == 'fedorenko') projectName = 'dev';
     return GlobalState.digest("${projectName}_machine" + id.toString());
   }
 
