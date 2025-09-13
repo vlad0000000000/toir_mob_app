@@ -1,5 +1,5 @@
 name: qr_machine_scanner
-description: QR Machine Scanner Fedorenko
+description: QR Machine Scanner Yarmarka
 
 # Prevent accidental publishing to pub.dev.
 publish_to: 'none'

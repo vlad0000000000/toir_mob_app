@@ -9,7 +9,7 @@ services:
     command: >
       sh -c '
       find . -type f -exec sed -i 's/fedorenko/$$PROJECT_NAME/g' {} + &&
-      find . -type f -exec sed -i 's/Fedorenko/$$PROJECT_TITLE/g' {} + &&
+      find . -type f -exec sed -i 's/Yarmarka/$$PROJECT_TITLE/g' {} + &&
       flutter pub get &&
       flutter build apk &&
       cp -r build/app/outputs /app/build_output/
