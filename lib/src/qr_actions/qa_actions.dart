@@ -5,6 +5,7 @@ import 'package:qr_machine_scanner/src/app_bar/app_bar.dart';
 import 'package:qr_machine_scanner/src/model/machine.dart';
 import 'package:qr_machine_scanner/src/qr/qr_screen.dart';
 import 'package:qr_machine_scanner/src/tasks/tasks.dart';
+import 'package:qr_machine_scanner/src/utils/dialogs.dart';
 import 'package:qr_machine_scanner/src/utils/go_router_ext.dart';
 import 'package:qr_machine_scanner/src/widgets/select_task_button.dart';
 import 'package:qr_machine_scanner/strings.dart';
@@ -24,7 +25,7 @@ class QRActions extends StatelessWidget {
               crossAxisSpacing: 16, // Горизонтальный отступ
               mainAxisSpacing: 16, // Вертикальный отступ
             ),
-            itemCount: 2,
+            itemCount: 3,
             itemBuilder: (context, index) {
               if (index == 0) {
                 return SquareButton(
@@ -43,6 +44,34 @@ class QRActions extends StatelessWidget {
                   onPressed: () {
                     GlobalState.needTasksSync = true;
                     GoRouter.of(context).clearStackAndNavigate('/tasks');
+                  },
+                );
+              }
+              if (index == 2) {
+                return SquareButton(
+                  icon: Icons.sync,
+                  label: Strings.uploadScans,
+                  onPressed: () async {
+                    var scans = GlobalState.dataProvider.machineCheckBox.length;
+                    if (scans == 0) {
+                      Dialogs.notify(context, "Все осмотры уже синхронизированы", "");
+                      return;
+                    }
+                    if (!await GlobalState.hasConnectionToServer) {
+                      Dialogs.notify(
+                          context, "Отсутствует соединение с сервером", "");
+                      return;
+                    }
+                    await GlobalState.dataProvider.syncChecks();
+                    scans = GlobalState.dataProvider.machineCheckBox.length;
+                    if (scans == 0) {
+                      Dialogs.notify(context, "Осмотры успешно синхронизированы", "");
+                      return;
+                    } else {
+                      Dialogs.notify(
+                          context, "Не получилось синхронизировать осмотры", "");
+                      return;
+                    }
                   },
                 );
               }

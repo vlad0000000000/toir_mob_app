@@ -96,4 +96,12 @@ class Strings {
   static get tasks {
     return {'ru': 'Задачи'}[Strings.locale];
   }
+
+  static get sync {
+    return {'ru': 'Синхронизировать'}[Strings.locale];
+  }
+
+  static get uploadScans {
+    return {'ru': 'Синхронизировать осмотры'}[Strings.locale];
+  }
 }
