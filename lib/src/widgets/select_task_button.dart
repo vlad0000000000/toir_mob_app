@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:qr_machine_scanner/global_state.dart';
-import 'package:qr_machine_scanner/src/model/machine.dart';
+import 'package:qr_machine_scanner/src/model/inventory_record.dart';
 import 'package:qr_machine_scanner/src/model/task.dart';
 import 'package:qr_machine_scanner/src/tasks/tasks.dart';
 import 'package:qr_machine_scanner/src/widgets/square_button.dart';
@@ -26,7 +26,7 @@ class SelectTaskButtonController {
 class SelectTaskButton extends StatefulWidget {
   final SelectTaskButtonController controller;
   final EquipmentDetailController equipmentDetailController;
-  Machine machine;
+  InventoryRecord machine;
 
   SelectTaskButton(
       {required this.machine,

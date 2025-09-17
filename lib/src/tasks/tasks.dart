@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_machine_scanner/global_state.dart';
 import 'package:qr_machine_scanner/src/app_bar/app_bar.dart';
-import 'package:qr_machine_scanner/src/model/machine.dart';
+import 'package:qr_machine_scanner/src/model/inventory_record.dart';
 import 'package:qr_machine_scanner/src/model/task.dart';
 import 'package:qr_machine_scanner/src/widgets/square_button.dart';
 
 // models.dart
 class Equipment {
   final List<Checklist> checklists;
-  final Machine machine;
+  final InventoryRecord machine;
 
   Equipment(this.machine, this.checklists);
 }
@@ -82,7 +82,7 @@ class EquipmentListScreen extends StatelessWidget {
         builder: (BuildContext context, AsyncSnapshot<void> snapshot) {
           if (snapshot.connectionState == ConnectionState.done) {
             var equipmentList =
-                GlobalState.dataProvider.machines.where((machine) {
+                GlobalState.dataProvider.inventoryRecords.where((machine) {
               return GlobalState.dataProvider.loadTasks(machine.id).isNotEmpty;
             }).toList();
             Widget list = ListView.builder(
@@ -106,9 +106,9 @@ class EquipmentListScreen extends StatelessWidget {
                                 .toString() +
                             ')',
                         style: const TextStyle(
-                            // color: Colors.blue,
-                            fontWeight: FontWeight.bold,
-                            ),
+                          // color: Colors.blue,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       trailing: const Icon(Icons.arrow_forward),
                       onTap: () =>
@@ -212,7 +212,7 @@ class Modal extends StatelessWidget {
 }
 
 class EquipmentDetailScreen extends StatefulWidget {
-  final Machine machine;
+  final InventoryRecord machine;
   final bool isModal;
   final void Function(Task)? onTaskTap;
   final EquipmentDetailController? controller; // Добавляем контроллер
@@ -249,7 +249,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     if (mounted) setState(() {});
   }
 
-  Equipment createEquipment(Machine machine) {
+  Equipment createEquipment(InventoryRecord machine) {
     List<Task> tasks = GlobalState.dataProvider.loadTasks(machine.id);
     Map<String, List<Task>> byPeriod = {};
     var periodOrder = periodColors.keys.toList();
@@ -333,7 +333,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                 childrenPadding:
                     const EdgeInsets.only(left: 16, right: 16, bottom: 16),
                 children: checklist.tasks.map((task) {
-                  return Padding(padding: EdgeInsets.only(left: 8), child: _buildTaskItem(task),);
+                  return Padding(
+                    padding: EdgeInsets.only(left: 8),
+                    child: _buildTaskItem(task),
+                  );
                 }).toList(),
                 onExpansionChanged: (expanded) {
                   setState(() {
@@ -357,7 +360,9 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24),
           ),
         ),
-        SizedBox(height: 4,),
+        SizedBox(
+          height: 4,
+        ),
         // Панель действий при множественном выборе
         if (_isSelectionMode && widget.isModal)
           Container(
@@ -491,7 +496,6 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-
     Widget body = buildBody(equipment);
 
     if (widget.isModal) {

@@ -25,36 +25,41 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    _startConnectionCheck();
-  }
-
-  void _timerCallback(timer) async {
-    final isSynced = GlobalState.dataProvider.users.length > 0 &&
-        GlobalState.dataProvider.machines.length > 0;
-    if (isSynced) {
-      timer.cancel();
-      if (mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          GoRouter.of(context).clearStackAndNavigate('/login');
-        });
-      }
-    } else {
-      // await GlobalState.dataProvider.checkConnectivityAndSync();
-      if (await GlobalState.hasConnectionToServer) {
-        await GlobalState.dataProvider.syncUsersAndMachines();
-        // await syncChecks();
-        // await syncTasks();
-      }
-      setState(() {
-        showConnectionNotify = true;
+    if (mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        GoRouter.of(context).clearStackAndNavigate('/login');
       });
     }
+    // _startConnectionCheck();
   }
 
-  void _startConnectionCheck() {
-    _timer = Timer.periodic(const Duration(seconds: 5), _timerCallback);
-    _timerCallback(_timer);
-  }
+  // void _timerCallback(timer) async {
+  //   final isSynced = GlobalState.dataProvider.users.length > 0 &&
+  //       GlobalState.dataProvider.inventoryRecords.length > 0;
+  //   if (isSynced) {
+  //     timer.cancel();
+  //     if (mounted) {
+  //       WidgetsBinding.instance.addPostFrameCallback((_) {
+  //         GoRouter.of(context).clearStackAndNavigate('/login');
+  //       });
+  //     }
+  //   } else {
+  //     // await GlobalState.dataProvider.checkConnectivityAndSync();
+  //     if (await GlobalState.hasConnectionToServer) {
+  //       await GlobalState.dataProvider.syncUsersAndMachines();
+  //       // await syncChecks();
+  //       // await syncTasks();
+  //     }
+  //     setState(() {
+  //       showConnectionNotify = true;
+  //     });
+  //   }
+  // }
+  //
+  // void _startConnectionCheck() {
+  //   _timer = Timer.periodic(const Duration(seconds: 5), _timerCallback);
+  //   _timerCallback(_timer);
+  // }
 
   @override
   Widget build(BuildContext context) {

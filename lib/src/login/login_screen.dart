@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_machine_scanner/global_state.dart';
 import 'package:qr_machine_scanner/src/data/data_provider.dart';
+import 'package:qr_machine_scanner/src/model/user.dart';
 import 'package:qr_machine_scanner/src/utils/dialogs.dart';
 import 'package:qr_machine_scanner/src/utils/go_router_ext.dart';
 import 'package:qr_machine_scanner/strings.dart';
@@ -95,22 +96,32 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               ElevatedButton(
                   onPressed: () async {
-                    await dataProvider.syncUsersAndMachines();
-                    await GlobalState.updateDebug();
-                    for (var user in dataProvider.users) {
-                      if (user.login == loginController.text) {
-                        if (user.passwordHash ==
-                            GlobalState.digest(passwordController.text)) {
-                          GlobalState.authUser = user;
-                          await GlobalState.updateDebug();
-                          GoRouter.of(context).clearStackAndNavigate("/actions");
-                          return;
+                    User? currentUser = null;
+                    try {
+                      currentUser = await dataProvider.api
+                          .login(loginController.text, passwordController.text);
+                    } on Exception catch (_) {}
+
+                    if (currentUser == null) {
+                      for (var user in dataProvider.users) {
+                        if (user.username == loginController.text &&
+                            user.password == passwordController.text) {
+                          currentUser = user;
                         }
                       }
                     }
 
-                    Dialogs.notify(context, Strings.loginFailTitle,
-                        Strings.loginFailDesc);
+                    if (currentUser != null) {
+                      dataProvider.addUser(currentUser);
+                      GlobalState.authUser = currentUser;
+                      await dataProvider.syncInventory();
+                      await GlobalState.updateDebug();
+                      GoRouter.of(context).clearStackAndNavigate("/actions");
+                      return;
+                    }
+
+                    Dialogs.notify(
+                        context, Strings.loginFailTitle, Strings.loginFailDesc);
                   },
                   child: Padding(
                     padding: EdgeInsets.symmetric(vertical: 8, horizontal: 16),

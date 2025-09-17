@@ -76,7 +76,7 @@ class _BarcodeScannerWithControllerState
                       if (barcodes.barcodes.length > 0) {
                         for (var barcode in barcodes.barcodes) {
                           // debugPrint("barcode = " + barcode.displayValue.toString());
-                          for (var machine in dataProvider.machines) {
+                          for (var machine in dataProvider.inventoryRecords) {
                             // debugPrint(machine.getQRValue());
                             if (machine.getQRValue() ==
                                 barcode.displayValue.toString()) {

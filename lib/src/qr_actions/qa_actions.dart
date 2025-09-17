@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_machine_scanner/global_state.dart';
 import 'package:qr_machine_scanner/src/app_bar/app_bar.dart';
-import 'package:qr_machine_scanner/src/model/machine.dart';
 import 'package:qr_machine_scanner/src/qr/qr_screen.dart';
 import 'package:qr_machine_scanner/src/tasks/tasks.dart';
 import 'package:qr_machine_scanner/src/utils/dialogs.dart';
@@ -52,7 +51,7 @@ class QRActions extends StatelessWidget {
                   icon: Icons.sync,
                   label: Strings.uploadScans,
                   onPressed: () async {
-                    var scans = GlobalState.dataProvider.machineCheckBox.length;
+                    var scans = GlobalState.dataProvider.inventoryRecords.length;
                     if (scans == 0) {
                       Dialogs.notify(context, "Все осмотры уже синхронизированы", "");
                       return;
@@ -62,8 +61,8 @@ class QRActions extends StatelessWidget {
                           context, "Отсутствует соединение с сервером", "");
                       return;
                     }
-                    await GlobalState.dataProvider.syncChecks();
-                    scans = GlobalState.dataProvider.machineCheckBox.length;
+                    await GlobalState.dataProvider.syncScans();
+                    scans = GlobalState.dataProvider.scanBox.length;
                     if (scans == 0) {
                       Dialogs.notify(context, "Осмотры успешно синхронизированы", "");
                       return;

@@ -12,8 +12,8 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:qr_machine_scanner/global_state.dart';
 import 'package:qr_machine_scanner/src/login/login_screen.dart';
-import 'package:qr_machine_scanner/src/model/check.dart';
-import 'package:qr_machine_scanner/src/model/machine.dart';
+import 'package:qr_machine_scanner/src/model/scan.dart';
+import 'package:qr_machine_scanner/src/model/inventory_record.dart';
 import 'package:qr_machine_scanner/src/model/task.dart';
 import 'package:qr_machine_scanner/src/qr/qr_screen.dart';
 import 'package:qr_machine_scanner/src/qr_actions/qa_actions.dart';
@@ -31,6 +31,7 @@ import 'package:themed/themed.dart';
 import 'src/app_lifecycle/app_lifecycle.dart';
 import 'src/data/data_provider.dart';
 import 'src/http/api.dart';
+import 'src/model/session.dart';
 import 'src/model/user.dart';
 import 'src/style/my_transition.dart';
 import 'src/style/palette.dart';
@@ -77,18 +78,19 @@ Future<void> main() async {
   // await Hive.initFlutter();
 
   Hive.registerAdapter(UserAdapter());
-  Hive.registerAdapter(MachineAdapter());
-  Hive.registerAdapter(MachineCheckAdapter());
+  Hive.registerAdapter(InventoryAdapter());
+  Hive.registerAdapter(ScanAdapter());
+  Hive.registerAdapter(SessionAdapter());
   Hive.registerAdapter(TaskAdapter());
 
   var dataProvider = DataProvider(
       api: API(),
       userBox: await Hive.openBox<User>('users'),
-      machineBox: await Hive.openBox<Machine>('machines'),
-      machineCheckBox: await Hive.openBox<Check>('machineChecks'),
+      inventoryBox: await Hive.openBox<InventoryRecord>('inventory'),
+      scanBox: await Hive.openBox<Scan>('scans'),
+      sessionBox: await Hive.openBox<Session>('sessions'),
       taskBox: await Hive.openBox<Task>('tasks'));
 
-  GlobalState.loginBox = await Hive.openBox<User>('login');
   GlobalState.dataProvider = dataProvider;
 
   // clear Hive of first launch
@@ -121,7 +123,6 @@ class MyApp extends StatelessWidget {
   static final _router = GoRouter(
     routerNeglect: true,
     redirect: (BuildContext context, GoRouterState state) async {
-      // return '/qr_scanner';
       final bool isAuthenticated = GlobalState.isAuthorized;
 
       final bool isGoingToProtectedRoute =
@@ -179,7 +180,7 @@ class MyApp extends StatelessWidget {
           final index = int.parse(state.pathParameters['index']!);
           return buildMyTransition<void>(
             child: EquipmentDetailScreen(
-              machine: GlobalState.dataProvider.machines
+              machine: GlobalState.dataProvider.inventoryRecords
                   .where((element) => element.id == index)
                   .first,
             ),
@@ -201,7 +202,7 @@ class MyApp extends StatelessWidget {
       GoRoute(
         path: '/qr_result',
         pageBuilder: (context, state) {
-          final machine = state.extra! as Machine;
+          final machine = state.extra! as InventoryRecord;
           return buildMyTransition<void>(
             child: QRResultScreen(
               machine,

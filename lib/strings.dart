@@ -14,7 +14,7 @@ class Strings {
   }
 
   static get qrDetectFailDesc {
-    return {'ru': 'Проверьте QR код станка'}[Strings.locale];
+    return {'ru': 'Проверьте QR код актива'}[Strings.locale];
   }
 
   static get loginFailTitle {

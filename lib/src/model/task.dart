@@ -85,7 +85,7 @@ class Task {
 
 class TaskAdapter extends TypeAdapter<Task> {
   @override
-  final int typeId = 3;
+  final int typeId = 4;
 
   @override
   Task read(BinaryReader reader) {

@@ -14,7 +14,7 @@ class MyAppBar {
       style: style,
         onPressed: () async {
           Dialogs.areYouSure(context, onOk: () async {
-            await GlobalState.loginBox.clear();
+            GlobalState.authUser = null;
             GlobalState.updateDebug();
             GoRouter.of(context).clearStackAndNavigate('/login');
           });
@@ -25,7 +25,7 @@ class MyAppBar {
         style: style,
         onPressed: () async {
           Dialogs.areYouSure(context, onOk: () async {
-            await GlobalState.loginBox.clear();
+            GlobalState.authUser = null;
             GlobalState.updateDebug();
             GoRouter.of(context).clearStackAndNavigate('/login');
           });
