@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:math';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
@@ -131,7 +133,7 @@ class _ResultControlsState extends State<ResultControls> {
       ],
     );
 
-    Widget rest = Column(spacing: 8, children: [
+    Widget? rest = Column(spacing: 8, children: [
       TextFormField(
         // obscureText:false,
         maxLines: 8,
@@ -154,14 +156,6 @@ class _ResultControlsState extends State<ResultControls> {
           return null;
         },
       ),
-      SizedBox(
-          height: 160,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            spacing: 8,
-            children: addButtons,
-          )),
-      SizedBox()
     ]);
 
     Widget selectTask =
@@ -216,19 +210,7 @@ class _ResultControlsState extends State<ResultControls> {
     ]);
 
     if (widget.problemController.value == null) {
-      return Column(
-        spacing: 8,
-        children: [
-          selectTask,
-          SizedBox(
-            height: 8,
-          ),
-          problemSelect,
-          SizedBox(
-            height: 8,
-          ),
-        ],
-      );
+      rest = null;
     }
 
     return Column(
@@ -240,7 +222,15 @@ class _ResultControlsState extends State<ResultControls> {
         ),
         problemSelect,
         // prioritySelect,
-        rest,
+        if (rest != null) rest,
+        SizedBox(
+            height: 160,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              spacing: 8,
+              children: addButtons,
+            )),
+        SizedBox(),
         SizedBox(
           height: 8,
         ),
@@ -256,6 +246,52 @@ class YandexImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return Center(
+      child: Stack(
+        children: [
+          Container(
+            width: MediaQuery.of(context).size.shortestSide,
+            // Set width
+            height: MediaQuery.of(context).size.shortestSide,
+            // Set height to be equal for a square
+            // decoration: BoxDecoration(
+            //   image: DecorationImage(
+            //     image: NetworkImage(imageUrl),
+            //     alignment: Alignment.center,// Your image source
+            //     fit: BoxFit.cover, // How the image should be inscribed into the box
+            //   ),
+            //   // You can add other decoration properties here, like:
+            //   // color: Colors.blue, // Background color of the container
+            //   // borderRadius: BorderRadius.circular(10), // To make it a rounded square
+            // ),
+            // child: BackdropFilter(
+            //   filter: ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
+            //   child: Container(
+            //     decoration: new BoxDecoration(color: Colors.white.withOpacity(0.0)),
+            //   ),
+            // ),
+            color: Colors.black,
+          ),
+          Container(
+            width: MediaQuery.of(context).size.shortestSide, // Set width
+            height: MediaQuery.of(context)
+                .size
+                .shortestSide, // Set height to be equal for a square
+            decoration: BoxDecoration(
+              image: DecorationImage(
+                image: NetworkImage(imageUrl),
+                alignment: Alignment.center, // Your image source
+                fit: BoxFit
+                    .contain, // How the image should be inscribed into the box
+              ),
+              // You can add other decoration properties here, like:
+              // color: Colors.blue, // Background color of the container
+              // borderRadius: BorderRadius.circular(10), // To make it a rounded square
+            ),
+          )
+        ],
+      ),
+    );
     return Image.network(
       imageUrl,
       fit: BoxFit.cover,
@@ -299,8 +335,19 @@ class _QRResultScreenState extends State<QRResultScreen> {
         children: [
           // const Image(image: AssetImage('assets/images/lathe.jpg')),
           // Image.memory(base64Decode(widget.machine.imageData)),
-          Image.network(
-            widget.machine.imageData,
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: max(MediaQuery.of(context).size.shortestSide, 350)
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(color: Colors.black87,),
+                Image.network(
+                  widget.machine.imageData,
+                )
+              ],
+            ),
           ),
           // YandexImage(imageUrl: widget.machine.imageData,),
           Row(
@@ -390,7 +437,8 @@ ${widget.machine.description}
                                 }).toList(),
                                 comment: descController.text,
                                 equipmentUuid: widget.machine.uuid,
-                                faultUuid: problemController.value != null && problemController.value!.id != 0
+                                faultUuid: problemController.value != null &&
+                                        problemController.value!.id != 0
                                     ? problemController.value!.uuid
                                     : '',
                                 periodicTaskUuid: taskController.value != null
