@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:hive_ce/hive.dart';
 
 class InventoryRecord {
@@ -45,7 +46,7 @@ class InventoryRecord {
   });
 
   String getQRValue() {
-    return '{"record_uuid": "$uuid", "qr_code": "$qrCode"}';
+    return '{"uuid": "$uuid", "name": "$name"}';
   }
 
   @override
@@ -76,7 +77,7 @@ class InventoryRecord {
           dateOfEntry: json['date_of_entry'] as String?,
           description: json['description'] as String?,
           imageData: (json['photos'] as List<dynamic>?)?.isNotEmpty == true
-              ? json['photos']![0] as String
+              ? json['photos']![0]['url'] as String
               : '',
         ),
       _ => throw const FormatException('Failed to load InventoryRecord.'),

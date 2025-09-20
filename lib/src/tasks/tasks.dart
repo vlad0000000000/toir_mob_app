@@ -81,10 +81,7 @@ class EquipmentListScreen extends StatelessWidget {
         future: GlobalState.syncTasks(),
         builder: (BuildContext context, AsyncSnapshot<void> snapshot) {
           if (snapshot.connectionState == ConnectionState.done) {
-            var equipmentList =
-                GlobalState.dataProvider.inventoryRecords.where((machine) {
-              return GlobalState.dataProvider.loadTasks(machine.id).isNotEmpty;
-            }).toList();
+            var equipmentList = GlobalState.dataProvider.inventoryRecords;
             Widget list = ListView.builder(
               itemCount: equipmentList.length,
               itemBuilder: (context, index) {
@@ -101,7 +98,7 @@ class EquipmentListScreen extends StatelessWidget {
                         equipment.name +
                             ' (' +
                             GlobalState.dataProvider
-                                .loadTasks(equipment.id)
+                                .getTasksForMachine(equipment.uuid)
                                 .length
                                 .toString() +
                             ')',
@@ -146,8 +143,10 @@ final Map<String, Color> periodColors = {
   'Ежедневно (каждые 2.5 часа)': Colors.red,
   'Ежедневно': Colors.red,
   'Еженедельно': Colors.yellow,
+  '1 раз в неделю': Colors.yellow,
   "1 раз в 2 недели": Colors.orange,
   "Ежемесячно": Colors.green,
+  "1 раз в месяц": Colors.green,
   '1 раз в 3 месяца': Colors.teal,
   '1 раз в 6 месяцев': Colors.blue,
   '1 раз в год': Colors.blueGrey,
@@ -250,17 +249,15 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
   }
 
   Equipment createEquipment(InventoryRecord machine) {
-    List<Task> tasks = GlobalState.dataProvider.loadTasks(machine.id);
+    List<Task> tasks = GlobalState.dataProvider.getTasksForMachine(machine.uuid);
     Map<String, List<Task>> byPeriod = {};
     var periodOrder = periodColors.keys.toList();
     for (var task in tasks) {
-      if (task.periodName == null) {
-        continue;
+      var periodName = task.periodicityRuleDisplay;
+      if (!byPeriod.containsKey(periodName)) {
+        byPeriod[periodName] = [];
       }
-      if (!byPeriod.containsKey(task.periodName)) {
-        byPeriod[task.periodName!] = [];
-      }
-      byPeriod[task.periodName]!.add(task);
+      byPeriod[periodName]!.add(task);
     }
     List<Checklist> checklists = [];
     for (var periodName in byPeriod.keys) {
@@ -412,7 +409,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       children: [
         // Операция
         Text(
-          task.operation,
+          task.periodicTask.title,
           style: const TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 16,
@@ -422,10 +419,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
         const SizedBox(height: 8),
 
-        if (task.node != null && task.node!.length > 0)
+        if (task.periodicTask.node != null && task.periodicTask.node!.length > 0)
           // Узел
           Text(
-            task.node!,
+            task.periodicTask.node!,
             style: const TextStyle(
               fontSize: 15,
             ),
@@ -434,20 +431,28 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
           width: MediaQuery.of(context).size.width,
         ),
         // Дополнительная информация (если есть)
-        if ((task.quantity != null && task.quantity!.length > 0) ||
-            (task.material != null && task.material!.length > 0))
+        if (task.periodicTask.description != null && task.periodicTask.description!.length > 0)
           Padding(
             padding: const EdgeInsets.only(top: 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (task.quantity != null && task.quantity!.length > 0)
-                  _buildDetailRow('Количество:', task.quantity!.toString()),
-                if (task.material != null && task.material!.length > 0)
-                  _buildDetailRow('Материал:', task.material!),
-              ],
+              children: [_buildDetailRow('Описание:', task.periodicTask.description!)],
             ),
           ),
+        // if ((task.quantity != null && task.quantity!.length > 0) ||
+        //     (task.material != null && task.material!.length > 0))
+        //   Padding(
+        //     padding: const EdgeInsets.only(top: 10),
+        //     child: Column(
+        //       crossAxisAlignment: CrossAxisAlignment.start,
+        //       children: [
+        //         if (task.quantity != null && task.quantity!.length > 0)
+        //           _buildDetailRow('Количество:', task.quantity!.toString()),
+        //         if (task.material != null && task.material!.length > 0)
+        //           _buildDetailRow('Материал:', task.material!),
+        //       ],
+        //     ),
+        //   ),
       ],
     );
 

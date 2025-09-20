@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:qr_machine_scanner/global_state.dart';
 import 'package:qr_machine_scanner/src/app_bar/app_bar.dart';
 import 'package:qr_machine_scanner/src/data/data_provider.dart';
+import 'package:qr_machine_scanner/src/model/inventory_scan.dart';
 import 'package:qr_machine_scanner/src/model/scan.dart';
 import 'package:qr_machine_scanner/src/model/inventory_record.dart';
 import 'package:qr_machine_scanner/src/utils/dialogs.dart';
@@ -250,15 +251,15 @@ class _QRResultScreenState extends State<QRResultScreen> {
                 Expanded(
                     child: SquareButton(
                         onPressed: () {
-                          Dialogs.areYouSure(context, onOk: () async {
-                            await dataProvider.addScan(Scan(
-                                publicId: widget.machine.uuid,
-                                quantity: int.parse(quantityController.text),
-                                ts: GlobalState.now));
-                            await dataProvider.syncScans();
-                            GoRouter.of(context)
-                                .clearStackAndNavigate("/qr_scanner");
-                          });
+                          // Dialogs.areYouSure(context, onOk: () async {
+                          //   await dataProvider.addScan(InventoryScan(
+                          //       publicId: widget.machine.uuid,
+                          //       quantity: int.parse(quantityController.text),
+                          //       ts: GlobalState.now));
+                          //   await dataProvider.syncScans();
+                          //   GoRouter.of(context)
+                          //       .clearStackAndNavigate("/qr_scanner");
+                          // });
                         },
                         child: Text("Отправить"))),
               ],

@@ -111,10 +111,19 @@ class _LoginScreenState extends State<LoginScreen> {
                       }
                     }
 
+                    // only walkers allowed
+                    if (currentUser != null) {
+                      if (currentUser.role != 'walker') {
+                        currentUser = null;
+                      }
+                    }
+
                     if (currentUser != null) {
                       dataProvider.addUser(currentUser);
                       GlobalState.authUser = currentUser;
                       await dataProvider.syncInventory();
+                      await dataProvider.syncTypicalProblems();
+                      await dataProvider.syncPeriodicityRules();
                       await GlobalState.updateDebug();
                       GoRouter.of(context).clearStackAndNavigate("/actions");
                       return;

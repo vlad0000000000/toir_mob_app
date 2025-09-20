@@ -80,7 +80,7 @@ class _BarcodeScannerWithControllerState
                             // debugPrint(machine.getQRValue());
                             if (machine.getQRValue() ==
                                 barcode.displayValue.toString()) {
-                              GlobalState.needTaskSync = true;
+                              GlobalState.needTasksSync = true;
                               GoRouter.of(context)
                                   .clearStackAndNavigate('/qr_result', extra: machine);
                               return;

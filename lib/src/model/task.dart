@@ -1,85 +1,36 @@
+import 'package:flutter/cupertino.dart';
 import 'package:hive_ce/hive.dart';
+import 'package:qr_machine_scanner/src/model/periodic_task_models.dart';
 
 class Task {
-  final int id;
-  final int start;
-  final int end;
-  final bool isCompleted;
-  final String? node;
-  final String operation;
-  final String? material;
-  final String? quantity;
-  final String? category;
-  final String? periodName;
-  final int role;
-  final int machineId;
+  final String uuid;
+  final String resultStatus;
+  final String targetType;
+  final PeriodicTask periodicTask;
+  final String equipmentUuid;
+  final String periodicityRule;
+  final String periodicityRuleDisplay;
 
   Task({
-    required this.id,
-    required this.start,
-    required this.end,
-    required this.isCompleted,
-    this.node,
-    required this.operation,
-    this.material,
-    this.quantity,
-    this.category,
-    this.periodName,
-    required this.role,
-    required this.machineId,
+    required this.uuid,
+    required this.resultStatus,
+    required this.targetType,
+    required this.periodicTask,
+    required this.equipmentUuid,
+    required this.periodicityRule,
+    required this.periodicityRuleDisplay,
   });
 
-  // Фабричный конструктор из JSON
   factory Task.fromJson(Map<String, dynamic> json) {
-    return switch (json) {
-      {
-        'id': int id,
-        'start': int start,
-        'end': int end,
-        'is_completed': bool isCompleted,
-        'operation': String operation,
-        'role': int role,
-        'machine_id': int machineId,
-        'node': String? node,
-        'material': String? material,
-        'quantity': String? quantity,
-        'category': String? category,
-        'period_name': String? periodName,
-      } =>
-        Task(
-          id: id,
-          start: start,
-          end: end,
-          isCompleted: isCompleted,
-          node: node,
-          operation: operation,
-          material: material,
-          quantity: quantity,
-          category: category,
-          periodName: periodName,
-          role: role,
-          machineId: machineId,
-        ),
-      _ => throw const FormatException('Failed to load task.'),
-    };
-  }
-
-  // Метод для преобразования в JSON
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'start': start,
-      'end': end,
-      'is_completed': isCompleted,
-      'node': node,
-      'operation': operation,
-      'material': material,
-      'quantity': quantity,
-      'category': category,
-      'period_name': periodName,
-      'role': role,
-      'machine_id': machineId,
-    };
+    return Task(
+      uuid: json['uuid'] as String,
+      resultStatus: json['result_status'] as String,
+      targetType: json['target_type'] as String,
+      periodicTask: PeriodicTask.fromJson(json['periodic_task'] as Map<String, dynamic>),
+      equipmentUuid: json['equipment_uuid'] as String,
+      periodicityRule: json['periodic_task']['periodicity_rule'] as String,
+      periodicityRuleDisplay: json['periodic_task']['periodicity_rule_display'] as String,
+    );
   }
 }
 
@@ -90,34 +41,24 @@ class TaskAdapter extends TypeAdapter<Task> {
   @override
   Task read(BinaryReader reader) {
     return Task(
-      id: reader.read(),
-      start: reader.read(),
-      end: reader.read(),
-      isCompleted: reader.read(),
-      node: reader.read(),
-      operation: reader.read(),
-      material: reader.read(),
-      quantity: reader.read(),
-      category: reader.read(),
-      periodName: reader.read(),
-      role: reader.read(),
-      machineId: reader.read(),
+      uuid: reader.read(),
+      resultStatus: reader.read(),
+      targetType: reader.read(),
+      periodicTask: reader.read(),
+      equipmentUuid: reader.read(),
+      periodicityRule: reader.read(),
+      periodicityRuleDisplay: reader.read(),
     );
   }
 
   @override
   void write(BinaryWriter writer, Task obj) {
-    writer.write(obj.id);
-    writer.write(obj.start);
-    writer.write(obj.end);
-    writer.write(obj.isCompleted);
-    writer.write(obj.node);
-    writer.write(obj.operation);
-    writer.write(obj.material);
-    writer.write(obj.quantity);
-    writer.write(obj.category);
-    writer.write(obj.periodName);
-    writer.write(obj.role);
-    writer.write(obj.machineId);
+    writer.write(obj.uuid);
+    writer.write(obj.resultStatus);
+    writer.write(obj.targetType);
+    writer.write(obj.periodicTask);
+    writer.write(obj.equipmentUuid);
+    writer.write(obj.periodicityRule);
+    writer.write(obj.periodicityRuleDisplay);
   }
 }

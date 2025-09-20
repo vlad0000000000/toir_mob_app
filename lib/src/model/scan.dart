@@ -3,10 +3,22 @@ import 'dart:convert';
 import 'package:hive_ce/hive.dart';
 import 'package:qr_machine_scanner/global_state.dart';
 
+@HiveType(typeId: 2)
 class Scan {
-  final String publicId;
-  final int quantity;
-  final int ts;
+  @HiveField(0)
+  final List<String>? files;
+  @HiveField(1)
+  final String? periodicTaskUuid;
+  @HiveField(2)
+  final String? equipmentUuid;
+  @HiveField(3)
+  final String resultStatus;
+  @HiveField(4)
+  final String? comment;
+  @HiveField(5)
+  final String? faultUuid;
+  @HiveField(6)
+  final String? taskUuid;
 
   String key() {
     return GlobalState.digest(jsonEncode(toJson()));
@@ -14,39 +26,57 @@ class Scan {
 
   @override
   String toString() {
-    return "${publicId.toString()}, ${quantity}, ${ts.toString()}";
+    return "Scan(resultStatus: $resultStatus, equipmentUuid: $equipmentUuid)";
   }
 
-  const Scan(
-      {required this.publicId, required this.quantity, required this.ts});
+  Scan({
+    this.files,
+    this.periodicTaskUuid,
+    this.equipmentUuid,
+    required this.resultStatus,
+    this.comment,
+    this.faultUuid,
+    this.taskUuid,
+  });
 
   Map<String, dynamic> toJson() {
     return {
-      'record_public_id': publicId,
-      'actual_qty': quantity,
+      'files': files,
+      'periodic_task_uuid': periodicTaskUuid,
+      'equipment_uuid': equipmentUuid,
+      'result_status': resultStatus,
+      'comment': comment,
+      'fault_uuid': faultUuid,
+      'task_uuid': taskUuid
     };
-    // return {
-    //   'public_id': publicId,
-    //   'quantity': quantity,
-    //   'ts': ts,
-    // };
   }
 }
 
 class ScanAdapter extends TypeAdapter<Scan> {
   @override
-  final int typeId = 2; // Уникальный ID для адаптера
+  final int typeId = 2;
 
   @override
   Scan read(BinaryReader reader) {
     return Scan(
-        publicId: reader.read(), quantity: reader.read(), ts: reader.read());
+      files: reader.read().cast<String>(),
+      periodicTaskUuid: reader.read(),
+      equipmentUuid: reader.read(),
+      resultStatus: reader.read(),
+      comment: reader.read(),
+      faultUuid: reader.read(),
+      taskUuid: reader.read(),
+    );
   }
 
   @override
   void write(BinaryWriter writer, Scan obj) {
-    writer.write(obj.publicId);
-    writer.write(obj.quantity);
-    writer.write(obj.ts);
+    writer.write(obj.files);
+    writer.write(obj.periodicTaskUuid);
+    writer.write(obj.equipmentUuid);
+    writer.write(obj.resultStatus);
+    writer.write(obj.comment);
+    writer.write(obj.faultUuid);
+    writer.write(obj.taskUuid);
   }
 }

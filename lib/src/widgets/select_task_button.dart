@@ -60,39 +60,6 @@ class _SelectImageButton extends State<SelectTaskButton> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.equipmentDetailController.selectedTasks.length > 0 && false) {
-      return Expanded(
-          child: SquareButton(
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Flexible(
-                child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Выбрано задач: ' +
-                      widget.equipmentDetailController.selectedTasks.length
-                          .toString(),
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ],
-            )),
-            SizedBox(
-              width: 10,
-            ),
-            Icon(
-              Icons.close,
-              size: 24,
-            )
-          ],
-        ),
-        onPressed: () {
-          widget.equipmentDetailController.clearSelection();
-        },
-      ));
-    }
-
     if (widget.controller.value != null) {
       Task task = widget.controller.value!;
       return Expanded(
@@ -105,13 +72,13 @@ class _SelectImageButton extends State<SelectTaskButton> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  task.operation,
+                  task.periodicTask.title,
                   style: TextStyle(fontWeight: FontWeight.bold),
                   overflow: TextOverflow.ellipsis,
                 ),
-                if (task.node != null && task.node!.length > 0)
+                if (task.periodicTask.node != null && task.periodicTask.node!.length > 0)
                   Text(
-                    task.node!,
+                    task.periodicTask.node!,
                     style: TextStyle(fontSize: 12),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -157,6 +124,7 @@ class _SelectImageButton extends State<SelectTaskButton> {
                   isModal: true,
                   controller: widget.equipmentDetailController,
                   onTaskTap: (Task task) {
+                    print(task);
                     widget.controller.value = task;
                     Navigator.pop(context);
                   },

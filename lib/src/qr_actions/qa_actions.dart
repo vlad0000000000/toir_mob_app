@@ -51,7 +51,10 @@ class QRActions extends StatelessWidget {
                   icon: Icons.sync,
                   label: Strings.uploadScans,
                   onPressed: () async {
-                    var scans = GlobalState.dataProvider.inventoryRecords.length;
+                    await GlobalState.dataProvider.syncInventory();
+                    await GlobalState.dataProvider.syncTypicalProblems();
+                    await GlobalState.dataProvider.syncPeriodicityRules();
+                    var scans = GlobalState.dataProvider.scanBox.length;
                     if (scans == 0) {
                       Dialogs.notify(context, "Все осмотры уже синхронизированы", "");
                       return;
@@ -122,7 +125,7 @@ class SquareButton extends StatelessWidget {
             Text(
               label,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 22),
+              style: const TextStyle(fontSize: 16),
             )
           ],
         ),

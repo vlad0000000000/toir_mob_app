@@ -8,10 +8,12 @@ import 'package:qr_machine_scanner/global_state.dart';
 import 'package:qr_machine_scanner/src/app_bar/app_bar.dart';
 import 'package:qr_machine_scanner/src/data/data_provider.dart';
 import 'package:qr_machine_scanner/src/model/inventory_record.dart';
+import 'package:qr_machine_scanner/src/model/scan.dart';
 import 'package:qr_machine_scanner/src/tasks/tasks.dart';
 import 'package:qr_machine_scanner/src/utils/dialogs.dart';
 import 'package:qr_machine_scanner/src/utils/go_router_ext.dart';
 import 'package:qr_machine_scanner/src/widgets/select_image_button.dart';
+import 'package:qr_machine_scanner/src/widgets/select_problem_button.dart';
 import 'package:qr_machine_scanner/src/widgets/select_task_button.dart';
 import 'package:qr_machine_scanner/src/widgets/square_button.dart';
 import 'package:qr_machine_scanner/strings.dart';
@@ -22,7 +24,7 @@ class ResultControls extends StatefulWidget {
   final SelectImageButtonController imageData2Controller;
   final SelectImageButtonController imageData3Controller;
   final TextEditingController priorityController;
-  final TextEditingController problemController;
+  final SelectProblemButtonController problemController;
   final SelectTaskButtonController taskController;
   final EquipmentDetailController equipmentDetailController;
   final InventoryRecord machine;
@@ -45,6 +47,22 @@ class ResultControls extends StatefulWidget {
 }
 
 class _ResultControlsState extends State<ResultControls> {
+  void _onValueChanged() {
+    setState(() {});
+  }
+
+  @override
+  void initState() {
+    widget.problemController.valueNotifier.addListener(_onValueChanged);
+    super.initState();
+  }
+
+  @override
+  void dispose() {
+    widget.problemController.valueNotifier.removeListener(_onValueChanged);
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     List<Widget> addButtons = [
@@ -61,28 +79,24 @@ class _ResultControlsState extends State<ResultControls> {
 
     Widget problemSelect = Row(
       children: [
-        Expanded(
-            child: DropdownMenu(
-          requestFocusOnTap: true,
-          onSelected: (value) {
-            setState(() {});
-          },
+        SelectProblemButton(
+          machine: widget.machine,
           controller: widget.problemController,
-          expandedInsets: EdgeInsets.zero,
-          label: Text("Проблема"),
-          initialSelection: "Проблем нет",
-          dropdownMenuEntries: [
-            "Проблем нет",
-            "Не включается",
-            "Не выключается",
-            "Шумит",
-            "Искрит",
-            "Дымит",
-            "Другое"
-          ].map((x) {
-            return DropdownMenuEntry(value: x, label: x);
-          }).toList(),
-        )),
+        ),
+        // Expanded(
+        //     child: DropdownMenu(
+        //   requestFocusOnTap: true,
+        //   onSelected: (value) {
+        //     setState(() {});
+        //   },
+        //   controller: widget.problemController,
+        //   expandedInsets: EdgeInsets.zero,
+        //   label: Text("Проблема"),
+        //   initialSelection: "Проблем нет",
+        //   dropdownMenuEntries: GlobalState.dataProvider.getTypicalProblemsForMachine(widget.machine.uuid).map((x) {
+        //     return DropdownMenuEntry(value: x, label: x.title);
+        //   }).toList(),
+        // )),
       ],
     );
 
@@ -153,10 +167,12 @@ class _ResultControlsState extends State<ResultControls> {
     Widget selectTask =
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
       FutureBuilder(
-        future: GlobalState.syncTask(widget.machine.id),
+        future: GlobalState.syncTasks(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.done) {
-            if (GlobalState.dataProvider.loadTasks(widget.machine.id).length >
+            if (GlobalState.dataProvider
+                    .getTasksForMachine(widget.machine.uuid)
+                    .length >
                 0) {
               return SelectTaskButton(
                   machine: widget.machine,
@@ -199,8 +215,7 @@ class _ResultControlsState extends State<ResultControls> {
       // )
     ]);
 
-    if (widget.problemController.text.length == 0 ||
-        widget.problemController.text == 'Проблем нет') {
+    if (widget.problemController.value == null) {
       return Column(
         spacing: 8,
         children: [
@@ -224,12 +239,33 @@ class _ResultControlsState extends State<ResultControls> {
           height: 8,
         ),
         problemSelect,
-        prioritySelect,
+        // prioritySelect,
         rest,
         SizedBox(
           height: 8,
         ),
       ],
+    );
+  }
+}
+
+class YandexImage extends StatelessWidget {
+  final String imageUrl;
+
+  const YandexImage({super.key, required this.imageUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.network(
+      imageUrl,
+      fit: BoxFit.cover,
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return Center(child: CircularProgressIndicator());
+      },
+      errorBuilder: (context, error, stackTrace) {
+        return const Center(child: Text('Failed to load image'));
+      },
     );
   }
 }
@@ -249,7 +285,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
   final imageData2Controller = SelectImageButtonController();
   final imageData3Controller = SelectImageButtonController();
   final priorityController = TextEditingController();
-  final problemController = TextEditingController();
+  final problemController = SelectProblemButtonController();
   final taskController = SelectTaskButtonController();
   final equipmentController = EquipmentDetailController();
 
@@ -262,7 +298,11 @@ class _QRResultScreenState extends State<QRResultScreen> {
         mainAxisAlignment: MainAxisAlignment.start,
         children: [
           // const Image(image: AssetImage('assets/images/lathe.jpg')),
-          Image.memory(base64Decode(widget.machine.imageData)),
+          // Image.memory(base64Decode(widget.machine.imageData)),
+          Image.network(
+            widget.machine.imageData,
+          ),
+          // YandexImage(imageUrl: widget.machine.imageData,),
           Row(
             children: [
               Expanded(child: MarkdownBody(data: """
@@ -318,27 +358,46 @@ ${widget.machine.description}
                     child: SquareButton(
                         onPressed: () {
                           Dialogs.areYouSure(context, onOk: () async {
-                            // await dataProvider.sendMachineCheck(Check(
-                            //     userId: GlobalState.authUser!.id,
-                            //     machineId: widget.machine.id,
-                            //     status: 1,
-                            //     images: [
-                            //       imageData1Controller.value,
-                            //       imageData2Controller.value,
-                            //       imageData3Controller.value,
-                            //     ],
-                            //     description: descController.text,
-                            //     taskIds: equipmentController.value
-                            //         .map(
-                            //           (e) => e.id,
-                            //         )
-                            //         .toList(),
-                            //     priority: priorityController.text,
-                            //     problem: problemController.text == 'Проблем нет'
-                            //         ? ''
-                            //         : problemController.text,
-                            //     ts: GlobalState.now));
-                            // await dataProvider.syncChecks();
+                            var status = 'closed';
+                            if (problemController.value != null) {
+                              status = 'open';
+                            }
+                            for (var task in equipmentController.value) {
+                              await dataProvider.addScan(Scan(
+                                  taskUuid: task.uuid,
+                                  resultStatus: status,
+                                  files: [
+                                    imageData1Controller.value,
+                                    imageData2Controller.value,
+                                    imageData3Controller.value,
+                                  ].where((v) {
+                                    return v.length > 0;
+                                  }).toList(),
+                                  comment: descController.text,
+                                  equipmentUuid: '',
+                                  faultUuid: '',
+                                  periodicTaskUuid: task.periodicTask.uuid));
+                            }
+                            await dataProvider.addScan(Scan(
+                                taskUuid: '',
+                                resultStatus: status,
+                                files: [
+                                  imageData1Controller.value,
+                                  imageData2Controller.value,
+                                  imageData3Controller.value,
+                                ].where((v) {
+                                  return v.length > 0;
+                                }).toList(),
+                                comment: descController.text,
+                                equipmentUuid: widget.machine.uuid,
+                                faultUuid: problemController.value != null && problemController.value!.id != 0
+                                    ? problemController.value!.uuid
+                                    : '',
+                                periodicTaskUuid: taskController.value != null
+                                    ? taskController.value!.periodicTask.uuid
+                                    : ''));
+                            //TODO:     ts: GlobalState.now
+                            await dataProvider.syncScans();
                             GoRouter.of(context)
                                 .clearStackAndNavigate("/qr_scanner");
                           });

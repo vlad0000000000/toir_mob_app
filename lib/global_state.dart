@@ -44,15 +44,6 @@ class GlobalState {
     }
   }
 
-  static bool needTaskSync = false;
-
-  static Future<void> syncTask(int machineId) async {
-    if (needTaskSync) {
-      await dataProvider.syncTasksForMachine(machineId);
-      needTaskSync = false;
-    }
-  }
-
   static int get now => (DateTime.now().millisecondsSinceEpoch / 1000).round();
 
   static ValueNotifier<String> debug = ValueNotifier('');
@@ -102,9 +93,13 @@ class GlobalState {
       serverAccess = "не доступен";
     }
     String pendingChecks =
-        dataProvider.inventoryBox.length.toString();
+        dataProvider.scanBox.length.toString();
+    String problems = dataProvider.typicalProblemBox.length.toString();
+    // String db =
+    //     "Локальные данные: (оборудование: ${dataProvider.inventoryBox.length.toString()}, пользователи: ${dataProvider.users.length.toString()}, осмотры: ${pendingChecks}, проблемы: ${problems})";
     String db =
-        "Локальные данные: (оборудование: ${dataProvider.inventoryBox.length.toString()}, пользователи: ${dataProvider.users.length.toString()}, осмотры: ${pendingChecks})";
+        "Осмотров не отправлено: ${pendingChecks}";
+
     String loggedUser = "";
     if (GlobalState.isAuthorized) {
       loggedUser = GlobalState.authUser!.username;

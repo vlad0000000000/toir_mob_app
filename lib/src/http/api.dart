@@ -1,5 +1,5 @@
 import 'dart:convert';
-
+import 'package:http_parser/http_parser.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
@@ -9,6 +9,8 @@ import 'package:qr_machine_scanner/src/model/session.dart';
 import 'package:qr_machine_scanner/src/model/inventory_record.dart';
 import 'package:qr_machine_scanner/src/model/task.dart';
 import 'package:qr_machine_scanner/src/model/user.dart';
+import 'package:qr_machine_scanner/src/model/typical_problem.dart';
+import 'package:qr_machine_scanner/src/model/periodicity_rule.dart';
 
 class API {
   static String baseUrl = dotenv.env["API_ENDPOINT"]!;
@@ -159,7 +161,6 @@ class API {
     if (response.statusCode == 200 || response.statusCode == 201) {
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
       final decodedBytes = utf8Decoder.convert(response.bodyBytes);
-      // debugPrint(decodedBytes);
       final List<dynamic> data = jsonDecode(decodedBytes);
       return data.map((json) => InventoryRecord.fromJson(json)).toList();
     } else {
@@ -194,88 +195,170 @@ class API {
     }
   }
 
-  // Отправить данные о количестве актива
+// Отправить данные о количестве актива с изображениями
   Future<void> sendScan(Scan scan) async {
     if (jwtToken == null) {
       throw Exception('Not authenticated');
     }
 
-    //TODO: убрать привязку к сессии
-    await getCurrentSession();
-    if (currentSession == null) {
-      throw Exception('No current session');
+    var method = 'POST';
+    if (scan.taskUuid != null && scan.taskUuid!.length > 0) {
+      method = 'PATCH';
     }
 
-    final response = await http.post(
-      Uri.parse('$baseUrl/v1/session/${currentSession!.id}/scans'),
-      headers: {
-        'Authorization': 'Bearer $jwtToken',
-        'Content-Type': 'application/json',
-        'accept': 'application/json',
-      },
-      body: jsonEncode(scan.toJson()),
+    // Создаем multipart request
+    var request = http.MultipartRequest(
+      method,
+      Uri.parse('$baseUrl/v1/company/fault_inspections/'),
     );
-
-    if (response.statusCode != 200 && response.statusCode != 201) {
-      throw Exception('Failed to send scan');
+    if(method == 'PATCH'){
+      request = http.MultipartRequest(
+        method,
+        Uri.parse('$baseUrl/v1/company/fault_inspections/${scan.taskUuid}'),
+      );
     }
-  }
 
-  Future<List<Task>> getAllCurrentTasks() async {
-    final url = Uri.parse('$baseUrl/machines/current_tasks');
+    // Добавляем заголовки
+    request.headers['Authorization'] = 'Bearer $jwtToken';
+    request.headers['accept'] = 'application/json';
+
+    // Добавляем поля из объекта Scan (кроме files)
+    var scanJson = scan.toJson();
+    scanJson.forEach((key, value) {
+      if (key != 'files' && value != null && (value as String).length > 0) {
+        request.fields[key] = value.toString();
+      }
+    });
+
+    // Добавляем изображения из поля files
+    if (scan.files != null && scan.files!.isNotEmpty) {
+      for (int i = 0; i < scan.files!.length; i++) {
+        final base64Image = scan.files![i];
+
+        // Убираем префикс data:image/...;base64, если присутствует
+        final cleanBase64 = base64Image.contains(',')
+            ? base64Image.split(',').last
+            : base64Image;
+
+        try {
+          final bytes = base64Decode(cleanBase64);
+          final file = http.MultipartFile.fromBytes(
+            'files', // Имя поля (должно совпадать с серверным)
+            bytes,
+            filename: 'image_$i.jpg', // Имя файла
+            contentType:
+                MediaType('image', 'jpeg'), // Замените при необходимости
+          );
+          request.files.add(file);
+        } catch (e) {
+          print('Ошибка декодирования изображения $i: $e');
+          // Можно продолжить отправку без этого изображения или прервать операцию
+        }
+      }
+    }
 
     try {
-      final response = await http.get(
-        url,
-        headers: {
-          'Authorization': basicAuth,
-          'Content-Type': 'application/json',
-        },
-      ).timeout(Duration(seconds: 10));
+      // Отправляем запрос
+      final response = await request.send();
 
-      if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(response.body);
-        return data.map((json) => Task.fromJson(json)).toList();
-      } else {
+      // Получаем и проверяем ответ
+      final responseBody = await response.stream.bytesToString();
+
+      if (response.statusCode != 200 && response.statusCode != 201) {
         throw Exception(
-            'Ошибка загрузки задач: ${response.statusCode}\n${response.body}');
+            'Failed to send scan: ${response.statusCode} - $responseBody');
       }
+
+      // print('Успешно отправлено: $responseBody');
     } catch (e) {
-      throw Exception('Сетевая ошибка: $e');
+      throw Exception('Failed to send scan: $e');
     }
   }
 
-  Future<List<Task>> getEquipmentTasks(String equipmentUUID) async {
+  Future<List<Task>> getCurrentTasks({limit = 50, offset = 0}) async {
+    // Проверяем наличие токена
     if (jwtToken == null) {
       throw Exception('Not authenticated');
     }
 
-    final url =
-        Uri.parse('$baseUrl/v1/company/equipment/$equipmentUUID/grouped-tasks');
+    final url = Uri.parse(
+        '$baseUrl/v1/company/fault_inspections/?limit=${limit}&skip=${offset}&today_only=1');
 
     final response = await http.get(
       url,
       headers: {
-        'Authorization': 'Bearer $jwtToken', // Используем JWT
+        'Authorization': 'Bearer $jwtToken',
       },
     );
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
       final decodedBytes = utf8Decoder.convert(response.bodyBytes);
-      // final List<dynamic> data = jsonDecode(decodedBytes);
-      final Map<String, dynamic> data = jsonDecode(decodedBytes);
-      List<Task> tasks = [];
-      debugPrint(data.toString());
-      for (var period in data['periodic_tasks']) {
-        for (var task in data['periodic_tasks'][period]) {
-          tasks.add(Task.fromJson(task));
-        }
-      }
-      return tasks;
-      // return data.map((json) => Task.fromJson(json)).toList();
+      final List<dynamic> data = jsonDecode(decodedBytes);
+      return data
+          .where((json) {
+            return (json['result_status'] as String) == 'scheduled';
+          })
+          .map((json) => Task.fromJson(json))
+          .toList();
     } else {
-      throw Exception('Failed to load tasks: ${response.statusCode}');
+      throw Exception(
+          'Failed to load typical problems: ${response.statusCode}');
+    }
+  }
+
+  Future<List<TypicalProblem>> getTypicalProblems(
+      {limit = 50, offset = 0}) async {
+    // Проверяем наличие токена
+    if (jwtToken == null) {
+      throw Exception('Not authenticated');
+    }
+
+    final url = Uri.parse(
+        '$baseUrl/v1/company/eq_fault/?limit=${limit}&skip=${offset}');
+
+    final response = await http.get(
+      url,
+      headers: {
+        'Authorization': 'Bearer $jwtToken',
+      },
+    );
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      const utf8Decoder = Utf8Decoder(allowMalformed: true);
+      final decodedBytes = utf8Decoder.convert(response.bodyBytes);
+      final List<dynamic> data = jsonDecode(decodedBytes);
+      return data.map((json) => TypicalProblem.fromJson(json)).toList();
+    } else {
+      throw Exception(
+          'Failed to load typical problems: ${response.statusCode}');
+    }
+  }
+
+  Future<List<PeriodicityRule>> getPeriodicityRules() async {
+    if (jwtToken == null) {
+      throw Exception('Not authenticated');
+    }
+
+    final url =
+        Uri.parse('$baseUrl/v1/company/periodic_task/periodicity-rules');
+
+    final response = await http.get(
+      url,
+      headers: {
+        'Authorization': 'Bearer $jwtToken',
+      },
+    );
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      const utf8Decoder = Utf8Decoder(allowMalformed: true);
+      final decodedBytes = utf8Decoder.convert(response.bodyBytes);
+      final Map<String, dynamic> data = jsonDecode(decodedBytes);
+      final List<dynamic> rules = data['rules'];
+      return rules.map((json) => PeriodicityRule.fromJson(json)).toList();
+    } else {
+      throw Exception(
+          'Failed to load periodicity rules: ${response.statusCode}');
     }
   }
 }

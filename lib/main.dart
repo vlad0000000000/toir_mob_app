@@ -12,9 +12,12 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:qr_machine_scanner/global_state.dart';
 import 'package:qr_machine_scanner/src/login/login_screen.dart';
+import 'package:qr_machine_scanner/src/model/periodic_task_models.dart';
+import 'package:qr_machine_scanner/src/model/periodicity_rule.dart';
 import 'package:qr_machine_scanner/src/model/scan.dart';
 import 'package:qr_machine_scanner/src/model/inventory_record.dart';
 import 'package:qr_machine_scanner/src/model/task.dart';
+import 'package:qr_machine_scanner/src/model/typical_problem.dart';
 import 'package:qr_machine_scanner/src/qr/qr_screen.dart';
 import 'package:qr_machine_scanner/src/qr_actions/qa_actions.dart';
 import 'package:qr_machine_scanner/src/qr_result/qr_result_screen.dart';
@@ -82,6 +85,12 @@ Future<void> main() async {
   Hive.registerAdapter(ScanAdapter());
   Hive.registerAdapter(SessionAdapter());
   Hive.registerAdapter(TaskAdapter());
+  Hive.registerAdapter(TypicalProblemAdapter());
+  Hive.registerAdapter(PeriodicityRuleAdapter());
+  Hive.registerAdapter(PeriodicTaskAdapter());
+  Hive.registerAdapter(LocationAdapter());
+  Hive.registerAdapter(EquipmentAdapter());
+  Hive.registerAdapter(CustomRoleAdapter());
 
   var dataProvider = DataProvider(
       api: API(),
@@ -89,6 +98,9 @@ Future<void> main() async {
       inventoryBox: await Hive.openBox<InventoryRecord>('inventory'),
       scanBox: await Hive.openBox<Scan>('scans'),
       sessionBox: await Hive.openBox<Session>('sessions'),
+      typicalProblemBox: await Hive.openBox<TypicalProblem>('typical_problems'),
+      periodicityRuleBox:
+          await Hive.openBox<PeriodicityRule>('periodicity_rules'),
       taskBox: await Hive.openBox<Task>('tasks'));
 
   GlobalState.dataProvider = dataProvider;
@@ -300,7 +312,7 @@ class MyApp extends StatelessWidget {
 
               var app = MaterialApp.router(
                 builder: EasyLoading.init(),
-                title: 'QR Machine Scanner Yarmarka',
+                title: 'QR Сканнер ТОиР',
                 theme: ThemeData.from(
                   colorScheme: ColorScheme.fromSeed(
                       seedColor: Colors.blue,
