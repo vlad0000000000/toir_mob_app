@@ -282,7 +282,7 @@ class API {
     }
 
     final url = Uri.parse(
-        '$baseUrl/v1/company/fault_inspections/?limit=${limit}&skip=${offset}&today_only=1');
+        '$baseUrl/v1/company/fault_inspections/?limit=${limit}&skip=${offset}&today_only=1&status=scheduled');
 
     final response = await http.get(
       url,

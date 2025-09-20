@@ -82,10 +82,24 @@ class EquipmentListScreen extends StatelessWidget {
         builder: (BuildContext context, AsyncSnapshot<void> snapshot) {
           if (snapshot.connectionState == ConnectionState.done) {
             var equipmentList = GlobalState.dataProvider.inventoryRecords;
+            // equipmentList.sort((a, b) {
+            //   var ac = GlobalState.dataProvider.getTasksForMachine(a.uuid).length;
+            //   var bc = GlobalState.dataProvider.getTasksForMachine(b.uuid).length;
+            //   return bc.compareTo(ac);
+            // });
+            equipmentList = equipmentList.where((x) {
+              return GlobalState.dataProvider
+                      .getTasksForMachine(x.uuid)
+                      .length >
+                  0;
+            }).toList();
             Widget list = ListView.builder(
               itemCount: equipmentList.length,
               itemBuilder: (context, index) {
                 final equipment = equipmentList[index];
+                var taskCount = GlobalState.dataProvider
+                    .getTasksForMachine(equipment.uuid)
+                    .length;
                 return Card(
                     margin:
                         const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -95,13 +109,7 @@ class EquipmentListScreen extends StatelessWidget {
                     ),
                     child: ListTile(
                       title: Text(
-                        equipment.name +
-                            ' (' +
-                            GlobalState.dataProvider
-                                .getTasksForMachine(equipment.uuid)
-                                .length
-                                .toString() +
-                            ')',
+                        '${equipment.name} (${taskCount})',
                         style: const TextStyle(
                           // color: Colors.blue,
                           fontWeight: FontWeight.bold,
@@ -249,7 +257,8 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
   }
 
   Equipment createEquipment(InventoryRecord machine) {
-    List<Task> tasks = GlobalState.dataProvider.getTasksForMachine(machine.uuid);
+    List<Task> tasks =
+        GlobalState.dataProvider.getTasksForMachine(machine.uuid);
     Map<String, List<Task>> byPeriod = {};
     var periodOrder = periodColors.keys.toList();
     for (var task in tasks) {
@@ -419,7 +428,8 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
         const SizedBox(height: 8),
 
-        if (task.periodicTask.node != null && task.periodicTask.node!.length > 0)
+        if (task.periodicTask.node != null &&
+            task.periodicTask.node!.length > 0)
           // Узел
           Text(
             task.periodicTask.node!,
@@ -431,12 +441,15 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
           width: MediaQuery.of(context).size.width,
         ),
         // Дополнительная информация (если есть)
-        if (task.periodicTask.description != null && task.periodicTask.description!.length > 0)
+        if (task.periodicTask.description != null &&
+            task.periodicTask.description!.length > 0)
           Padding(
             padding: const EdgeInsets.only(top: 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [_buildDetailRow('Описание:', task.periodicTask.description!)],
+              children: [
+                _buildDetailRow('Описание:', task.periodicTask.description!)
+              ],
             ),
           ),
         // if ((task.quantity != null && task.quantity!.length > 0) ||
