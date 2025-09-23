@@ -124,7 +124,6 @@ class _SelectImageButton extends State<SelectTaskButton> {
                   isModal: true,
                   controller: widget.equipmentDetailController,
                   onTaskTap: (Task task) {
-                    print(task);
                     widget.controller.value = task;
                     Navigator.pop(context);
                   },

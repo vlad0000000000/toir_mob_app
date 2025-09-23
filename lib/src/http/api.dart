@@ -29,21 +29,27 @@ class API {
 
   static Session? currentSession;
 
-  Future<void> me() async {
+  Future<User> me() async {
     // Проверяем наличие токена
     if (jwtToken == null) {
       throw Exception('Not authenticated');
     }
 
     final response = await http.get(
-      Uri.parse('$baseUrl/v1/auth/me'),
+      Uri.parse('$baseUrl/v1/user/me'),
       headers: {
         'Authorization': 'Bearer $jwtToken', // Используем JWT
       },
     );
 
     if (response.statusCode == 200 || response.statusCode == 201) {
-      // final List<dynamic> data = jsonDecode(response.body);
+      final Map<String, dynamic> responseData = jsonDecode(response.body);
+      const utf8Decoder = Utf8Decoder(allowMalformed: true);
+      final decodedBytes = utf8Decoder.convert(response.bodyBytes);
+      final Map<String, dynamic> data = jsonDecode(decodedBytes);
+      User user =
+          User(role: '', username: '', effectiveRole: data['effective_role']);
+      return user;
     } else {
       throw Exception('Failed to authenticate: ${response.statusCode}');
     }
@@ -88,7 +94,8 @@ class API {
 
     if (response.statusCode == 200) {
       final Map<String, dynamic> responseData = jsonDecode(response.body);
-      User user = User(role: responseData['role'], username: username);
+      User user = User(
+          role: responseData['role'], username: username, effectiveRole: '');
       user.password = password;
       user.JWTToken = responseData['access_token'];
       return user;
@@ -196,7 +203,7 @@ class API {
   }
 
 // Отправить данные о количестве актива с изображениями
-  Future<void> sendScan(Scan scan) async {
+  Future<bool> sendScan(Scan scan) async {
     if (jwtToken == null) {
       throw Exception('Not authenticated');
     }
@@ -211,7 +218,7 @@ class API {
       method,
       Uri.parse('$baseUrl/v1/company/fault_inspections/'),
     );
-    if(method == 'PATCH'){
+    if (method == 'PATCH') {
       request = http.MultipartRequest(
         method,
         Uri.parse('$baseUrl/v1/company/fault_inspections/${scan.taskUuid}'),
@@ -259,20 +266,33 @@ class API {
 
     try {
       // Отправляем запрос
-      final response = await request.send();
+      await GlobalState.dataProvider.scanBox.delete(scan.key());
+      await GlobalState.dataProvider.scanPendingBox.put(scan.key(), scan);
+
+      final response = await request.send().timeout(Duration(seconds: 10));
 
       // Получаем и проверяем ответ
       final responseBody = await response.stream.bytesToString();
+      final Map<String, dynamic> responseData = jsonDecode(responseBody);
 
       if (response.statusCode != 200 && response.statusCode != 201) {
         throw Exception(
             'Failed to send scan: ${response.statusCode} - $responseBody');
       }
 
-      // print('Успешно отправлено: $responseBody');
+      if (responseData.containsKey('uuid')) {
+        await GlobalState.dataProvider.scanPendingBox.delete(scan.key());
+        return true;
+      }
+      await GlobalState.dataProvider.scanPendingBox.delete(scan.key());
+      await GlobalState.dataProvider.scanBox.put(scan.key(), scan);
     } catch (e) {
+      await GlobalState.dataProvider.scanPendingBox.delete(scan.key());
+      await GlobalState.dataProvider.scanBox.put(scan.key(), scan);
+
       throw Exception('Failed to send scan: $e');
     }
+    return false;
   }
 
   Future<List<Task>> getCurrentTasks({limit = 50, offset = 0}) async {
@@ -300,6 +320,12 @@ class API {
             return (json['result_status'] as String) == 'scheduled';
           })
           .map((json) => Task.fromJson(json))
+          .where((x) {
+            return x.periodicTask.customRoles.where((x) {
+                  return x.name == GlobalState.authUser!.effectiveRole;
+                }).length >
+                0;
+          })
           .toList();
     } else {
       throw Exception(

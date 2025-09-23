@@ -17,19 +17,20 @@ class DataProvider {
   final Box<Task> taskBox;
   final Box<InventoryRecord> inventoryBox;
   final Box<Scan> scanBox;
+  final Box<Scan> scanPendingBox;
   final Box<Session> sessionBox;
   final Box<TypicalProblem> typicalProblemBox;
   final Box<PeriodicityRule> periodicityRuleBox;
 
-  DataProvider(
-      {required this.api,
-      required this.userBox,
-      required this.inventoryBox,
-      required this.scanBox,
-      required this.sessionBox,
-      required this.taskBox,
-      required this.typicalProblemBox,
-      required this.periodicityRuleBox}) {
+  DataProvider({required this.api,
+    required this.userBox,
+    required this.inventoryBox,
+    required this.scanBox,
+    required this.scanPendingBox,
+    required this.sessionBox,
+    required this.taskBox,
+    required this.typicalProblemBox,
+    required this.periodicityRuleBox}) {
     _users = userBox.values.toList();
     _inventoryRecords = inventoryBox.values.toList();
     _typicalProblems = typicalProblemBox.values.toList();
@@ -76,8 +77,8 @@ class DataProvider {
     List<InventoryRecord> all = [];
     while (true) {
       List<InventoryRecord> notAll =
-          // await api.getInventoryRecords(limit: limit, offset: offset);
-          await api.getEquipment(limit: limit, offset: offset);
+      // await api.getInventoryRecords(limit: limit, offset: offset);
+      await api.getEquipment(limit: limit, offset: offset);
       for (var inventoryRecord in notAll) {
         all.add(inventoryRecord);
       }
@@ -95,7 +96,7 @@ class DataProvider {
     List<TypicalProblem> all = [];
     while (true) {
       List<TypicalProblem> notAll =
-          await api.getTypicalProblems(limit: limit, offset: offset);
+      await api.getTypicalProblems(limit: limit, offset: offset);
       for (var typicalProblem in notAll) {
         all.add(typicalProblem);
       }
@@ -122,7 +123,7 @@ class DataProvider {
     List<Task> all = [];
     while (true) {
       List<Task> notAll =
-          await api.getCurrentTasks(limit: limit, offset: offset);
+      await api.getCurrentTasks(limit: limit, offset: offset);
       for (var typicalProblem in notAll) {
         all.add(typicalProblem);
       }
@@ -188,6 +189,15 @@ class DataProvider {
     }
   }
 
+  void startScanSyncing() {
+    Future.sync(() async {
+      while (true) {
+        await Future.delayed(Duration(seconds: 5));
+        await syncScans();
+      }
+    });
+  }
+
   void startSyncing() {
     Future.sync(() async {
       while (true) {
@@ -196,7 +206,7 @@ class DataProvider {
           await syncInventory();
           await syncTypicalProblems();
           await syncPeriodicityRules();
-          await syncScans();
+          // await syncScans();
         }
       }
     });
@@ -236,24 +246,16 @@ class DataProvider {
         .toList();
   }
 
-  static bool isScansSyncing = false;
+  // static bool isScansSyncing = false;
 
 // // TODO: как можно меньше await
   Future<void> syncScans() async {
     final scans = scanBox.values.toList();
+    // print('sync scans ' + scanBox.values.length.toString());
     for (final scan in scans) {
-      if (isScansSyncing) {
-        continue;
-      }
       try {
-        isScansSyncing = true;
         await api.sendScan(scan);
-        await scanBox.delete(scan.key());
-        isScansSyncing = false;
       } catch (e, stack) {
-        isScansSyncing = false;
-        // print(stack);
-        // await scanBox.put(scan.key(), scan);
         print('Error syncing data: $e');
       }
     }

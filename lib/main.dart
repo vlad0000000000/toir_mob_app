@@ -97,11 +97,17 @@ Future<void> main() async {
       userBox: await Hive.openBox<User>('users'),
       inventoryBox: await Hive.openBox<InventoryRecord>('inventory'),
       scanBox: await Hive.openBox<Scan>('scans'),
+      scanPendingBox: await Hive.openBox<Scan>('pending_scans'),
       sessionBox: await Hive.openBox<Session>('sessions'),
       typicalProblemBox: await Hive.openBox<TypicalProblem>('typical_problems'),
       periodicityRuleBox:
           await Hive.openBox<PeriodicityRule>('periodicity_rules'),
       taskBox: await Hive.openBox<Task>('tasks'));
+
+  for (var scan in dataProvider.scanPendingBox.values) {
+    await dataProvider.scanPendingBox.delete(scan.key());
+    await dataProvider.scanBox.put(scan.key(), scan);
+  }
 
   GlobalState.dataProvider = dataProvider;
 
@@ -116,6 +122,7 @@ Future<void> main() async {
   // }
 
   dataProvider.startSyncing();
+  dataProvider.startScanSyncing();
 
   Future.sync(() async {
     while (true) {

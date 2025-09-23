@@ -405,14 +405,10 @@ ${widget.machine.description}
                     child: SquareButton(
                         onPressed: () {
                           Dialogs.areYouSure(context, onOk: () async {
-                            var status = 'closed';
-                            if (problemController.value != null) {
-                              status = 'open';
-                            }
                             for (var task in equipmentController.value) {
                               await dataProvider.addScan(Scan(
                                   taskUuid: task.uuid,
-                                  resultStatus: status,
+                                  resultStatus: 'closed',
                                   files: [
                                     imageData1Controller.value,
                                     imageData2Controller.value,
@@ -420,10 +416,14 @@ ${widget.machine.description}
                                   ].where((v) {
                                     return v.length > 0;
                                   }).toList(),
-                                  comment: descController.text,
+                                  comment: '',
                                   equipmentUuid: '',
                                   faultUuid: '',
                                   periodicTaskUuid: task.periodicTask.uuid));
+                            }
+                            var status = 'closed';
+                            if (problemController.value != null) {
+                              status = 'open';
                             }
                             await dataProvider.addScan(Scan(
                                 taskUuid: '',
@@ -441,11 +441,9 @@ ${widget.machine.description}
                                         problemController.value!.id != 0
                                     ? problemController.value!.uuid
                                     : '',
-                                periodicTaskUuid: taskController.value != null
-                                    ? taskController.value!.periodicTask.uuid
-                                    : ''));
+                                periodicTaskUuid: ''));
                             //TODO:     ts: GlobalState.now
-                            await dataProvider.syncScans();
+                            // await dataProvider.syncScans();
                             GoRouter.of(context)
                                 .clearStackAndNavigate("/qr_scanner");
                           });

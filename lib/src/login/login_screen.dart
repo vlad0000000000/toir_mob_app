@@ -119,8 +119,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     }
 
                     if (currentUser != null) {
-                      dataProvider.addUser(currentUser);
                       GlobalState.authUser = currentUser;
+                      var currentUserMe = await dataProvider.api.me();
+                      currentUser.effectiveRole = currentUserMe.effectiveRole;
+                      GlobalState.authUser = currentUser;
+                      dataProvider.addUser(currentUser);
                       await dataProvider.syncInventory();
                       await dataProvider.syncTypicalProblems();
                       await dataProvider.syncPeriodicityRules();
