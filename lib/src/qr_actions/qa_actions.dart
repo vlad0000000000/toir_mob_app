@@ -56,7 +56,8 @@ class QRActions extends StatelessWidget {
                     await GlobalState.dataProvider.syncPeriodicityRules();
                     var scans = GlobalState.dataProvider.scanBox.length;
                     if (scans == 0) {
-                      Dialogs.notify(context, "Все осмотры уже синхронизированы", "");
+                      Dialogs.notify(
+                          context, "Все осмотры уже синхронизированы", "");
                       return;
                     }
                     if (!await GlobalState.hasConnectionToServer) {
@@ -67,16 +68,18 @@ class QRActions extends StatelessWidget {
                     await GlobalState.dataProvider.syncScans();
                     scans = GlobalState.dataProvider.scanBox.length;
                     if (scans == 0) {
-                      Dialogs.notify(context, "Осмотры успешно синхронизированы", "");
+                      Dialogs.notify(
+                          context, "Осмотры успешно синхронизированы", "");
                       return;
                     } else {
-                      Dialogs.notify(
-                          context, "Не получилось синхронизировать осмотры", "");
+                      Dialogs.notify(context,
+                          "Не получилось синхронизировать осмотры", "");
                       return;
                     }
                   },
                 );
               }
+
               return SquareButton(
                 label: '',
                 icon: Icons.add,

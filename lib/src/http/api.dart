@@ -266,8 +266,8 @@ class API {
 
     try {
       // Отправляем запрос
-      await GlobalState.dataProvider.scanBox.delete(scan.key());
-      await GlobalState.dataProvider.scanPendingBox.put(scan.key(), scan);
+      // await GlobalState.dataProvider.scanBox.delete(scan.key());
+      // await GlobalState.dataProvider.scanPendingBox.put(scan.key(), scan);
 
       final response = await request.send().timeout(Duration(seconds: 10));
 
@@ -281,14 +281,14 @@ class API {
       }
 
       if (responseData.containsKey('uuid')) {
-        await GlobalState.dataProvider.scanPendingBox.delete(scan.key());
+        // await GlobalState.dataProvider.scanPendingBox.delete(scan.key());
         return true;
       }
-      await GlobalState.dataProvider.scanPendingBox.delete(scan.key());
-      await GlobalState.dataProvider.scanBox.put(scan.key(), scan);
+      // await GlobalState.dataProvider.scanPendingBox.delete(scan.key());
+      // await GlobalState.dataProvider.scanBox.put(scan.key(), scan);
     } catch (e) {
-      await GlobalState.dataProvider.scanPendingBox.delete(scan.key());
-      await GlobalState.dataProvider.scanBox.put(scan.key(), scan);
+      // await GlobalState.dataProvider.scanPendingBox.delete(scan.key());
+      // await GlobalState.dataProvider.scanBox.put(scan.key(), scan);
 
       throw Exception('Failed to send scan: $e');
     }
@@ -317,7 +317,7 @@ class API {
       final List<dynamic> data = jsonDecode(decodedBytes);
       return data
           .where((json) {
-            return (json['result_status'] as String) == 'scheduled';
+            return (json['result_status'] as String) == 'scheduled' && json['periodic_task'] != null;
           })
           .map((json) => Task.fromJson(json))
           .where((x) {
