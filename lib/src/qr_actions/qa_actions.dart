@@ -24,7 +24,7 @@ class QRActions extends StatelessWidget {
               crossAxisSpacing: 16, // Горизонтальный отступ
               mainAxisSpacing: 16, // Вертикальный отступ
             ),
-            itemCount: 3,
+            itemCount: 4,
             itemBuilder: (context, index) {
               if (index == 0) {
                 return SquareButton(
@@ -79,7 +79,17 @@ class QRActions extends StatelessWidget {
                   },
                 );
               }
-
+              if (index == 3) {
+                return SquareButton(
+                  icon: Icons.delete,
+                  label: "Сбросить осмотры",
+                  onPressed: () async {
+                    await GlobalState.dataProvider.scanBox.clear();
+                    await GlobalState.dataProvider.scanPendingBox.clear();
+                    Dialogs.notify(context, "Осмотры успешно сброшены", "");
+                  },
+                );
+              }
               return SquareButton(
                 label: '',
                 icon: Icons.add,
