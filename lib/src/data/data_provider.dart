@@ -251,17 +251,20 @@ class DataProvider {
     final scans = scanBox.values.toList();
     // print('sync scans ' + scanBox.values.length.toString());
     for (final scan in scans) {
-      await GlobalState.dataProvider.scanBox.delete(scan.key());
-      await GlobalState.dataProvider.scanPendingBox.put(scan.key(), scan);
       try {
+        await GlobalState.dataProvider.scanBox.delete(scan.key());
+        await GlobalState.dataProvider.scanPendingBox.delete(scan.key());
+        await GlobalState.dataProvider.scanPendingBox.put(scan.key(), scan);
         if (await api.sendScan(scan)) {
           await GlobalState.dataProvider.scanPendingBox.delete(scan.key());
-          // await GlobalState.dataProvider.scanBox.put(scan.key(), scan);
+          await GlobalState.dataProvider.scanBox.delete(scan.key());
         } else {
           await GlobalState.dataProvider.scanPendingBox.delete(scan.key());
+          await GlobalState.dataProvider.scanBox.delete(scan.key());
           await GlobalState.dataProvider.scanBox.put(scan.key(), scan);
         }
       } catch (e, stack) {
+        await GlobalState.dataProvider.scanBox.delete(scan.key());
         await GlobalState.dataProvider.scanPendingBox.delete(scan.key());
         await GlobalState.dataProvider.scanBox.put(scan.key(), scan);
         print('Error syncing data: $e');
