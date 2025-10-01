@@ -9,7 +9,7 @@ class Equipment {
   @HiveField(2)
   final String name;
   @HiveField(3)
-  final String typeModel;
+  final String? typeModel;
 
   Equipment({
     required this.id,
@@ -23,7 +23,7 @@ class Equipment {
       id: json['id'] as int,
       uuid: json['uuid'] as String,
       name: json['name'] as String,
-      typeModel: json['type_model'] as String,
+      typeModel: json['type_model'] as String?,
     );
   }
 }
