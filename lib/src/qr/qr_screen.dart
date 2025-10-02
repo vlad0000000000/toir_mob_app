@@ -75,11 +75,11 @@ class _BarcodeScannerWithControllerState
                       // }
                       if (barcodes.barcodes.length > 0) {
                         for (var barcode in barcodes.barcodes) {
-                          // debugPrint("barcode = " + barcode.displayValue.toString());
+                          // print("barcode = " + barcode.displayValue.toString());
                           for (var machine in dataProvider.inventoryRecords) {
-                            // debugPrint(machine.getQRValue());
-                            if (machine.getQRValue() ==
-                                barcode.displayValue.toString()) {
+                            // print(machine.getQRValue());
+                            if (machine.getQRValue().toLowerCase() ==
+                                barcode.displayValue.toString().toLowerCase()) {
                               GlobalState.needTasksSync = true;
                               GoRouter.of(context)
                                   .clearStackAndNavigate('/qr_result', extra: machine);

@@ -24,7 +24,6 @@ class Task {
   });
 
   factory Task.fromJson(Map<String, dynamic> json) {
-    print(json);
     return Task(
       uuid: json['uuid'] as String,
       resultStatus: json['result_status'] as String,
