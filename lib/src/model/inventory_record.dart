@@ -16,18 +16,18 @@ class InventoryRecord {
 
   String get descriptionText {
     final List<String> parts = [];
-    parts.add('**Наименование**: $name');
+    parts.add('**Наименование оборудования**: $name');
     if (typeModel != null && typeModel!.isNotEmpty)
-      parts.add('**Модель**: $typeModel');
+      parts.add('**Тип / модель**: $typeModel');
     if (serialNumber != null && serialNumber!.isNotEmpty)
       parts.add('**Серийный номер**: $serialNumber');
-    if (location != null && serialNumber!.isNotEmpty)
+    if (location != null && location!.isNotEmpty)
       parts.add('**Местоположение**: $location');
     if (manufacturer != null && manufacturer!.isNotEmpty)
       parts.add('**Производитель**: $manufacturer');
     if (description != null && description!.isNotEmpty)
       parts.add('**Описание**: $description');
-    return parts.join('\n');
+    return parts.join('\n\n');
   }
 
   const InventoryRecord({

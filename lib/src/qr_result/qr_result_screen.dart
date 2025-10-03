@@ -353,7 +353,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
           Row(
             children: [
               Expanded(child: MarkdownBody(data: """
-${widget.machine.description}
+${widget.machine.descriptionText}
     """))
             ],
           ),
