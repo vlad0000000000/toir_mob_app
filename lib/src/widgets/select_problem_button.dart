@@ -1,13 +1,7 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:qr_machine_scanner/global_state.dart';
 import 'package:qr_machine_scanner/src/model/inventory_record.dart';
 import 'package:qr_machine_scanner/src/model/typical_problem.dart';
-import 'package:qr_machine_scanner/src/widgets/square_button.dart';
-import 'package:qr_machine_scanner/strings.dart';
-import 'package:themed/themed.dart';
 
 class SelectProblemButtonController {
   final ValueNotifier<TypicalProblem?> _valueNotifier = ValueNotifier(null);

@@ -74,6 +74,8 @@ android {
         versionCode envProperties.getProperty('APP_VERSION_CODE') as Integer
         versionName "${envProperties.getProperty('APP_VERSION_NAME')}"
         multiDexEnabled true
+        manifestPlaceholders['APP_ID'] = envProperties.getProperty('APP_ID')
+        manifestPlaceholders['APP_TITLE'] = envProperties.getProperty('APP_TITLE')
     }
 
     signingConfigs {

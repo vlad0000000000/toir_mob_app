@@ -1,16 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 // import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
-import 'package:hive_ce/hive.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart';
 import 'package:qr_machine_scanner/src/data/data_provider.dart';
 import 'package:qr_machine_scanner/src/http/api.dart';
 import 'package:qr_machine_scanner/src/model/user.dart';
-import 'package:crypto/crypto.dart';
-
-import 'package:intl/intl.dart';
-import 'package:intl/date_symbol_data_local.dart';
 
 class GlobalState {
   static late DataProvider dataProvider;

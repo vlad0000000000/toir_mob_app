@@ -1,11 +1,7 @@
-import 'dart:convert';
-
 import 'package:awesome_dialog/awesome_dialog.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:qr_machine_scanner/src/widgets/square_button.dart';
 import 'package:qr_machine_scanner/strings.dart';
-import 'package:themed/themed.dart';
 
 class ButtonWithSelectDialogController {
   final ValueNotifier<String> _valueNotifier = ValueNotifier('');

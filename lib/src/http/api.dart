@@ -1,16 +1,16 @@
 import 'dart:convert';
-import 'package:http_parser/http_parser.dart';
-import 'package:flutter/material.dart';
+
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:qr_machine_scanner/global_state.dart';
+import 'package:qr_machine_scanner/src/model/inventory_record.dart';
+import 'package:qr_machine_scanner/src/model/periodicity_rule.dart';
 import 'package:qr_machine_scanner/src/model/scan.dart';
 import 'package:qr_machine_scanner/src/model/session.dart';
-import 'package:qr_machine_scanner/src/model/inventory_record.dart';
 import 'package:qr_machine_scanner/src/model/task.dart';
-import 'package:qr_machine_scanner/src/model/user.dart';
 import 'package:qr_machine_scanner/src/model/typical_problem.dart';
-import 'package:qr_machine_scanner/src/model/periodicity_rule.dart';
+import 'package:qr_machine_scanner/src/model/user.dart';
 
 class API {
   static String baseUrl = dotenv.env["API_ENDPOINT"]!;

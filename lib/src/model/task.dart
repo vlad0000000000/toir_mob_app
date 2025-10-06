@@ -1,4 +1,3 @@
-import 'package:flutter/cupertino.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:qr_machine_scanner/src/model/periodic_task_models.dart';
 

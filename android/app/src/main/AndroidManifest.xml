@@ -12,7 +12,7 @@
         </intent>
     </queries>
     <application
-        android:label="QR Сканнер ТОиР"
+        android:label="${APP_TITLE}"
         android:name="${applicationName}"
         android:allowBackup="false"
         android:fullBackupOnly="false"

@@ -6,16 +6,17 @@ import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:hive_ce/hive.dart';
+import 'package:go_router/go_router.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
+import 'package:logging/logging.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:qr_machine_scanner/global_state.dart';
+import 'package:provider/provider.dart';
 import 'package:qr_machine_scanner/src/login/login_screen.dart';
+import 'package:qr_machine_scanner/src/model/inventory_record.dart';
 import 'package:qr_machine_scanner/src/model/periodic_task_models.dart';
 import 'package:qr_machine_scanner/src/model/periodicity_rule.dart';
 import 'package:qr_machine_scanner/src/model/scan.dart';
-import 'package:qr_machine_scanner/src/model/inventory_record.dart';
 import 'package:qr_machine_scanner/src/model/task.dart';
 import 'package:qr_machine_scanner/src/model/typical_problem.dart';
 import 'package:qr_machine_scanner/src/qr/qr_screen.dart';
@@ -25,12 +26,8 @@ import 'package:qr_machine_scanner/src/splash/splash_screen.dart';
 import 'package:qr_machine_scanner/src/style/snack_bar.dart';
 import 'package:qr_machine_scanner/src/tasks/tasks.dart';
 import 'package:qr_machine_scanner/src/utils/dependent.dart';
-import 'package:go_router/go_router.dart';
-import 'package:logging/logging.dart';
-import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:themed/themed.dart';
 
+import 'global_state.dart';
 import 'src/app_lifecycle/app_lifecycle.dart';
 import 'src/data/data_provider.dart';
 import 'src/http/api.dart';
@@ -319,7 +316,7 @@ class MyApp extends StatelessWidget {
 
               var app = MaterialApp.router(
                 builder: EasyLoading.init(),
-                title: 'QR Сканнер ТОиР',
+                title: dotenv.env["APP_TITLE"]!,
                 theme: ThemeData.from(
                   colorScheme: ColorScheme.fromSeed(
                       seedColor: Colors.blue,

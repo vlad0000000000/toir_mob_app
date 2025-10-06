@@ -1,4 +1,3 @@
-import 'package:flutter/cupertino.dart';
 import 'package:hive_ce/hive.dart';
 
 class TypicalProblem {

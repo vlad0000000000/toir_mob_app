@@ -1,12 +1,15 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'dart:async';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_machine_scanner/global_state.dart';
 import 'package:qr_machine_scanner/src/app_bar/app_bar.dart';
 import 'package:qr_machine_scanner/src/data/data_provider.dart';
 import 'package:qr_machine_scanner/src/utils/go_router_ext.dart';
+
 import 'scanner_button_widgets.dart';
 import 'scanner_error_widget.dart';
 
@@ -59,63 +62,72 @@ class _BarcodeScannerWithControllerState
       body: Stack(
         fit: StackFit.expand,
         children: [
-          LayoutBuilder(builder: (context, constraints) {
-            final scanWindow = Rect.fromCenter(
-              center: Offset(constraints.maxWidth / 2, constraints.maxHeight / 2),
-              width: 200,
-              height: 200,
-            );
-            return Stack(
-              children: [
-                Center(
-                  child: MobileScanner(
-                    onDetect: (barcodes) async {
-                      // if (!allowScan) {
-                      //   return;
-                      // }
-                      if (barcodes.barcodes.length > 0) {
-                        for (var barcode in barcodes.barcodes) {
-                          // print("barcode = " + barcode.displayValue.toString());
-                          for (var machine in dataProvider.inventoryRecords) {
-                            // print(machine.getQRValue());
-                            if (machine.getQRValue().toLowerCase() ==
-                                barcode.displayValue.toString().toLowerCase()) {
-                              GlobalState.needTasksSync = true;
-                              GoRouter.of(context)
-                                  .clearStackAndNavigate('/qr_result', extra: machine);
-                              return;
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final scanWindow = Rect.fromCenter(
+                center:
+                    Offset(constraints.maxWidth / 2, constraints.maxHeight / 2),
+                width: 200,
+                height: 200,
+              );
+              return Stack(
+                children: [
+                  Center(
+                    child: MobileScanner(
+                      onDetect: (barcodes) async {
+                        // if (!allowScan) {
+                        //   return;
+                        // }
+                        if (barcodes.barcodes.length > 0) {
+                          for (var barcode in barcodes.barcodes) {
+                            var barcodeUUID = "";
+                            try {
+                              barcodeUUID = jsonDecode(
+                                  barcode.displayValue.toString())['uuid'];
+                            } catch (e) {}
+                            // print("barcode uuid = " + barcodeUUID);
+                            for (var machine in dataProvider.inventoryRecords) {
+                              // print(machine.getQRValue());
+                              if (machine.uuid.toLowerCase() ==
+                                  barcodeUUID.toLowerCase()) {
+                                GlobalState.needTasksSync = true;
+                                GoRouter.of(context).clearStackAndNavigate(
+                                    '/qr_result',
+                                    extra: machine);
+                                return;
+                              }
                             }
                           }
                         }
-                      }
-                    },
-                    fit: BoxFit.contain,
-                    controller: controller,
-                    scanWindow: scanWindow,
-                    errorBuilder: (context, error) {
-                      return ScannerErrorWidget(error: error);
-                    },
-                  ),
-                ),
-                ValueListenableBuilder(
-                  valueListenable: controller,
-                  builder: (context, value, child) {
-                    if (!value.isInitialized ||
-                        !value.isRunning ||
-                        value.error != null ||
-                        scanWindow.isEmpty) {
-                      return const SizedBox();
-                    }
-
-                    return ScanWindowOverlay(
+                      },
+                      fit: BoxFit.contain,
                       controller: controller,
                       scanWindow: scanWindow,
-                    );
-                  },
-                ),
-              ],
-            );
-          },),
+                      errorBuilder: (context, error) {
+                        return ScannerErrorWidget(error: error);
+                      },
+                    ),
+                  ),
+                  ValueListenableBuilder(
+                    valueListenable: controller,
+                    builder: (context, value, child) {
+                      if (!value.isInitialized ||
+                          !value.isRunning ||
+                          value.error != null ||
+                          scanWindow.isEmpty) {
+                        return const SizedBox();
+                      }
+
+                      return ScanWindowOverlay(
+                        controller: controller,
+                        scanWindow: scanWindow,
+                      );
+                    },
+                  ),
+                ],
+              );
+            },
+          ),
           Align(
             alignment: Alignment.bottomCenter,
             child: Padding(

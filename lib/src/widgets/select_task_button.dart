@@ -1,7 +1,4 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:qr_machine_scanner/global_state.dart';
 import 'package:qr_machine_scanner/src/model/inventory_record.dart';
 import 'package:qr_machine_scanner/src/model/task.dart';
 import 'package:qr_machine_scanner/src/tasks/tasks.dart';
