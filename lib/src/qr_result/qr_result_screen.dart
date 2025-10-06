@@ -209,9 +209,9 @@ class _ResultControlsState extends State<ResultControls> {
       // )
     ]);
 
-    if (widget.problemController.value == null) {
-      rest = null;
-    }
+    // if (widget.problemController.value == null) {
+    //   rest = null;
+    // }
 
     return Column(
       spacing: 8,
@@ -222,7 +222,8 @@ class _ResultControlsState extends State<ResultControls> {
         ),
         problemSelect,
         // prioritySelect,
-        if (rest != null) rest,
+        rest,
+        // if (rest != null) rest,
         SizedBox(
             height: 160,
             child: Row(
