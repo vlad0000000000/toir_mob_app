@@ -6,9 +6,9 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
-import 'package:qr_machine_scanner/src/data/data_provider.dart';
-import 'package:qr_machine_scanner/src/http/api.dart';
-import 'package:qr_machine_scanner/src/model/user.dart';
+import '../../src/data/data_provider.dart';
+import '../../src/http/api.dart';
+import '../../src/model/user.dart';
 
 class GlobalState {
   static late DataProvider dataProvider;

@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:provider/provider.dart';
-import 'package:qr_machine_scanner/src/app_bar/app_bar.dart';
-import 'package:qr_machine_scanner/src/data/data_provider.dart';
-import 'package:qr_machine_scanner/src/model/inventory_record.dart';
-import 'package:qr_machine_scanner/src/widgets/select_image_button.dart';
-import 'package:qr_machine_scanner/src/widgets/square_button.dart';
-import 'package:qr_machine_scanner/strings.dart';
+import '../../src/app_bar/app_bar.dart';
+import '../../src/data/data_provider.dart';
+import '../../src/model/inventory_record.dart';
+import '../../src/widgets/select_image_button.dart';
+import '../../src/widgets/square_button.dart';
+import '../../strings.dart';
 
 class ResultControls extends StatefulWidget {
   final TextEditingController descController;

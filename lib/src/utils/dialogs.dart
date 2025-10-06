@@ -1,6 +1,6 @@
 import 'package:awesome_dialog/awesome_dialog.dart';
 import 'package:flutter/material.dart';
-import 'package:qr_machine_scanner/strings.dart';
+import '../../strings.dart';
 
 class Dialogs {
 

@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:hive_ce/hive.dart';
-import 'package:qr_machine_scanner/global_state.dart';
+import '../../global_state.dart';
 
 class InventoryScan {
   final String publicId;

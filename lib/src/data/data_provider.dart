@@ -1,13 +1,13 @@
 import 'package:hive_ce/hive.dart';
-import 'package:qr_machine_scanner/global_state.dart';
-import 'package:qr_machine_scanner/src/http/api.dart';
-import 'package:qr_machine_scanner/src/model/inventory_record.dart';
-import 'package:qr_machine_scanner/src/model/periodicity_rule.dart';
-import 'package:qr_machine_scanner/src/model/scan.dart';
-import 'package:qr_machine_scanner/src/model/session.dart';
-import 'package:qr_machine_scanner/src/model/task.dart';
-import 'package:qr_machine_scanner/src/model/typical_problem.dart';
-import 'package:qr_machine_scanner/src/model/user.dart';
+import '../../global_state.dart';
+import '../../src/http/api.dart';
+import '../../src/model/inventory_record.dart';
+import '../../src/model/periodicity_rule.dart';
+import '../../src/model/scan.dart';
+import '../../src/model/session.dart';
+import '../../src/model/task.dart';
+import '../../src/model/typical_problem.dart';
+import '../../src/model/user.dart';
 
 class DataProvider {
   final API api;

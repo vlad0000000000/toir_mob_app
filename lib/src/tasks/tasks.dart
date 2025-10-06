@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:qr_machine_scanner/global_state.dart';
-import 'package:qr_machine_scanner/src/app_bar/app_bar.dart';
-import 'package:qr_machine_scanner/src/model/inventory_record.dart';
-import 'package:qr_machine_scanner/src/model/task.dart';
-import 'package:qr_machine_scanner/src/widgets/square_button.dart';
+import '../../global_state.dart';
+import '../../src/app_bar/app_bar.dart';
+import '../../src/model/inventory_record.dart';
+import '../../src/model/task.dart';
+import '../../src/widgets/square_button.dart';
 
 // models.dart
 class Equipment {

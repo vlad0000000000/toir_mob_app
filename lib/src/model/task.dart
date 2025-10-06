@@ -1,5 +1,5 @@
 import 'package:hive_ce/hive.dart';
-import 'package:qr_machine_scanner/src/model/periodic_task_models.dart';
+import '../../src/model/periodic_task_models.dart';
 
 class Task {
   final String uuid;

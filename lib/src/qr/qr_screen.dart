@@ -5,10 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
-import 'package:qr_machine_scanner/global_state.dart';
-import 'package:qr_machine_scanner/src/app_bar/app_bar.dart';
-import 'package:qr_machine_scanner/src/data/data_provider.dart';
-import 'package:qr_machine_scanner/src/utils/go_router_ext.dart';
+import '../../global_state.dart';
+import '../../src/app_bar/app_bar.dart';
+import '../../src/data/data_provider.dart';
+import '../../src/utils/go_router_ext.dart';
 
 import 'scanner_button_widgets.dart';
 import 'scanner_error_widget.dart';

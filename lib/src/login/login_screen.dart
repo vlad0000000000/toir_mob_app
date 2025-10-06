@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import 'package:qr_machine_scanner/global_state.dart';
-import 'package:qr_machine_scanner/src/data/data_provider.dart';
-import 'package:qr_machine_scanner/src/model/user.dart';
-import 'package:qr_machine_scanner/src/utils/dialogs.dart';
-import 'package:qr_machine_scanner/src/utils/go_router_ext.dart';
-import 'package:qr_machine_scanner/strings.dart';
+import '../../global_state.dart';
+import '../../src/data/data_provider.dart';
+import '../../src/model/user.dart';
+import '../../src/utils/dialogs.dart';
+import '../../src/utils/go_router_ext.dart';
+import '../../strings.dart';
 import 'package:themed/themed.dart';
 
 class LoginScreen extends StatefulWidget {

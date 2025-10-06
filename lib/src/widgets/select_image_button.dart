@@ -2,8 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:qr_machine_scanner/src/widgets/square_button.dart';
-import 'package:qr_machine_scanner/strings.dart';
+import '../../src/widgets/square_button.dart';
+import '../../strings.dart';
 import 'package:themed/themed.dart';
 
 class SelectImageButtonController {

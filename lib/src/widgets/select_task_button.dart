@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:qr_machine_scanner/src/model/inventory_record.dart';
-import 'package:qr_machine_scanner/src/model/task.dart';
-import 'package:qr_machine_scanner/src/tasks/tasks.dart';
-import 'package:qr_machine_scanner/src/widgets/square_button.dart';
+import '../../src/model/inventory_record.dart';
+import '../../src/model/task.dart';
+import '../../src/tasks/tasks.dart';
+import '../../src/widgets/square_button.dart';
 
 class SelectTaskButtonController {
   final ValueNotifier<Task?> _valueNotifier = ValueNotifier(null);

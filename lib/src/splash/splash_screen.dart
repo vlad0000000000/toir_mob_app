@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:qr_machine_scanner/src/utils/go_router_ext.dart';
+import '../../src/utils/go_router_ext.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});

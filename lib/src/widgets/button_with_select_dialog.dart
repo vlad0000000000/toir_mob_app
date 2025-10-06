@@ -1,7 +1,7 @@
 import 'package:awesome_dialog/awesome_dialog.dart';
 import 'package:flutter/material.dart';
-import 'package:qr_machine_scanner/src/widgets/square_button.dart';
-import 'package:qr_machine_scanner/strings.dart';
+import '../../src/widgets/square_button.dart';
+import '../../strings.dart';
 
 class ButtonWithSelectDialogController {
   final ValueNotifier<String> _valueNotifier = ValueNotifier('');

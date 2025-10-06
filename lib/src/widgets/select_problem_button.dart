@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:qr_machine_scanner/global_state.dart';
-import 'package:qr_machine_scanner/src/model/inventory_record.dart';
-import 'package:qr_machine_scanner/src/model/typical_problem.dart';
+import '../../global_state.dart';
+import '../../src/model/inventory_record.dart';
+import '../../src/model/typical_problem.dart';
 
 class SelectProblemButtonController {
   final ValueNotifier<TypicalProblem?> _valueNotifier = ValueNotifier(null);

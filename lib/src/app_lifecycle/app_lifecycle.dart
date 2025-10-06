@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:logging/logging.dart';
 import 'package:provider/provider.dart';
-import 'package:qr_machine_scanner/global_state.dart';
+import '../../global_state.dart';
 
 class AppLifecycleObserver extends StatefulWidget {
   final Widget child;

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:qr_machine_scanner/global_state.dart';
-import 'package:qr_machine_scanner/src/app_bar/app_bar.dart';
-import 'package:qr_machine_scanner/src/utils/dialogs.dart';
-import 'package:qr_machine_scanner/src/utils/go_router_ext.dart';
-import 'package:qr_machine_scanner/strings.dart';
+import '../../global_state.dart';
+import '../../src/app_bar/app_bar.dart';
+import '../../src/utils/dialogs.dart';
+import '../../src/utils/go_router_ext.dart';
+import '../../strings.dart';
 
 class QRActions extends StatelessWidget {
   const QRActions({super.key});
