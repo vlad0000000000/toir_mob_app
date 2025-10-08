@@ -171,7 +171,7 @@ class UsageParameter {
   final double maintenanceInterval;
   final double nextMaintenanceValue;
 
-  String? validate(value) {
+  String? validate(value, {allowCurrentValue = false}) {
     if (value == null || value.isEmpty) {
       return 'Значение не может быть пустым';
     }
@@ -181,8 +181,14 @@ class UsageParameter {
     } catch (e) {
       return 'Значение должно быть числом';
     }
-    if (v <= currentValue) {
-      return 'Значение должно быть больше текущего';
+    if (allowCurrentValue) {
+      if (v < currentValue) {
+        return 'Значение должно быть больше текущего';
+      }
+    } else {
+      if (v <= currentValue) {
+        return 'Значение должно быть больше текущего';
+      }
     }
     return null;
   }

@@ -149,7 +149,8 @@ class _UsageSelectionModalState extends State<UsageSelectionModal> {
         var selected = widget.controller.value!
             .where((element) => element.usageParameterUuid == unit.uuid);
         if (selected.length > 0) {
-          usageControllers[unit.unitType]!.text = selected.first.usageParameterValue.toString();
+          usageControllers[unit.unitType]!.text =
+              selected.first.usageParameterValue.toString();
         }
       }
     }
@@ -217,7 +218,8 @@ class _UsageSelectionModalState extends State<UsageSelectionModal> {
                               },
                               controller: controller,
                               validator: (value) {
-                                return usageParameter.validate(value);
+                                return usageParameter.validate(value,
+                                    allowCurrentValue: true);
                               },
                               keyboardType: TextInputType.number,
                               // inputFormatters: <TextInputFormatter>[
