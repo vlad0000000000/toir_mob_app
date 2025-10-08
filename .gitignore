@@ -44,3 +44,4 @@ app.*.map.json
 /android/app/release
 **/.cxx/
 **/configure_fingerprint.bin
+*.bin
