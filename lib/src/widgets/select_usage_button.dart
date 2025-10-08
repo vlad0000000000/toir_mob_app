@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:my_app/src/model/usage_update.dart';
-import 'package:my_app/src/utils/any_controller.dart';
+import '../../src/model/usage_update.dart';
+import '../../src/utils/any_controller.dart';
 import '../../global_state.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/usage_unit.dart';

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:my_app/src/utils/any_controller.dart';
+import '../../src/utils/any_controller.dart';
 import '../../global_state.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/typical_problem.dart';

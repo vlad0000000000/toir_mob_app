@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:my_app/src/model/priority.dart';
-import 'package:my_app/src/utils/any_controller.dart';
-import '../../src/model/inventory_record.dart';
-import '../../src/model/typical_problem.dart';
+import '../../src/model/priority.dart';
+import '../../src/utils/any_controller.dart';
 import '../../strings.dart';
 
 class SelectPriorityButton extends StatefulWidget {

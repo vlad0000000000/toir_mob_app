@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
-import 'package:my_app/src/model/usage_update.dart';
+import '../../src/model/usage_update.dart';
 import '../../global_state.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/periodicity_rule.dart';
