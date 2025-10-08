@@ -90,6 +90,7 @@ Future<void> main() async {
   Hive.registerAdapter(EquipmentAdapter());
   Hive.registerAdapter(CustomRoleAdapter());
   Hive.registerAdapter(UsageUnitAdapter());
+  Hive.registerAdapter(UsageParameterAdapter());
 
   var dataProvider = DataProvider(
       api: API(),

@@ -117,7 +117,7 @@ class GlobalState {
 
 - **Сервер**: ${serverAccess}
 - **Осмотров не отправлено**: ${pendingChecks}
-- **ТМЦ/Обрудование**: ${inventory}
+- **ТМЦ/Оборудование**: ${inventory}
 - **Пользователь**: ${loggedUser}
 - **Дата последней синхронизации**: ${lastSyncDate}
 ---

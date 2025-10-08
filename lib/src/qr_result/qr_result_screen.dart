@@ -19,9 +19,10 @@ import '../../src/widgets/select_problem_button.dart';
 import '../../src/widgets/select_task_button.dart';
 import '../../src/widgets/square_button.dart';
 import '../../strings.dart';
-import '../model/task.dart';
 import '../model/typical_problem.dart';
 import '../utils/any_controller.dart';
+import '../../src/widgets/select_usage_button.dart';
+import '../../src/model/usage_unit.dart';
 
 class ResultControls extends StatefulWidget {
   final TextEditingController descController;
@@ -30,8 +31,8 @@ class ResultControls extends StatefulWidget {
   final SelectImageButtonController imageData3Controller;
   final AnyController<Priority> priorityController;
   final AnyController<TypicalProblem> problemController;
-  final AnyController<Task> taskController;
   final EquipmentDetailController equipmentDetailController;
+  final UsageController usageController;
   final InventoryRecord machine;
 
   const ResultControls({
@@ -42,9 +43,9 @@ class ResultControls extends StatefulWidget {
     required this.imageData3Controller,
     required this.priorityController,
     required this.problemController,
-    required this.taskController,
     required this.machine,
     required this.equipmentDetailController,
+    required this.usageController,
   });
 
   @override
@@ -60,6 +61,7 @@ class _ResultControlsState extends State<ResultControls> {
   void initState() {
     widget.problemController.valueNotifier.addListener(_onValueChanged);
     widget.priorityController.valueNotifier.addListener(_onValueChanged);
+    widget.usageController.valueNotifier.addListener(_onValueChanged);
     super.initState();
   }
 
@@ -67,6 +69,7 @@ class _ResultControlsState extends State<ResultControls> {
   void dispose() {
     widget.problemController.valueNotifier.removeListener(_onValueChanged);
     widget.priorityController.valueNotifier.removeListener(_onValueChanged);
+    widget.usageController.valueNotifier.removeListener(_onValueChanged);
     super.dispose();
   }
 
@@ -143,9 +146,7 @@ class _ResultControlsState extends State<ResultControls> {
       ],
     );
 
-    Widget? rest = Column(spacing: 8, children: [
-      prioritySelect,
-    ]);
+    Widget? rest = Column(spacing: 8, children: [prioritySelect]);
 
     Widget selectTask =
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -159,7 +160,6 @@ class _ResultControlsState extends State<ResultControls> {
                 0) {
               return SelectTaskButton(
                   machine: widget.machine,
-                  controller: widget.taskController,
                   equipmentDetailController: widget.equipmentDetailController);
             } else {
               return Padding(
@@ -206,6 +206,17 @@ class _ResultControlsState extends State<ResultControls> {
     return Column(
       spacing: 8,
       children: [
+        Row(
+          children: [
+            SelectUsageButton(
+              machine: widget.machine,
+              controller: widget.usageController,
+            ),
+          ],
+        ),
+        SizedBox(
+          height: 8,
+        ),
         selectTask,
         SizedBox(
           height: 8,
@@ -304,17 +315,6 @@ class YandexImage extends StatelessWidget {
         ],
       ),
     );
-    return Image.network(
-      imageUrl,
-      fit: BoxFit.cover,
-      loadingBuilder: (context, child, loadingProgress) {
-        if (loadingProgress == null) return child;
-        return Center(child: CircularProgressIndicator());
-      },
-      errorBuilder: (context, error, stackTrace) {
-        return const Center(child: Text('Failed to load image'));
-      },
-    );
   }
 }
 
@@ -334,8 +334,8 @@ class _QRResultScreenState extends State<QRResultScreen> {
   final imageData3Controller = SelectImageButtonController();
   final priorityController = AnyController<Priority>();
   final problemController = AnyController<TypicalProblem>();
-  final taskController = AnyController<Task>();
   final equipmentController = EquipmentDetailController();
+  final usageController = UsageController();
 
   Widget passport() {
     var passportType = 1;
@@ -404,8 +404,8 @@ ${widget.machine.descriptionText}
                     imageData3Controller: imageData3Controller,
                     priorityController: priorityController,
                     problemController: problemController,
-                    taskController: taskController,
                     equipmentDetailController: equipmentController,
+                    usageController: usageController,
                   )
                 ],
               ),
@@ -419,6 +419,26 @@ ${widget.machine.descriptionText}
                         onPressed: () {
                           print(priorityController.value);
                           Dialogs.areYouSure(context, onOk: () async {
+                            for (var usageParameter in usageController.value) {
+                              await dataProvider.addUsageScan(Scan(
+                                  taskUuid: '',
+                                  resultStatus: '',
+                                  files: [
+                                    imageData1Controller.value,
+                                    imageData2Controller.value,
+                                    imageData3Controller.value,
+                                  ].where((v) {
+                                    return v.length > 0;
+                                  }).toList(),
+                                  comment: '',
+                                  equipmentUuid: '',
+                                  faultUuid: '',
+                                  usageParameterUuid: usageParameter.uuid,
+                                  usageParameterValue:
+                                      usageParameter.currentValue,
+                                  periodicTaskUuid: ''));
+                            }
+
                             var tasksCompleted = false;
                             for (var task in equipmentController.value) {
                               await dataProvider.addScan(Scan(
@@ -475,7 +495,7 @@ ${widget.machine.descriptionText}
                                 .clearStackAndNavigate("/qr_scanner");
                           });
                         },
-                        child: Text("Отправить"))),
+                        child: Text("Отправить")))
               ],
             ),
             // checkControls()

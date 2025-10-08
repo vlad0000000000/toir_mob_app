@@ -6,14 +6,12 @@ import '../../src/tasks/tasks.dart';
 import '../../src/widgets/square_button.dart';
 
 class SelectTaskButton extends StatefulWidget {
-  final AnyController<Task> controller;
   final EquipmentDetailController equipmentDetailController;
   InventoryRecord machine;
 
   SelectTaskButton(
       {required this.machine,
       super.key,
-      required this.controller,
       required this.equipmentDetailController}) {}
 
   @override
@@ -42,45 +40,6 @@ class _SelectImageButton extends State<SelectTaskButton> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.controller.value != null) {
-      Task task = widget.controller.value!;
-      return Expanded(
-          child: SquareButton(
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Flexible(
-                child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  task.periodicTask.title,
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (task.periodicTask.node != null &&
-                    task.periodicTask.node!.length > 0)
-                  Text(
-                    task.periodicTask.node!,
-                    style: TextStyle(fontSize: 12),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-              ],
-            )),
-            SizedBox(
-              width: 10,
-            ),
-            Icon(
-              Icons.close,
-              size: 24,
-            )
-          ],
-        ),
-        onPressed: () {
-          widget.controller.value = null;
-        },
-      ));
-    }
 
     return Expanded(
         child: SquareButton(
@@ -107,7 +66,6 @@ class _SelectImageButton extends State<SelectTaskButton> {
                   isModal: true,
                   controller: widget.equipmentDetailController,
                   onTaskTap: (Task task) {
-                    widget.controller.value = task;
                     Navigator.pop(context);
                   },
                   machine: widget.machine,

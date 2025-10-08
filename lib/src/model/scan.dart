@@ -24,7 +24,7 @@ class Scan {
   @HiveField(8)
   final String? usageParameterUuid;
   @HiveField(9)
-  final int? usageParameterValue;
+  final double? usageParameterValue;
 
   String key() {
     return GlobalState.digest(jsonEncode(toJson()));

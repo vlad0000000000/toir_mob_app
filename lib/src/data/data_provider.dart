@@ -356,7 +356,8 @@ class DataProvider {
       try {
         await GlobalState.dataProvider.scanUsageBox.delete(scan.key());
         await GlobalState.dataProvider.scanUsagePendingBox.delete(scan.key());
-        await GlobalState.dataProvider.scanUsagePendingBox.put(scan.key(), scan);
+        await GlobalState.dataProvider.scanUsagePendingBox
+            .put(scan.key(), scan);
         if (await api.updateUsageParameter(scan.equipmentUuid!,
             scan.usageParameterUuid!, scan.usageParameterValue!)) {
           await GlobalState.dataProvider.scanUsagePendingBox.delete(scan.key());
@@ -366,7 +367,7 @@ class DataProvider {
           await GlobalState.dataProvider.scanUsageBox.delete(scan.key());
           await GlobalState.dataProvider.scanUsageBox.put(scan.key(), scan);
         }
-      } catch (e, stack) {
+      } catch (e) {
         await GlobalState.dataProvider.scanUsageBox.delete(scan.key());
         await GlobalState.dataProvider.scanUsagePendingBox.delete(scan.key());
         await GlobalState.dataProvider.scanUsageBox.put(scan.key(), scan);
@@ -391,7 +392,7 @@ class DataProvider {
           await GlobalState.dataProvider.scanBox.delete(scan.key());
           await GlobalState.dataProvider.scanBox.put(scan.key(), scan);
         }
-      } catch (e, stack) {
+      } catch (e) {
         await GlobalState.dataProvider.scanBox.delete(scan.key());
         await GlobalState.dataProvider.scanPendingBox.delete(scan.key());
         await GlobalState.dataProvider.scanBox.put(scan.key(), scan);

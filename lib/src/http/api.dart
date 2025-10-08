@@ -44,7 +44,7 @@ class API {
     );
 
     if (response.statusCode == 200 || response.statusCode == 201) {
-      final Map<String, dynamic> responseData = jsonDecode(response.body);
+      // final Map<String, dynamic> responseData = jsonDecode(response.body);
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
       final decodedBytes = utf8Decoder.convert(response.bodyBytes);
       final Map<String, dynamic> data = jsonDecode(decodedBytes);
@@ -419,7 +419,7 @@ class API {
   }
 
   Future<bool> updateUsageParameter(
-      String equipmentUuid, String paramUuid, int currentValue) async {
+      String equipmentUuid, String paramUuid, double currentValue) async {
     if (jwtToken == null) {
       throw Exception('Not authenticated');
     }

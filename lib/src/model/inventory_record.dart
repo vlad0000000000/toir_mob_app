@@ -164,12 +164,12 @@ class UsageParameter {
   final int id;
   final String uuid;
   final String unitType;
-  final String currentValue;
+  final double currentValue;
   final bool prohibitDecrease;
   final bool createMaintenanceTasks;
-  final String lastMaintenanceValue;
-  final String maintenanceInterval;
-  final String nextMaintenanceValue;
+  final double lastMaintenanceValue;
+  final double maintenanceInterval;
+  final double nextMaintenanceValue;
 
   const UsageParameter({
     required this.id,
@@ -188,12 +188,12 @@ class UsageParameter {
       id: json['id'] as int,
       uuid: json['uuid'] as String,
       unitType: json['unit_type'] as String,
-      currentValue: json['current_value'] as String,
+      currentValue: double.parse(json['current_value']) as double,
       prohibitDecrease: json['prohibit_decrease'] as bool,
       createMaintenanceTasks: json['create_maintenance_tasks'] as bool,
-      lastMaintenanceValue: json['last_maintenance_value'] as String,
-      maintenanceInterval: json['maintenance_interval'] as String,
-      nextMaintenanceValue: json['next_maintenance_value'] as String,
+      lastMaintenanceValue: double.parse(json['last_maintenance_value']) as double,
+      maintenanceInterval: double.parse(json['maintenance_interval']) as double,
+      nextMaintenanceValue: double.parse(json['next_maintenance_value']) as double,
     );
   }
 }
