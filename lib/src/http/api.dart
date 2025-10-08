@@ -417,4 +417,28 @@ class API {
           'Failed to load usage unit types: ${response.statusCode}');
     }
   }
+
+  Future<void> updateUsageParameter(
+      String equipmentUuid, String paramUuid, int currentValue) async {
+    if (jwtToken == null) {
+      throw Exception('Not authenticated');
+    }
+
+    final url = Uri.parse(
+        '$baseUrl/v1/company/equipment/$equipmentUuid/usage-parameters/$paramUuid');
+
+    final response = await http.patch(
+      url,
+      headers: {
+        'Authorization': 'Bearer $jwtToken',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'current_value': currentValue}),
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception(
+          'Failed to update usage parameter: ${response.statusCode}');
+    }
+  }
 }

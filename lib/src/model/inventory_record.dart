@@ -12,6 +12,7 @@ class InventoryRecord {
   final String? dateOfEntry;
   final String? description;
   final String imageData;
+  final List<UsageParameter> usageParameters;
 
   String get descriptionText {
     final List<String> parts = [];
@@ -41,6 +42,7 @@ class InventoryRecord {
     this.dateOfEntry,
     this.description,
     this.imageData = '',
+    this.usageParameters = const [],
   });
 
   String getQRValue() {
@@ -75,6 +77,11 @@ class InventoryRecord {
           imageData: (json['photos'] as List<dynamic>?)?.isNotEmpty == true
               ? json['photos']![0]['url'] as String
               : '',
+          usageParameters: (json['usage_parameters'] as List<dynamic>?)
+                  ?.map(
+                      (e) => UsageParameter.fromJson(e as Map<String, dynamic>))
+                  .toList() ??
+              const [],
         ),
       _ => throw const FormatException('Failed to load InventoryRecord.'),
     };
@@ -99,6 +106,7 @@ class InventoryAdapter extends TypeAdapter<InventoryRecord> {
       dateOfEntry: reader.read(),
       description: reader.read(),
       imageData: reader.read(),
+      usageParameters: reader.readList().cast<UsageParameter>(),
     );
   }
 
@@ -115,5 +123,77 @@ class InventoryAdapter extends TypeAdapter<InventoryRecord> {
     writer.write(obj.dateOfEntry);
     writer.write(obj.description);
     writer.write(obj.imageData);
+    writer.write(obj.usageParameters);
+  }
+}
+
+class UsageParameterAdapter extends TypeAdapter<UsageParameter> {
+  @override
+  final int typeId = 13;
+
+  @override
+  UsageParameter read(BinaryReader reader) {
+    return UsageParameter(
+      id: reader.read(),
+      uuid: reader.read(),
+      unitType: reader.read(),
+      currentValue: reader.read(),
+      prohibitDecrease: reader.read(),
+      createMaintenanceTasks: reader.read(),
+      lastMaintenanceValue: reader.read(),
+      maintenanceInterval: reader.read(),
+      nextMaintenanceValue: reader.read(),
+    );
+  }
+
+  @override
+  void write(BinaryWriter writer, UsageParameter obj) {
+    writer.write(obj.id);
+    writer.write(obj.uuid);
+    writer.write(obj.unitType);
+    writer.write(obj.currentValue);
+    writer.write(obj.prohibitDecrease);
+    writer.write(obj.createMaintenanceTasks);
+    writer.write(obj.lastMaintenanceValue);
+    writer.write(obj.maintenanceInterval);
+    writer.write(obj.nextMaintenanceValue);
+  }
+}
+
+class UsageParameter {
+  final int id;
+  final String uuid;
+  final String unitType;
+  final String currentValue;
+  final bool prohibitDecrease;
+  final bool createMaintenanceTasks;
+  final String lastMaintenanceValue;
+  final String maintenanceInterval;
+  final String nextMaintenanceValue;
+
+  const UsageParameter({
+    required this.id,
+    required this.uuid,
+    required this.unitType,
+    required this.currentValue,
+    required this.prohibitDecrease,
+    required this.createMaintenanceTasks,
+    required this.lastMaintenanceValue,
+    required this.maintenanceInterval,
+    required this.nextMaintenanceValue,
+  });
+
+  factory UsageParameter.fromJson(Map<String, dynamic> json) {
+    return UsageParameter(
+      id: json['id'] as int,
+      uuid: json['uuid'] as String,
+      unitType: json['unit_type'] as String,
+      currentValue: json['current_value'] as String,
+      prohibitDecrease: json['prohibit_decrease'] as bool,
+      createMaintenanceTasks: json['create_maintenance_tasks'] as bool,
+      lastMaintenanceValue: json['last_maintenance_value'] as String,
+      maintenanceInterval: json['maintenance_interval'] as String,
+      nextMaintenanceValue: json['next_maintenance_value'] as String,
+    );
   }
 }
