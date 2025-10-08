@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
+import 'package:my_app/src/model/usage_update.dart';
 import '../../global_state.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/periodicity_rule.dart';
@@ -418,14 +419,15 @@ class API {
     }
   }
 
-  Future<bool> updateUsageParameter(
-      String equipmentUuid, String paramUuid, double currentValue) async {
+  Future<bool> updateUsageParameter(UsageUpdate usageUpdate) async {
     if (jwtToken == null) {
       throw Exception('Not authenticated');
     }
 
+    print(usageUpdate.toString());
+
     final url = Uri.parse(
-        '$baseUrl/v1/company/equipment/$equipmentUuid/usage-parameters/$paramUuid');
+        '$baseUrl/v1/company/equipment/${usageUpdate.equipmentUuid}/usage-parameters/${usageUpdate.usageParameterUuid}');
 
     final response = await http.patch(
       url,
@@ -433,7 +435,7 @@ class API {
         'Authorization': 'Bearer $jwtToken',
         'Content-Type': 'application/json',
       },
-      body: jsonEncode({'current_value': currentValue}),
+      body: jsonEncode({'current_value': usageUpdate.usageParameterValue}),
     );
 
     final responseBody = response.body;

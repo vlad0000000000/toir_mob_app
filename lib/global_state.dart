@@ -39,6 +39,7 @@ class GlobalState {
 
   static Future<void> syncTasks() async {
     if (needTasksSync) {
+      await dataProvider.syncInventory();
       await dataProvider.syncTasks();
       needTasksSync = false;
     }
@@ -101,7 +102,8 @@ class GlobalState {
     if (!(await GlobalState.hasConnectionToServer)) {
       serverAccess = "не доступен";
     }
-    String pendingChecks = dataProvider.scanBox.length.toString();
+    String pendingScans = dataProvider.scanBox.length.toString();
+    String pendingUsageUpdates = dataProvider.scanUsageBox.length.toString();
     // String problems = dataProvider.typicalProblemBox.length.toString();
     String inventory = dataProvider.inventoryRecords.length.toString();
 
@@ -116,10 +118,12 @@ class GlobalState {
 ## Информация
 
 - **Сервер**: ${serverAccess}
-- **Осмотров не отправлено**: ${pendingChecks}
+- **Осмотров не отправлено**: ${pendingScans}
+- **Наработок не отправлено**: ${pendingUsageUpdates}
 - **ТМЦ/Оборудование**: ${inventory}
 - **Пользователь**: ${loggedUser}
 - **Дата последней синхронизации**: ${lastSyncDate}
+
 ---
 
 - **appName**: ${appName}

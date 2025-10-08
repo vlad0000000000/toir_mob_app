@@ -29,6 +29,7 @@ class QRActions extends StatelessWidget {
                   label: Strings.scanner,
                   onPressed: () {
                     GlobalState.needTasksSync = true;
+                    GlobalState.dataProvider.syncInventory();
                     GoRouter.of(context).clearStackAndNavigate('/qr_scanner');
                   },
                 );

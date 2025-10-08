@@ -106,7 +106,7 @@ class InventoryAdapter extends TypeAdapter<InventoryRecord> {
       dateOfEntry: reader.read(),
       description: reader.read(),
       imageData: reader.read(),
-      usageParameters: reader.readList().cast<UsageParameter>(),
+      usageParameters: reader.read().cast<UsageParameter>(),
     );
   }
 
@@ -171,6 +171,22 @@ class UsageParameter {
   final double maintenanceInterval;
   final double nextMaintenanceValue;
 
+  String? validate(value) {
+    if (value == null || value.isEmpty) {
+      return 'Значение не может быть пустым';
+    }
+    double v = 0;
+    try {
+      v = double.parse(value);
+    } catch (e) {
+      return 'Значение должно быть числом';
+    }
+    if (v <= currentValue) {
+      return 'Значение должно быть больше текущего';
+    }
+    return null;
+  }
+
   const UsageParameter({
     required this.id,
     required this.uuid,
@@ -191,9 +207,11 @@ class UsageParameter {
       currentValue: double.parse(json['current_value']) as double,
       prohibitDecrease: json['prohibit_decrease'] as bool,
       createMaintenanceTasks: json['create_maintenance_tasks'] as bool,
-      lastMaintenanceValue: double.parse(json['last_maintenance_value']) as double,
+      lastMaintenanceValue:
+          double.parse(json['last_maintenance_value']) as double,
       maintenanceInterval: double.parse(json['maintenance_interval']) as double,
-      nextMaintenanceValue: double.parse(json['next_maintenance_value']) as double,
+      nextMaintenanceValue:
+          double.parse(json['next_maintenance_value']) as double,
     );
   }
 }

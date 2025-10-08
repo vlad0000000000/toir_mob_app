@@ -1,4 +1,5 @@
 import 'package:hive_ce/hive.dart';
+import 'package:intl/intl.dart';
 import '../../global_state.dart';
 import '../../src/http/api.dart';
 import '../../src/model/inventory_record.dart';
@@ -9,6 +10,7 @@ import '../../src/model/task.dart';
 import '../../src/model/typical_problem.dart';
 import '../../src/model/usage_unit.dart';
 import '../../src/model/user.dart';
+import '../model/usage_update.dart';
 
 class DataProvider {
   final API api;
@@ -16,9 +18,9 @@ class DataProvider {
   final Box<Task> taskBox;
   final Box<InventoryRecord> inventoryBox;
   final Box<Scan> scanBox;
-  final Box<Scan> scanUsageBox;
+  final Box<UsageUpdate> scanUsageBox;
   final Box<Scan> scanPendingBox;
-  final Box<Scan> scanUsagePendingBox;
+  final Box<UsageUpdate> scanUsagePendingBox;
   final Box<Session> sessionBox;
   final Box<TypicalProblem> typicalProblemBox;
   final Box<PeriodicityRule> periodicityRuleBox;
@@ -70,7 +72,8 @@ class DataProvider {
   bool get isLoading => _isLoading;
 
   saveLastSyncDate() async {
-    await stringBox.put('last_sync_date', DateTime.now().toString());
+    final dateFormat = DateFormat('dd-MM-yyyy HH:mm:ss');
+    await stringBox.put('last_sync_date', dateFormat.format(DateTime.now()));
   }
 
   String getLastSyncDate() {
@@ -90,7 +93,7 @@ class DataProvider {
     await scanBox.put(scan.key(), scan);
   }
 
-  addUsageScan(Scan scan) async {
+  addUsageScan(UsageUpdate scan) async {
     await scanUsageBox.put(scan.key(), scan);
   }
 
@@ -358,8 +361,7 @@ class DataProvider {
         await GlobalState.dataProvider.scanUsagePendingBox.delete(scan.key());
         await GlobalState.dataProvider.scanUsagePendingBox
             .put(scan.key(), scan);
-        if (await api.updateUsageParameter(scan.equipmentUuid!,
-            scan.usageParameterUuid!, scan.usageParameterValue!)) {
+        if (await api.updateUsageParameter(scan)) {
           await GlobalState.dataProvider.scanUsagePendingBox.delete(scan.key());
           await GlobalState.dataProvider.scanUsageBox.delete(scan.key());
         } else {

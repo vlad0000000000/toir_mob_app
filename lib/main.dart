@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:logging/logging.dart';
 import 'package:my_app/src/model/usage_unit.dart';
+import 'package:my_app/src/model/usage_update.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
@@ -91,15 +92,16 @@ Future<void> main() async {
   Hive.registerAdapter(CustomRoleAdapter());
   Hive.registerAdapter(UsageUnitAdapter());
   Hive.registerAdapter(UsageParameterAdapter());
+  Hive.registerAdapter(UsageUpdateAdapter());
 
   var dataProvider = DataProvider(
       api: API(),
       userBox: await Hive.openBox<User>('users'),
       inventoryBox: await Hive.openBox<InventoryRecord>('inventory'),
       scanBox: await Hive.openBox<Scan>('scans'),
-      scanUsageBox: await Hive.openBox<Scan>('usage_scans'),
+      scanUsageBox: await Hive.openBox<UsageUpdate>('usage_scans'),
       scanPendingBox: await Hive.openBox<Scan>('pending_scans'),
-      scanUsagePendingBox: await Hive.openBox<Scan>('pending_usage_scans'),
+      scanUsagePendingBox: await Hive.openBox<UsageUpdate>('pending_usage_scans'),
       sessionBox: await Hive.openBox<Session>('sessions'),
       usageUnitBox: await Hive.openBox<UsageUnit>('usage_units'),
       typicalProblemBox: await Hive.openBox<TypicalProblem>('typical_problems'),

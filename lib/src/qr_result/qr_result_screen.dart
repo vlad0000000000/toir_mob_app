@@ -20,6 +20,7 @@ import '../../src/widgets/select_task_button.dart';
 import '../../src/widgets/square_button.dart';
 import '../../strings.dart';
 import '../model/typical_problem.dart';
+import '../model/usage_update.dart';
 import '../utils/any_controller.dart';
 import '../../src/widgets/select_usage_button.dart';
 import '../../src/model/usage_unit.dart';
@@ -32,7 +33,7 @@ class ResultControls extends StatefulWidget {
   final AnyController<Priority> priorityController;
   final AnyController<TypicalProblem> problemController;
   final EquipmentDetailController equipmentDetailController;
-  final UsageController usageController;
+  final AnyController<List<UsageUpdate>> usageController;
   final InventoryRecord machine;
 
   const ResultControls({
@@ -203,24 +204,24 @@ class _ResultControlsState extends State<ResultControls> {
       rest = null;
     }
 
+    Widget? selectUsage = Row(
+      children: [
+        SelectUsageButton(
+          machine: widget.machine,
+          controller: widget.usageController,
+        ),
+      ],
+    );
+
+    if (widget.machine.usageParameters.length == 0) {
+      selectUsage = null;
+    }
+
     return Column(
       spacing: 8,
       children: [
-        Row(
-          children: [
-            SelectUsageButton(
-              machine: widget.machine,
-              controller: widget.usageController,
-            ),
-          ],
-        ),
-        SizedBox(
-          height: 8,
-        ),
+        if (selectUsage != null) selectUsage,
         selectTask,
-        SizedBox(
-          height: 8,
-        ),
         problemSelect,
         if (rest != null) rest,
         TextFormField(
@@ -335,7 +336,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
   final priorityController = AnyController<Priority>();
   final problemController = AnyController<TypicalProblem>();
   final equipmentController = EquipmentDetailController();
-  final usageController = UsageController();
+  final usageController = AnyController<List<UsageUpdate>>();
 
   Widget passport() {
     var passportType = 1;
@@ -417,26 +418,14 @@ ${widget.machine.descriptionText}
                 Expanded(
                     child: SquareButton(
                         onPressed: () {
-                          print(priorityController.value);
                           Dialogs.areYouSure(context, onOk: () async {
-                            for (var usageParameter in usageController.value) {
-                              await dataProvider.addUsageScan(Scan(
-                                  taskUuid: '',
-                                  resultStatus: '',
-                                  files: [
-                                    imageData1Controller.value,
-                                    imageData2Controller.value,
-                                    imageData3Controller.value,
-                                  ].where((v) {
-                                    return v.length > 0;
-                                  }).toList(),
-                                  comment: '',
-                                  equipmentUuid: '',
-                                  faultUuid: '',
-                                  usageParameterUuid: usageParameter.uuid,
-                                  usageParameterValue:
-                                      usageParameter.currentValue,
-                                  periodicTaskUuid: ''));
+                            var usagesUpdates = false;
+                            if (usageController.value != null) {
+                              for (var usageParameter
+                                  in usageController.value!) {
+                                await dataProvider.addUsageScan(usageParameter);
+                                usagesUpdates = true;
+                              }
                             }
 
                             var tasksCompleted = false;
@@ -476,7 +465,7 @@ ${widget.machine.descriptionText}
                             hasData = hasData || descController.text.length > 0;
                             hasData = hasData || files.length > 0;
                             hasData = hasData || faultUUID.length > 0;
-                            if (hasData || !tasksCompleted) {
+                            if (hasData || (!tasksCompleted && !usagesUpdates)) {
                               await dataProvider.addScan(Scan(
                                   taskUuid: '',
                                   resultStatus: status,
@@ -491,6 +480,7 @@ ${widget.machine.descriptionText}
                             }
                             //TODO:     ts: GlobalState.now
                             // await dataProvider.syncScans();
+                            dataProvider.syncInventory();
                             GoRouter.of(context)
                                 .clearStackAndNavigate("/qr_scanner");
                           });
