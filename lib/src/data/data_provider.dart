@@ -16,7 +16,9 @@ class DataProvider {
   final Box<Task> taskBox;
   final Box<InventoryRecord> inventoryBox;
   final Box<Scan> scanBox;
+  final Box<Scan> scanUsageBox;
   final Box<Scan> scanPendingBox;
+  final Box<Scan> scanUsagePendingBox;
   final Box<Session> sessionBox;
   final Box<TypicalProblem> typicalProblemBox;
   final Box<PeriodicityRule> periodicityRuleBox;
@@ -28,7 +30,9 @@ class DataProvider {
       required this.userBox,
       required this.inventoryBox,
       required this.scanBox,
+      required this.scanUsageBox,
       required this.scanPendingBox,
+      required this.scanUsagePendingBox,
       required this.sessionBox,
       required this.taskBox,
       required this.typicalProblemBox,
@@ -84,6 +88,10 @@ class DataProvider {
 
   addScan(Scan scan) async {
     await scanBox.put(scan.key(), scan);
+  }
+
+  addUsageScan(Scan scan) async {
+    await scanUsageBox.put(scan.key(), scan);
   }
 
   setCurrentSession(session) async {
@@ -268,6 +276,7 @@ class DataProvider {
       while (true) {
         await Future.delayed(Duration(seconds: 5));
         await syncScans();
+        await syncUsageScans();
       }
     });
   }
@@ -338,6 +347,32 @@ class DataProvider {
         .where((unit) => unit.value == value)
         .toList()[0]
         .shortName;
+  }
+
+  Future<void> syncUsageScans() async {
+    final scans = scanUsageBox.values.toList();
+    // print('sync scans ' + scanBox.values.length.toString());
+    for (final scan in scans) {
+      try {
+        await GlobalState.dataProvider.scanUsageBox.delete(scan.key());
+        await GlobalState.dataProvider.scanUsagePendingBox.delete(scan.key());
+        await GlobalState.dataProvider.scanUsagePendingBox.put(scan.key(), scan);
+        if (await api.updateUsageParameter(scan.equipmentUuid!,
+            scan.usageParameterUuid!, scan.usageParameterValue!)) {
+          await GlobalState.dataProvider.scanUsagePendingBox.delete(scan.key());
+          await GlobalState.dataProvider.scanUsageBox.delete(scan.key());
+        } else {
+          await GlobalState.dataProvider.scanUsagePendingBox.delete(scan.key());
+          await GlobalState.dataProvider.scanUsageBox.delete(scan.key());
+          await GlobalState.dataProvider.scanUsageBox.put(scan.key(), scan);
+        }
+      } catch (e, stack) {
+        await GlobalState.dataProvider.scanUsageBox.delete(scan.key());
+        await GlobalState.dataProvider.scanUsagePendingBox.delete(scan.key());
+        await GlobalState.dataProvider.scanUsageBox.put(scan.key(), scan);
+        print('Error syncing data: $e');
+      }
+    }
   }
 
   Future<void> syncScans() async {

@@ -5,7 +5,6 @@ import '../../src/model/task.dart';
 import '../../src/tasks/tasks.dart';
 import '../../src/widgets/square_button.dart';
 
-
 class SelectTaskButton extends StatefulWidget {
   final AnyController<Task> controller;
   final EquipmentDetailController equipmentDetailController;
@@ -59,7 +58,8 @@ class _SelectImageButton extends State<SelectTaskButton> {
                   style: TextStyle(fontWeight: FontWeight.bold),
                   overflow: TextOverflow.ellipsis,
                 ),
-                if (task.periodicTask.node != null && task.periodicTask.node!.length > 0)
+                if (task.periodicTask.node != null &&
+                    task.periodicTask.node!.length > 0)
                   Text(
                     task.periodicTask.node!,
                     style: TextStyle(fontSize: 12),

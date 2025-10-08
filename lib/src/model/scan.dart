@@ -21,6 +21,10 @@ class Scan {
   final String? taskUuid;
   @HiveField(7)
   final String? priority;
+  @HiveField(8)
+  final String? usageParameterUuid;
+  @HiveField(9)
+  final int? usageParameterValue;
 
   String key() {
     return GlobalState.digest(jsonEncode(toJson()));
@@ -40,6 +44,8 @@ class Scan {
     this.faultUuid,
     this.taskUuid,
     this.priority,
+    this.usageParameterUuid,
+    this.usageParameterValue,
   });
 
   Map<String, dynamic> toJson() {
@@ -51,7 +57,9 @@ class Scan {
       'comment': comment,
       'fault_uuid': faultUuid,
       'task_uuid': taskUuid,
-      'priority': priority
+      'priority': priority,
+      'usage_parameter_uuid': usageParameterUuid,
+      'usage_parameter_value': usageParameterValue,
     };
   }
 }
@@ -71,6 +79,8 @@ class ScanAdapter extends TypeAdapter<Scan> {
       faultUuid: reader.read(),
       taskUuid: reader.read(),
       priority: reader.read(),
+      usageParameterUuid: reader.read(),
+      usageParameterValue: reader.read(),
     );
   }
 
@@ -84,5 +94,7 @@ class ScanAdapter extends TypeAdapter<Scan> {
     writer.write(obj.faultUuid);
     writer.write(obj.taskUuid);
     writer.write(obj.priority);
+    writer.write(obj.usageParameterUuid);
+    writer.write(obj.usageParameterValue);
   }
 }

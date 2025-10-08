@@ -418,7 +418,7 @@ class API {
     }
   }
 
-  Future<void> updateUsageParameter(
+  Future<bool> updateUsageParameter(
       String equipmentUuid, String paramUuid, int currentValue) async {
     if (jwtToken == null) {
       throw Exception('Not authenticated');
@@ -436,9 +436,18 @@ class API {
       body: jsonEncode({'current_value': currentValue}),
     );
 
+    final responseBody = response.body;
+    final Map<String, dynamic> responseData = jsonDecode(responseBody);
+
     if (response.statusCode != 200 && response.statusCode != 201) {
       throw Exception(
-          'Failed to update usage parameter: ${response.statusCode}');
+          'Failed to update usage params: ${response.statusCode} - $responseBody');
     }
+
+    if (responseData.containsKey('uuid')) {
+      return true;
+    }
+
+    return false;
   }
 }
