@@ -4,19 +4,19 @@ class User {
   final String username;
   String password = '';
   String role;
-  String effectiveRole;
+  String effectiveRole = '';
   String JWTToken = '';
+  int customRoleId = -1;
 
-  User({required this.username, required this.role, required this.effectiveRole});
+  User({required this.username, required this.role});
 
   factory User.fromJson(Map<String, dynamic> json) {
     return switch (json) {
       {
         'username': String username,
         'role': String role,
-        'effective_role': String effectiveRole,
       } =>
-        User(username: username, role: role, effectiveRole: effectiveRole),
+        User(username: username, role: role),
       _ => throw const FormatException('Failed to load user.'),
     };
   }
@@ -28,7 +28,9 @@ class UserAdapter extends TypeAdapter<User> {
 
   @override
   User read(BinaryReader reader) {
-    var user = User(username: reader.read(), role: reader.read(),effectiveRole: reader.read());
+    var user = User(username: reader.read(), role: reader.read());
+    user.effectiveRole = reader.read();
+    user.customRoleId = reader.read();
     user.password = reader.read();
     user.JWTToken = reader.read();
     return user;
@@ -39,6 +41,7 @@ class UserAdapter extends TypeAdapter<User> {
     writer.write(obj.username);
     writer.write(obj.role);
     writer.write(obj.effectiveRole);
+    writer.write(obj.customRoleId);
     writer.write(obj.password);
     writer.write(obj.JWTToken);
   }

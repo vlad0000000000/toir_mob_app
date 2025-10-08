@@ -33,7 +33,10 @@ class Task {
       periodicityRule: json['periodic_task']['periodicity_rule'] as String,
       periodicityRuleDisplay:
           json['periodic_task']['periodicity_rule_display'] as String,
-      roles: (json['custom_roles'] == null ? [] : json['custom_roles'] as List<dynamic>).map((x) {
+      roles: (json['custom_roles'] == null
+              ? []
+              : json['custom_roles'] as List<dynamic>)
+          .map((x) {
         return (x['name'] as String);
       }).toList(),
     );

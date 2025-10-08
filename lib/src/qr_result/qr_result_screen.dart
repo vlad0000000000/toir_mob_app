@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../../src/widgets/select_priority_button.dart';
+import '../../src/model/priority.dart';
 import '../../global_state.dart';
 import '../../src/app_bar/app_bar.dart';
 import '../../src/data/data_provider.dart';
@@ -17,15 +19,18 @@ import '../../src/widgets/select_problem_button.dart';
 import '../../src/widgets/select_task_button.dart';
 import '../../src/widgets/square_button.dart';
 import '../../strings.dart';
+import '../model/task.dart';
+import '../model/typical_problem.dart';
+import '../utils/any_controller.dart';
 
 class ResultControls extends StatefulWidget {
   final TextEditingController descController;
   final SelectImageButtonController imageData1Controller;
   final SelectImageButtonController imageData2Controller;
   final SelectImageButtonController imageData3Controller;
-  final TextEditingController priorityController;
-  final SelectProblemButtonController problemController;
-  final SelectTaskButtonController taskController;
+  final AnyController<Priority> priorityController;
+  final AnyController<TypicalProblem> problemController;
+  final AnyController<Task> taskController;
   final EquipmentDetailController equipmentDetailController;
   final InventoryRecord machine;
 
@@ -54,12 +59,14 @@ class _ResultControlsState extends State<ResultControls> {
   @override
   void initState() {
     widget.problemController.valueNotifier.addListener(_onValueChanged);
+    widget.priorityController.valueNotifier.addListener(_onValueChanged);
     super.initState();
   }
 
   @override
   void dispose() {
     widget.problemController.valueNotifier.removeListener(_onValueChanged);
+    widget.priorityController.valueNotifier.removeListener(_onValueChanged);
     super.dispose();
   }
 
@@ -102,58 +109,42 @@ class _ResultControlsState extends State<ResultControls> {
 
     Widget prioritySelect = Row(
       children: [
-        Expanded(
-            child: DropdownMenu(
-          // menuStyle: MenuStyle(
-          //   backgroundColor: WidgetStatePropertyAll(Colors.red),
-          // ),
-          requestFocusOnTap: true,
+        SelectPriorityButton(
           controller: widget.priorityController,
-          label: Text("Приоритет"),
-          expandedInsets: EdgeInsets.zero,
-          dropdownMenuEntries: [
-            ["Низкий", Colors.yellow],
-            ["Средний", Colors.orange],
-            ["Высокий", Colors.red],
-          ].map((x) {
-            return DropdownMenuEntry(
-                value: x[0],
-                label: x[0] as String,
-                style: ButtonStyle(
-                  backgroundColor: WidgetStatePropertyAll(x[1] as Color),
-                ),
-                labelWidget: Text(
-                  x[0] as String,
-                  style: TextStyle(color: Colors.black),
-                ));
-          }).toList(),
-        )),
+        )
+        // Expanded(
+        //     child: DropdownMenu(
+        //   // menuStyle: MenuStyle(
+        //   //   backgroundColor: WidgetStatePropertyAll(Colors.red),
+        //   // ),
+        //   requestFocusOnTap: true,
+        //   controller: widget.priorityController,
+        //   label: Text(Strings.priority),
+        //   expandedInsets: EdgeInsets.zero,
+        //   onSelected: (x) {
+        //     // setState(() {
+        //     //   widget.priorityController.text = x;
+        //     // });
+        //     // widget.priorityController.value = x;
+        //   },
+        //   dropdownMenuEntries: Priorities.ALL.map((x) {
+        //     return DropdownMenuEntry<Priority>(
+        //         value: x,
+        //         label: x.name,
+        //         style: ButtonStyle(
+        //           backgroundColor: WidgetStatePropertyAll(x.color),
+        //         ),
+        //         labelWidget: Text(
+        //           x.name as String,
+        //           style: TextStyle(color: Colors.black),
+        //         ));
+        //   }).toList(),
+        // )),
       ],
     );
 
     Widget? rest = Column(spacing: 8, children: [
-      TextFormField(
-        // obscureText:false,
-        maxLines: 8,
-        // expands:true,
-        controller: widget.descController,
-        // obscureText: true,
-        // style: TextStyle(backgroundColor: Colors.white,decorationColor: Colors.white, color: Colors.white),
-        decoration: InputDecoration(
-            floatingLabelAlignment: FloatingLabelAlignment.start,
-            border: const OutlineInputBorder(),
-            fillColor: Colors.white,
-            filled: true,
-            alignLabelWithHint: true,
-            hoverColor: Colors.white,
-            labelText: Strings.checkDescription),
-        validator: (value) {
-          // if (value == null || value.isEmpty) {
-          //   return Strings.passwordHelp;
-          // }
-          return null;
-        },
-      ),
+      prioritySelect,
     ]);
 
     Widget selectTask =
@@ -207,9 +198,10 @@ class _ResultControlsState extends State<ResultControls> {
       // )
     ]);
 
-    // if (widget.problemController.value == null) {
-    //   rest = null;
-    // }
+    if (widget.problemController.value == null ||
+        widget.problemController.value!.title != "Другое") {
+      rest = null;
+    }
 
     return Column(
       spacing: 8,
@@ -219,8 +211,29 @@ class _ResultControlsState extends State<ResultControls> {
           height: 8,
         ),
         problemSelect,
-        // prioritySelect,
-        rest,
+        if (rest != null) rest,
+        TextFormField(
+          // obscureText:false,
+          maxLines: 8,
+          // expands:true,
+          controller: widget.descController,
+          // obscureText: true,
+          // style: TextStyle(backgroundColor: Colors.white,decorationColor: Colors.white, color: Colors.white),
+          decoration: InputDecoration(
+              floatingLabelAlignment: FloatingLabelAlignment.start,
+              border: const OutlineInputBorder(),
+              fillColor: Colors.white,
+              filled: true,
+              alignLabelWithHint: true,
+              hoverColor: Colors.white,
+              labelText: Strings.checkDescription),
+          validator: (value) {
+            // if (value == null || value.isEmpty) {
+            //   return Strings.passwordHelp;
+            // }
+            return null;
+          },
+        ),
         // if (rest != null) rest,
         SizedBox(
             height: 160,
@@ -319,9 +332,9 @@ class _QRResultScreenState extends State<QRResultScreen> {
   final imageData1Controller = SelectImageButtonController();
   final imageData2Controller = SelectImageButtonController();
   final imageData3Controller = SelectImageButtonController();
-  final priorityController = TextEditingController();
-  final problemController = SelectProblemButtonController();
-  final taskController = SelectTaskButtonController();
+  final priorityController = AnyController<Priority>();
+  final problemController = AnyController<TypicalProblem>();
+  final taskController = AnyController<Task>();
   final equipmentController = EquipmentDetailController();
 
   Widget passport() {
@@ -336,12 +349,13 @@ class _QRResultScreenState extends State<QRResultScreen> {
           // Image.memory(base64Decode(widget.machine.imageData)),
           ConstrainedBox(
             constraints: BoxConstraints(
-              maxHeight: max(MediaQuery.of(context).size.shortestSide, 350)
-            ),
+                maxHeight: max(MediaQuery.of(context).size.shortestSide, 350)),
             child: Stack(
               alignment: Alignment.center,
               children: [
-                Container(color: Colors.black87,),
+                Container(
+                  color: Colors.black87,
+                ),
                 Image.network(
                   widget.machine.imageData,
                 )
@@ -403,7 +417,9 @@ ${widget.machine.descriptionText}
                 Expanded(
                     child: SquareButton(
                         onPressed: () {
+                          print(priorityController.value);
                           Dialogs.areYouSure(context, onOk: () async {
+                            var tasksCompleted = false;
                             for (var task in equipmentController.value) {
                               await dataProvider.addScan(Scan(
                                   taskUuid: task.uuid,
@@ -419,28 +435,40 @@ ${widget.machine.descriptionText}
                                   equipmentUuid: '',
                                   faultUuid: '',
                                   periodicTaskUuid: task.periodicTask.uuid));
+                              tasksCompleted = true;
                             }
                             var status = 'closed';
                             if (problemController.value != null) {
                               status = 'open';
                             }
-                            await dataProvider.addScan(Scan(
-                                taskUuid: '',
-                                resultStatus: status,
-                                files: [
-                                  imageData1Controller.value,
-                                  imageData2Controller.value,
-                                  imageData3Controller.value,
-                                ].where((v) {
-                                  return v.length > 0;
-                                }).toList(),
-                                comment: descController.text,
-                                equipmentUuid: widget.machine.uuid,
-                                faultUuid: problemController.value != null &&
-                                        problemController.value!.id != 0
-                                    ? problemController.value!.uuid
-                                    : '',
-                                periodicTaskUuid: ''));
+                            var hasData = false;
+                            var files = [
+                              imageData1Controller.value,
+                              imageData2Controller.value,
+                              imageData3Controller.value,
+                            ].where((v) {
+                              return v.length > 0;
+                            }).toList();
+                            var faultUUID = problemController.value != null &&
+                                    problemController.value!.id != 0
+                                ? problemController.value!.uuid
+                                : '';
+                            hasData = hasData || descController.text.length > 0;
+                            hasData = hasData || files.length > 0;
+                            hasData = hasData || faultUUID.length > 0;
+                            if (hasData || !tasksCompleted) {
+                              await dataProvider.addScan(Scan(
+                                  taskUuid: '',
+                                  resultStatus: status,
+                                  files: files,
+                                  comment: descController.text,
+                                  priority: priorityController.value == null
+                                      ? null
+                                      : priorityController.value!.value,
+                                  equipmentUuid: widget.machine.uuid,
+                                  faultUuid: faultUUID,
+                                  periodicTaskUuid: ''));
+                            }
                             //TODO:     ts: GlobalState.now
                             // await dataProvider.syncScans();
                             GoRouter.of(context)

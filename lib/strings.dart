@@ -104,4 +104,24 @@ class Strings {
   static get uploadScans {
     return {'ru': 'Синхронизировать осмотры'}[Strings.locale];
   }
+
+  static get syncData {
+    return {'ru': 'Синхронизировать данные'}[Strings.locale];
+  }
+
+  static get priority {
+    return {'ru': 'Приоритет'}[Strings.locale];
+  }
+
+  static get low {
+    return {'ru': 'Низкий'}[Strings.locale];
+  }
+
+  static get medium {
+    return {'ru': 'Средний'}[Strings.locale];
+  }
+
+  static get high {
+    return {'ru': 'Высокий'}[Strings.locale];
+  }
 }

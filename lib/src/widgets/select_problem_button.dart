@@ -1,41 +1,26 @@
 import 'package:flutter/material.dart';
+import 'package:my_app/src/utils/any_controller.dart';
 import '../../global_state.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/typical_problem.dart';
 
-class SelectProblemButtonController {
-  final ValueNotifier<TypicalProblem?> _valueNotifier = ValueNotifier(null);
-
-  ValueNotifier<TypicalProblem?> get valueNotifier => _valueNotifier;
-
-  TypicalProblem? get value => _valueNotifier.value;
-
-  set value(TypicalProblem? newValue) {
-    _valueNotifier.value = newValue;
-  }
-
-  void dispose() {
-    _valueNotifier.dispose();
-  }
-}
-
 class SelectProblemButton extends StatefulWidget {
-  late final SelectProblemButtonController controller;
+  late final AnyController<TypicalProblem> controller;
   final InventoryRecord machine;
 
   SelectProblemButton({super.key, controller = null, required this.machine}) {
     if (controller == null) {
-      this.controller = SelectProblemButtonController();
+      this.controller = AnyController<TypicalProblem>();
     } else {
       this.controller = controller;
     }
   }
 
   @override
-  State<SelectProblemButton> createState() => _SelectImageButton();
+  State<SelectProblemButton> createState() => _SelectProblemButton();
 }
 
-class _SelectImageButton extends State<SelectProblemButton> {
+class _SelectProblemButton extends State<SelectProblemButton> {
   TypicalProblem? typicalProblem = null;
 
   @override

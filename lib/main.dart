@@ -9,6 +9,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:logging/logging.dart';
+import 'package:my_app/src/model/usage_unit.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
@@ -88,6 +89,7 @@ Future<void> main() async {
   Hive.registerAdapter(LocationAdapter());
   Hive.registerAdapter(EquipmentAdapter());
   Hive.registerAdapter(CustomRoleAdapter());
+  Hive.registerAdapter(UsageUnitAdapter());
 
   var dataProvider = DataProvider(
       api: API(),
@@ -96,7 +98,9 @@ Future<void> main() async {
       scanBox: await Hive.openBox<Scan>('scans'),
       scanPendingBox: await Hive.openBox<Scan>('pending_scans'),
       sessionBox: await Hive.openBox<Session>('sessions'),
+      usageUnitBox: await Hive.openBox<UsageUnit>('usage_units'),
       typicalProblemBox: await Hive.openBox<TypicalProblem>('typical_problems'),
+      stringBox: await Hive.openBox<String>('strings'),
       periodicityRuleBox:
           await Hive.openBox<PeriodicityRule>('periodicity_rules'),
       taskBox: await Hive.openBox<Task>('tasks'));

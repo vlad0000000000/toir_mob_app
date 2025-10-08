@@ -1,27 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:my_app/src/utils/any_controller.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/task.dart';
 import '../../src/tasks/tasks.dart';
 import '../../src/widgets/square_button.dart';
 
-class SelectTaskButtonController {
-  final ValueNotifier<Task?> _valueNotifier = ValueNotifier(null);
-
-  ValueNotifier<Task?> get valueNotifier => _valueNotifier;
-
-  Task? get value => _valueNotifier.value;
-
-  set value(Task? newValue) {
-    _valueNotifier.value = newValue;
-  }
-
-  void dispose() {
-    _valueNotifier.dispose();
-  }
-}
 
 class SelectTaskButton extends StatefulWidget {
-  final SelectTaskButtonController controller;
+  final AnyController<Task> controller;
   final EquipmentDetailController equipmentDetailController;
   InventoryRecord machine;
 

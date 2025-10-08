@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
+
 // import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../../src/data/data_provider.dart';
 import '../../src/http/api.dart';
 import '../../src/model/user.dart';
@@ -17,7 +19,7 @@ class GlobalState {
     return md5.convert(utf8.encode(input)).toString();
   }
 
-  static set authUser (User? user) {
+  static set authUser(User? user) {
     if (user == null) {
       dataProvider.userBox.delete('auth_user');
     } else {
@@ -71,18 +73,60 @@ class GlobalState {
       await dataProvider.syncCurrentSession();
     } catch (_) {}
     String sessionStatus = 'завершена';
-    if (dataProvider.currentSession != null && dataProvider.currentSession!.isActive()) {
+    if (dataProvider.currentSession != null &&
+        dataProvider.currentSession!.isActive()) {
       // Then somewhere in your code:
       String date = await initializeDateFormatting('ru_RU', null).then((_) {
         final dateTime =
-        DateTime.parse(dataProvider.currentSession!.startTime + 'Z').toLocal();
+            DateTime.parse(dataProvider.currentSession!.startTime + 'Z')
+                .toLocal();
         return DateFormat('dd MMMM yyyy в HH:mm', 'ru_RU').format(dateTime);
       });
       sessionStatus = 'активна (от ' + date + ')';
     }
 
     GlobalState.debug.value =
-    "Сервер: ${serverAccess}  |  ${db}\nПользователь: ${loggedUser}  |  Инвентаризация: ${sessionStatus}";
+        "Сервер: ${serverAccess}  |  ${db}\nПользователь: ${loggedUser}  |  Инвентаризация: ${sessionStatus}";
+  }
+
+  static Future<String> buildInfo() async {
+    PackageInfo packageInfo = await PackageInfo.fromPlatform();
+
+    String appName = packageInfo.appName;
+    String packageName = packageInfo.packageName;
+    String version = packageInfo.version;
+    String buildNumber = packageInfo.buildNumber;
+
+    String serverAccess = "доступен";
+    if (!(await GlobalState.hasConnectionToServer)) {
+      serverAccess = "не доступен";
+    }
+    String pendingChecks = dataProvider.scanBox.length.toString();
+    // String problems = dataProvider.typicalProblemBox.length.toString();
+    String inventory = dataProvider.inventoryRecords.length.toString();
+
+    String loggedUser = "";
+    if (GlobalState.isAuthorized) {
+      loggedUser = GlobalState.authUser!.username;
+    }
+
+    var lastSyncDate = dataProvider.getLastSyncDate();
+
+    return """
+## Информация
+
+- **Сервер**: ${serverAccess}
+- **Осмотров не отправлено**: ${pendingChecks}
+- **ТМЦ/Обрудование**: ${inventory}
+- **Пользователь**: ${loggedUser}
+- **Дата последней синхронизации**: ${lastSyncDate}
+---
+
+- **appName**: ${appName}
+- **packageName**: ${packageName}
+- **version**: ${version}
+- **buildNumber**: ${buildNumber}
+    """;
   }
 
   static Future<void> updateDebug() async {
@@ -90,13 +134,12 @@ class GlobalState {
     if (!(await GlobalState.hasConnectionToServer)) {
       serverAccess = "не доступен";
     }
-    String pendingChecks =
-        dataProvider.scanBox.length.toString();
+    String pendingChecks = dataProvider.scanBox.length.toString();
     String problems = dataProvider.typicalProblemBox.length.toString();
+    String inventory = dataProvider.inventoryRecords.length.toString();
     // String db =
     //     "Локальные данные: (оборудование: ${dataProvider.inventoryBox.length.toString()}, пользователи: ${dataProvider.users.length.toString()}, осмотры: ${pendingChecks}, проблемы: ${problems})";
-    String db =
-        "Осмотров не отправлено: ${pendingChecks}";
+    String db = "Осмотров не отправлено: ${pendingChecks}";
 
     String loggedUser = "";
     if (GlobalState.isAuthorized) {

@@ -21,7 +21,7 @@ class QRActions extends StatelessWidget {
               crossAxisSpacing: 16, // Горизонтальный отступ
               mainAxisSpacing: 16, // Вертикальный отступ
             ),
-            itemCount: 4,
+            itemCount: 5,
             itemBuilder: (context, index) {
               if (index == 0) {
                 return SquareButton(
@@ -46,27 +46,25 @@ class QRActions extends StatelessWidget {
               if (index == 2) {
                 return SquareButton(
                   icon: Icons.sync,
-                  label: Strings.uploadScans,
+                  label: Strings.syncData,
                   onPressed: () async {
-                    await GlobalState.dataProvider.syncInventory();
-                    await GlobalState.dataProvider.syncTypicalProblems();
-                    await GlobalState.dataProvider.syncPeriodicityRules();
-                    var scans = GlobalState.dataProvider.scanBox.length;
-                    if (scans == 0) {
-                      Dialogs.notify(
-                          context, "Все осмотры уже синхронизированы", "");
-                      return;
-                    }
                     if (!await GlobalState.hasConnectionToServer) {
                       Dialogs.notify(
                           context, "Отсутствует соединение с сервером", "");
                       return;
                     }
-                    await GlobalState.dataProvider.syncScans();
-                    scans = GlobalState.dataProvider.scanBox.length;
-                    if (scans == 0) {
+                    await GlobalState.dataProvider.mainSync();
+                    var scansWas = GlobalState.dataProvider.scanBox.length;
+                    if (scansWas == 0) {
                       Dialogs.notify(
-                          context, "Осмотры успешно синхронизированы", "");
+                          context, "Все данные успешно синхронизированы", "");
+                      return;
+                    }
+                    await GlobalState.dataProvider.syncScans();
+                    var scansNow = GlobalState.dataProvider.scanBox.length;
+                    if (scansNow == 0 && scansWas > 0) {
+                      Dialogs.notify(context,
+                          "Все данные и осмотры успешно синхронизированы", "");
                       return;
                     } else {
                       Dialogs.notify(context,
@@ -84,6 +82,16 @@ class QRActions extends StatelessWidget {
                     await GlobalState.dataProvider.scanBox.clear();
                     await GlobalState.dataProvider.scanPendingBox.clear();
                     Dialogs.notify(context, "Осмотры успешно сброшены", "");
+                  },
+                );
+              }
+              if (index == 4) {
+                return SquareButton(
+                  icon: Icons.info,
+                  label: "Информация",
+                  onPressed: () async {
+                    Dialogs.notifyMD(context, "Осмотры успешно сброшены", "",
+                        await GlobalState.buildInfo());
                   },
                 );
               }

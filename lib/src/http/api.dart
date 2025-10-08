@@ -10,6 +10,7 @@ import '../../src/model/scan.dart';
 import '../../src/model/session.dart';
 import '../../src/model/task.dart';
 import '../../src/model/typical_problem.dart';
+import '../../src/model/usage_unit.dart';
 import '../../src/model/user.dart';
 
 class API {
@@ -47,8 +48,9 @@ class API {
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
       final decodedBytes = utf8Decoder.convert(response.bodyBytes);
       final Map<String, dynamic> data = jsonDecode(decodedBytes);
-      User user =
-          User(role: '', username: '', effectiveRole: data['effective_role']);
+      User user = User(role: '', username: '');
+      user.effectiveRole = data['effective_role'];
+      user.customRoleId = data['custom_role_id'];
       return user;
     } else {
       throw Exception('Failed to authenticate: ${response.statusCode}');
@@ -94,8 +96,7 @@ class API {
 
     if (response.statusCode == 200) {
       final Map<String, dynamic> responseData = jsonDecode(response.body);
-      User user = User(
-          role: responseData['role'], username: username, effectiveRole: '');
+      User user = User(role: responseData['role'], username: username);
       user.password = password;
       user.JWTToken = responseData['access_token'];
       return user;
@@ -231,6 +232,7 @@ class API {
 
     // Добавляем поля из объекта Scan (кроме files)
     var scanJson = scan.toJson();
+    print(scanJson);
     scanJson.forEach((key, value) {
       if (key != 'files' && value != null && (value as String).length > 0) {
         request.fields[key] = value.toString();
@@ -296,6 +298,7 @@ class API {
   }
 
   Future<List<Task>> getCurrentTasks({limit = 50, offset = 0}) async {
+    me();
     // Проверяем наличие токена
     if (jwtToken == null) {
       throw Exception('Not authenticated');
@@ -317,12 +320,13 @@ class API {
       final List<dynamic> data = jsonDecode(decodedBytes);
       return data
           .where((json) {
-            return (json['result_status'] as String) == 'scheduled' && json['periodic_task'] != null;
+            return (json['result_status'] as String) == 'scheduled' &&
+                json['periodic_task'] != null;
           })
           .map((json) => Task.fromJson(json))
           .where((x) {
             return x.periodicTask.customRoles.where((x) {
-                  return x.name == GlobalState.authUser!.effectiveRole;
+                  return x.id == GlobalState.authUser!.customRoleId;
                 }).length >
                 0;
           })
@@ -385,6 +389,32 @@ class API {
     } else {
       throw Exception(
           'Failed to load periodicity rules: ${response.statusCode}');
+    }
+  }
+
+  Future<List<UsageUnit>> getUsageUnitTypes() async {
+    if (jwtToken == null) {
+      throw Exception('Not authenticated');
+    }
+
+    final url = Uri.parse('$baseUrl/v1/company/equipment/usage-unit-types');
+
+    final response = await http.get(
+      url,
+      headers: {
+        'Authorization': 'Bearer $jwtToken',
+      },
+    );
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      const utf8Decoder = Utf8Decoder(allowMalformed: true);
+      final decodedBytes = utf8Decoder.convert(response.bodyBytes);
+      final Map<String, dynamic> data = jsonDecode(decodedBytes);
+      final List<dynamic> unitTypes = data['unit_types'];
+      return unitTypes.map((json) => UsageUnit.fromJson(json)).toList();
+    } else {
+      throw Exception(
+          'Failed to load usage unit types: ${response.statusCode}');
     }
   }
 }

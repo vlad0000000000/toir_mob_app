@@ -7,6 +7,7 @@ import '../../src/model/scan.dart';
 import '../../src/model/session.dart';
 import '../../src/model/task.dart';
 import '../../src/model/typical_problem.dart';
+import '../../src/model/usage_unit.dart';
 import '../../src/model/user.dart';
 
 class DataProvider {
@@ -19,6 +20,8 @@ class DataProvider {
   final Box<Session> sessionBox;
   final Box<TypicalProblem> typicalProblemBox;
   final Box<PeriodicityRule> periodicityRuleBox;
+  final Box<UsageUnit> usageUnitBox;
+  final Box<String> stringBox;
 
   DataProvider(
       {required this.api,
@@ -29,11 +32,14 @@ class DataProvider {
       required this.sessionBox,
       required this.taskBox,
       required this.typicalProblemBox,
-      required this.periodicityRuleBox}) {
+      required this.periodicityRuleBox,
+      required this.stringBox,
+      required this.usageUnitBox}) {
     _users = userBox.values.toList();
     _inventoryRecords = inventoryBox.values.toList();
     _typicalProblems = typicalProblemBox.values.toList();
     _periodicityRules = periodicityRuleBox.values.toList();
+    _usageUnits = usageUnitBox.values.toList();
     _currentSession = sessionBox.get('current_session');
   }
 
@@ -41,6 +47,7 @@ class DataProvider {
   List<InventoryRecord> _inventoryRecords = [];
   List<TypicalProblem> _typicalProblems = [];
   List<PeriodicityRule> _periodicityRules = [];
+  List<UsageUnit> _usageUnits = [];
   bool _isLoading = false;
 
   List<User> get users => _users;
@@ -51,10 +58,24 @@ class DataProvider {
 
   List<PeriodicityRule> get periodicityRules => _periodicityRules;
 
+  List<UsageUnit> get usageUnits => _usageUnits;
+
   Session? get currentSession => _currentSession;
   Session? _currentSession;
 
   bool get isLoading => _isLoading;
+
+  saveLastSyncDate() async {
+    await stringBox.put('last_sync_date', DateTime.now().toString());
+  }
+
+  String getLastSyncDate() {
+    var date = stringBox.get('last_sync_date');
+    if (date == null) {
+      return '';
+    }
+    return date;
+  }
 
   addUser(User user) async {
     await userBox.put(user.username, user);
@@ -116,6 +137,46 @@ class DataProvider {
     return all;
   }
 
+  Future<List<UsageUnit>> loadAllUsageUnitTypes() async {
+    List<UsageUnit> all = [];
+    List<UsageUnit> notAll = await api.getUsageUnitTypes();
+    for (var usageUnit in notAll) {
+      all.add(usageUnit);
+    }
+    return all;
+  }
+
+  Future<User?> login(login, password) async {
+    User? currentUser = null;
+    try {
+      currentUser = await api.login(login, password);
+      GlobalState.authUser = currentUser;
+    } on Exception catch (_) {}
+
+    if (currentUser == null) {
+      for (var user in users) {
+        if (user.username == login && user.password == password) {
+          currentUser = user;
+        }
+      }
+    }
+
+    // only walkers allowed
+    if (currentUser != null) {
+      if (currentUser.role != 'walker') {
+        currentUser = null;
+      }
+    }
+
+    if (currentUser != null) {
+      var currentUserMe = await api.me();
+      currentUser.effectiveRole = currentUserMe.effectiveRole;
+      currentUser.customRoleId = currentUserMe.customRoleId;
+      addUser(currentUser);
+    }
+    return currentUser;
+  }
+
   Future<List<Task>> loadAllTasks() async {
     int limit = 50;
     int offset = 0;
@@ -123,8 +184,8 @@ class DataProvider {
     while (true) {
       List<Task> notAll =
           await api.getCurrentTasks(limit: limit, offset: offset);
-      for (var typicalProblem in notAll) {
-        all.add(typicalProblem);
+      for (var task in notAll) {
+        all.add(task);
       }
       if (notAll.isEmpty) {
         break;
@@ -188,6 +249,20 @@ class DataProvider {
     }
   }
 
+  Future<void> syncUsageUnitTypes() async {
+    _isLoading = true;
+
+    try {
+      _usageUnits = await loadAllUsageUnitTypes();
+      await usageUnitBox.clear();
+      await usageUnitBox.addAll(_usageUnits);
+    } catch (e) {
+      print('Failed sync usage unit types: $e');
+    } finally {
+      _isLoading = false;
+    }
+  }
+
   void startScanSyncing() {
     Future.sync(() async {
       while (true) {
@@ -197,14 +272,20 @@ class DataProvider {
     });
   }
 
+  Future mainSync() async {
+    await syncInventory();
+    await syncTypicalProblems();
+    await syncPeriodicityRules();
+    await syncUsageUnitTypes();
+    await saveLastSyncDate();
+  }
+
   void startSyncing() {
     Future.sync(() async {
       while (true) {
         await Future.delayed(Duration(seconds: 60));
         if (await GlobalState.hasConnectionToServer) {
-          await syncInventory();
-          await syncTypicalProblems();
-          await syncPeriodicityRules();
+          await mainSync();
           // await syncScans();
         }
       }
@@ -243,6 +324,20 @@ class DataProvider {
     return taskBox.values
         .where((task) => task.equipmentUuid == machineUUID)
         .toList();
+  }
+
+  String getUsageUnitDisplayName(String value) {
+    return _usageUnits
+        .where((unit) => unit.value == value)
+        .toList()[0]
+        .displayName;
+  }
+
+  String getUsageUnitShortName(String value) {
+    return _usageUnits
+        .where((unit) => unit.value == value)
+        .toList()[0]
+        .shortName;
   }
 
   Future<void> syncScans() async {

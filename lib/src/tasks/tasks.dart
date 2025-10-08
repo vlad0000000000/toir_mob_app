@@ -82,17 +82,25 @@ class EquipmentListScreen extends StatelessWidget {
         builder: (BuildContext context, AsyncSnapshot<void> snapshot) {
           if (snapshot.connectionState == ConnectionState.done) {
             var equipmentList = GlobalState.dataProvider.inventoryRecords;
-            // equipmentList.sort((a, b) {
-            //   var ac = GlobalState.dataProvider.getTasksForMachine(a.uuid).length;
-            //   var bc = GlobalState.dataProvider.getTasksForMachine(b.uuid).length;
-            //   return bc.compareTo(ac);
-            // });
-            equipmentList = equipmentList.where((x) {
-              return GlobalState.dataProvider
-                      .getTasksForMachine(x.uuid)
-                      .length >
-                  0;
-            }).toList();
+            equipmentList.sort((a, b) {
+              var ac =
+                  GlobalState.dataProvider.getTasksForMachine(a.uuid).length ==
+                          0
+                      ? 0
+                      : 1;
+              var bc =
+                  GlobalState.dataProvider.getTasksForMachine(b.uuid).length ==
+                          0
+                      ? 0
+                      : 1;
+              return bc.compareTo(ac);
+            });
+            // equipmentList = equipmentList.where((x) {
+            //   return GlobalState.dataProvider
+            //           .getTasksForMachine(x.uuid)
+            //           .length >
+            //       0;
+            // }).toList();
             Widget list = ListView.builder(
               itemCount: equipmentList.length,
               itemBuilder: (context, index) {
@@ -100,6 +108,24 @@ class EquipmentListScreen extends StatelessWidget {
                 var taskCount = GlobalState.dataProvider
                     .getTasksForMachine(equipment.uuid)
                     .length;
+                if (taskCount == 0) {
+                  return Card(
+                      margin: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: ListTile(
+                        title: Text(
+                          '${equipment.name} (нет задач)',
+                          style: const TextStyle(
+                            // color: Colors.blue,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ));
+                }
                 return Card(
                     margin:
                         const EdgeInsets.symmetric(horizontal: 16, vertical: 8),

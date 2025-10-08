@@ -96,37 +96,12 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               ElevatedButton(
                   onPressed: () async {
-                    User? currentUser = null;
-                    try {
-                      currentUser = await dataProvider.api
-                          .login(loginController.text, passwordController.text);
-                    } on Exception catch (_) {}
-
-                    if (currentUser == null) {
-                      for (var user in dataProvider.users) {
-                        if (user.username == loginController.text &&
-                            user.password == passwordController.text) {
-                          currentUser = user;
-                        }
-                      }
-                    }
-
-                    // only walkers allowed
-                    if (currentUser != null) {
-                      if (currentUser.role != 'walker') {
-                        currentUser = null;
-                      }
-                    }
+                    User? currentUser = await dataProvider.login(
+                        loginController.text, passwordController.text);
 
                     if (currentUser != null) {
                       GlobalState.authUser = currentUser;
-                      var currentUserMe = await dataProvider.api.me();
-                      currentUser.effectiveRole = currentUserMe.effectiveRole;
-                      GlobalState.authUser = currentUser;
-                      dataProvider.addUser(currentUser);
-                      await dataProvider.syncInventory();
-                      await dataProvider.syncTypicalProblems();
-                      await dataProvider.syncPeriodicityRules();
+                      await dataProvider.mainSync();
                       await GlobalState.updateDebug();
                       GoRouter.of(context).clearStackAndNavigate("/actions");
                       return;

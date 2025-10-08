@@ -263,3 +263,4 @@ class PeriodicTaskAdapter extends TypeAdapter<PeriodicTask> {
     writer.write(obj.updatedAt);
   }
 }
+
