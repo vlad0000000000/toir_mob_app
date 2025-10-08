@@ -45,3 +45,4 @@ app.*.map.json
 **/.cxx/
 **/configure_fingerprint.bin
 *.bin
+/android/app/.cxx/
