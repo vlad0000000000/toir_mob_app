@@ -61,6 +61,14 @@ Future<void> main() async {
   await dotenv.load(fileName: ".env");
   // print(dotenv.env);
 
+  // if (kIsWeb) {
+  //   js.context["APP_DESCRIPTION"] = const String.fromEnvironment("APP_DESCRIPTION");
+  //   js.context["APP_NAME"] = const String.fromEnvironment("APP_NAME");
+  //   // etc..
+  //   //Custom DOM event to signal to js the execution of the dart code
+  //   html.document.dispatchEvent(html.CustomEvent("dart_loaded"));
+  // }
+
   PackageInfo packageInfo = await PackageInfo.fromPlatform();
   String directory = GlobalState.digest([
     packageInfo.appName,

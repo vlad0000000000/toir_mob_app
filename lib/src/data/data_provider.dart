@@ -180,10 +180,15 @@ class DataProvider {
     }
 
     if (currentUser != null) {
-      var currentUserMe = await api.me();
-      currentUser.effectiveRole = currentUserMe.effectiveRole;
-      currentUser.customRoleId = currentUserMe.customRoleId;
-      addUser(currentUser);
+      User? currentUserMe = null;
+      try {
+        currentUserMe = await api.me();
+        currentUser.effectiveRole = currentUserMe.effectiveRole;
+        currentUser.customRoleId = currentUserMe.customRoleId;
+        addUser(currentUser);
+      } catch (e) {
+        return null;
+      }
     }
     return currentUser;
   }
@@ -288,6 +293,7 @@ class DataProvider {
     await syncInventory();
     await syncTypicalProblems();
     await syncPeriodicityRules();
+    await syncTasks();
     await syncUsageUnitTypes();
     await saveLastSyncDate();
   }
@@ -311,8 +317,9 @@ class DataProvider {
       List<Task> tasks = await loadAllTasks();
       await taskBox.clear();
       await taskBox.addAll(tasks);
-    } catch (e) {
+    } catch (e, stack) {
       print('Error syncing tasks: $e');
+      print(stack);
     } finally {
       _isLoading = false;
     }
@@ -335,7 +342,15 @@ class DataProvider {
   List<Task> getTasksForMachine(String machineUUID) {
     return taskBox.values
         .where((task) => task.equipmentUuid == machineUUID)
-        .toList();
+        .where((x) {
+      return x.periodicTask.customRoles.where((x) {
+            if (GlobalState.authUser == null) {
+              return false;
+            }
+            return x.id == GlobalState.authUser!.customRoleId;
+          }).length >
+          0;
+    }).toList();
   }
 
   String getUsageUnitDisplayName(String value) {

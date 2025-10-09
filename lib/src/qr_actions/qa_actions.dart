@@ -28,8 +28,8 @@ class QRActions extends StatelessWidget {
                   icon: Icons.qr_code_scanner,
                   label: Strings.scanner,
                   onPressed: () {
-                    GlobalState.needTasksSync = true;
-                    GlobalState.dataProvider.syncInventory();
+                    // GlobalState.needTasksSync = true;
+                    GlobalState.dataProvider.mainSync();
                     GoRouter.of(context).clearStackAndNavigate('/qr_scanner');
                   },
                 );

@@ -168,13 +168,13 @@ class PeriodicTask {
   @HiveField(8)
   final List<CustomRole> customRoles;
   @HiveField(9)
-  final DateTime nextDueAt;
+  final DateTime? nextDueAt;
   @HiveField(10)
   final DateTime? lastRunAt;
   @HiveField(11)
   final bool isActive;
   @HiveField(12)
-  final DateTime createdAt;
+  final DateTime? createdAt;
   @HiveField(13)
   final DateTime? updatedAt;
 
@@ -208,12 +208,16 @@ class PeriodicTask {
       customRoles: (json['custom_roles'] as List<dynamic>)
           .map((e) => CustomRole.fromJson(e as Map<String, dynamic>))
           .toList(),
-      nextDueAt: DateTime.parse(json['next_due_at'] as String),
+      nextDueAt: json['next_due_at'] != null
+          ? DateTime.parse(json['next_due_at'] as String)
+          : null,
       lastRunAt: json['last_run_at'] != null
           ? DateTime.parse(json['last_run_at'] as String)
           : null,
       isActive: json['is_active'] as bool,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: json['created_at'] != null
+          ? DateTime.parse(json['created_at'] as String)
+          : null,
       updatedAt: json['updated_at'] != null
           ? DateTime.parse(json['updated_at'] as String)
           : null,
@@ -263,4 +267,3 @@ class PeriodicTaskAdapter extends TypeAdapter<PeriodicTask> {
     writer.write(obj.updatedAt);
   }
 }
-

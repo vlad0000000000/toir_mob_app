@@ -38,9 +38,11 @@ class GlobalState {
   static bool needTasksSync = false;
 
   static Future<void> syncTasks() async {
+    // return;
     if (needTasksSync) {
-      await dataProvider.syncInventory();
-      await dataProvider.syncTasks();
+      // await dataProvider.syncInventory();
+      // await dataProvider.syncTasks();
+      await dataProvider.mainSync();
       needTasksSync = false;
     }
   }

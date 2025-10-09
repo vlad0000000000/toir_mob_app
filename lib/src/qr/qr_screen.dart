@@ -90,7 +90,7 @@ class _BarcodeScannerWithControllerState
                               // print(machine.getQRValue());
                               if (machine.uuid.toLowerCase() ==
                                   barcodeUUID.toLowerCase()) {
-                                GlobalState.needTasksSync = true;
+                                // GlobalState.needTasksSync = true;
                                 GoRouter.of(context).clearStackAndNavigate(
                                     '/qr_result',
                                     extra: machine);

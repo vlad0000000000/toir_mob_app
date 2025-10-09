@@ -152,7 +152,8 @@ class _ResultControlsState extends State<ResultControls> {
     Widget selectTask =
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
       FutureBuilder(
-        future: GlobalState.syncTasks(),
+        // future: GlobalState.syncTasks(),
+        future: Future.value(1),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.done) {
             if (GlobalState.dataProvider
@@ -465,7 +466,8 @@ ${widget.machine.descriptionText}
                             hasData = hasData || descController.text.length > 0;
                             hasData = hasData || files.length > 0;
                             hasData = hasData || faultUUID.length > 0;
-                            if (hasData || (!tasksCompleted && !usagesUpdates)) {
+                            if (hasData ||
+                                (!tasksCompleted && !usagesUpdates)) {
                               await dataProvider.addScan(Scan(
                                   taskUuid: '',
                                   resultStatus: status,
@@ -480,7 +482,8 @@ ${widget.machine.descriptionText}
                             }
                             //TODO:     ts: GlobalState.now
                             // await dataProvider.syncScans();
-                            dataProvider.syncInventory();
+                            // dataProvider.syncInventory();
+                            dataProvider.mainSync();
                             GoRouter.of(context)
                                 .clearStackAndNavigate("/qr_scanner");
                           });

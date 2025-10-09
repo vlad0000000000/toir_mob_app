@@ -325,12 +325,6 @@ class API {
                 json['periodic_task'] != null;
           })
           .map((json) => Task.fromJson(json))
-          .where((x) {
-            return x.periodicTask.customRoles.where((x) {
-                  return x.id == GlobalState.authUser!.customRoleId;
-                }).length >
-                0;
-          })
           .toList();
     } else {
       throw Exception(
