@@ -20,7 +20,6 @@ class SelectTaskButton extends StatefulWidget {
 class _SelectImageButton extends State<SelectTaskButton> {
   @override
   void dispose() {
-    // widget.controller.valueNotifier.removeListener(_onValueChanged);
     widget.equipmentDetailController.valueNotifier
         .removeListener(_onValueChanged);
     super.dispose();
@@ -29,7 +28,6 @@ class _SelectImageButton extends State<SelectTaskButton> {
   @override
   void initState() {
     super.initState();
-    // widget.controller.valueNotifier.addListener(_onValueChanged);
     widget.equipmentDetailController.valueNotifier.addListener(_onValueChanged);
   }
 
@@ -39,7 +37,6 @@ class _SelectImageButton extends State<SelectTaskButton> {
 
   @override
   Widget build(BuildContext context) {
-
     return Expanded(
         child: SquareButton(
       child: widget.equipmentDetailController.selectedTasks.length > 0
@@ -58,6 +55,8 @@ class _SelectImageButton extends State<SelectTaskButton> {
             shape: const RoundedRectangleBorder(
                 borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
             isScrollControlled: true,
+            enableDrag: false,
+            isDismissible: false,
             // Ключевой параметр для полного экрана
             backgroundColor: Colors.transparent,
             builder: (context) => Modal(
