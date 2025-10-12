@@ -62,7 +62,7 @@ class _ResultControlsState extends State<ResultControls> {
   void initState() {
     widget.problemController.valueNotifier.addListener(_onValueChanged);
     widget.priorityController.valueNotifier.addListener(_onValueChanged);
-    widget.usageController.valueNotifier.addListener(_onValueChanged);
+    // widget.usageController.valueNotifier.addListener(_onValueChanged);
     super.initState();
   }
 
@@ -70,7 +70,7 @@ class _ResultControlsState extends State<ResultControls> {
   void dispose() {
     widget.problemController.valueNotifier.removeListener(_onValueChanged);
     widget.priorityController.valueNotifier.removeListener(_onValueChanged);
-    widget.usageController.valueNotifier.removeListener(_onValueChanged);
+    // widget.usageController.valueNotifier.removeListener(_onValueChanged);
     super.dispose();
   }
 
@@ -429,29 +429,10 @@ ${widget.machine.descriptionText}
                               }
                             }
 
-                            var tasksCompleted = false;
-                            for (var task in equipmentController.value) {
-                              await dataProvider.addScan(Scan(
-                                  taskUuid: task.uuid,
-                                  resultStatus: 'closed',
-                                  files: [
-                                    imageData1Controller.value,
-                                    imageData2Controller.value,
-                                    imageData3Controller.value,
-                                  ].where((v) {
-                                    return v.length > 0;
-                                  }).toList(),
-                                  comment: '',
-                                  equipmentUuid: '',
-                                  faultUuid: '',
-                                  periodicTaskUuid: task.periodicTask.uuid));
-                              tasksCompleted = true;
-                            }
                             var status = 'closed';
                             if (problemController.value != null) {
                               status = 'open';
                             }
-                            var hasData = false;
                             var files = [
                               imageData1Controller.value,
                               imageData2Controller.value,
@@ -459,27 +440,45 @@ ${widget.machine.descriptionText}
                             ].where((v) {
                               return v.length > 0;
                             }).toList();
+
                             var faultUUID = problemController.value != null &&
                                     problemController.value!.id != 0
                                 ? problemController.value!.uuid
                                 : '';
+                            var priority = priorityController.value == null
+                                ? null
+                                : priorityController.value!.value;
+                            var hasData = false;
                             hasData = hasData || descController.text.length > 0;
                             hasData = hasData || files.length > 0;
-                            hasData = hasData || faultUUID.length > 0;
-                            if (hasData ||
-                                (!tasksCompleted && !usagesUpdates)) {
+
+                            var hasTasks = equipmentController.value.length > 0;
+                            for (var task in equipmentController.value) {
+                              await dataProvider.addScan(Scan(
+                                  taskUuid: task.uuid,
+                                  resultStatus: 'closed',
+                                  files: files,
+                                  comment: descController.text,
+                                  priority: '',
+                                  equipmentUuid: widget.machine.uuid,
+                                  faultUuid: '',
+                                  periodicTaskUuid: task.periodicTask.uuid));
+                            }
+
+                            if ((problemController.value != null ||
+                                    !hasTasks) &&
+                                hasData) {
                               await dataProvider.addScan(Scan(
                                   taskUuid: '',
                                   resultStatus: status,
                                   files: files,
                                   comment: descController.text,
-                                  priority: priorityController.value == null
-                                      ? null
-                                      : priorityController.value!.value,
+                                  priority: priority,
                                   equipmentUuid: widget.machine.uuid,
                                   faultUuid: faultUUID,
                                   periodicTaskUuid: ''));
                             }
+
                             //TODO:     ts: GlobalState.now
                             // await dataProvider.syncScans();
                             // dataProvider.syncInventory();
