@@ -106,6 +106,8 @@ class _SelectUsageButtonState extends State<SelectUsageButton> {
             shape: const RoundedRectangleBorder(
                 borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
             isScrollControlled: true,
+            enableDrag: false,
+            isDismissible: false,
             backgroundColor: Colors.transparent,
             builder: (context) => Modal(
               child: UsageSelectionModal(
