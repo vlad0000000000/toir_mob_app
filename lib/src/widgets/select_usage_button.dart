@@ -138,6 +138,7 @@ class UsageSelectionModal extends StatefulWidget {
 
 class _UsageSelectionModalState extends State<UsageSelectionModal> {
   Map<String, TextEditingController> usageControllers = {};
+  final formKey = GlobalKey<FormState>();
 
   @override
   void initState() {
@@ -166,7 +167,6 @@ class _UsageSelectionModalState extends State<UsageSelectionModal> {
 
   @override
   Widget build(BuildContext context) {
-    final formKey = GlobalKey<FormState>();
 
     return Form(
       child: Column(
