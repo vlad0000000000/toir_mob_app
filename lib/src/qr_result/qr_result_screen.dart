@@ -322,8 +322,9 @@ class YandexImage extends StatelessWidget {
 
 class QRResultScreen extends StatefulWidget {
   final InventoryRecord machine;
+  final String openDateTime;
 
-  const QRResultScreen(this.machine, {super.key});
+  const QRResultScreen(this.machine, {super.key, required this.openDateTime});
 
   @override
   State<QRResultScreen> createState() => _QRResultScreenState();
@@ -462,21 +463,38 @@ ${widget.machine.descriptionText}
                                   priority: '',
                                   equipmentUuid: widget.machine.uuid,
                                   faultUuid: '',
+                                  closedAt: GlobalState.nowUTCDate,
+                                  createdAt: widget.openDateTime,
                                   periodicTaskUuid: task.periodicTask.uuid));
                             }
 
                             if ((problemController.value != null ||
                                     !hasTasks) &&
                                 hasData) {
-                              await dataProvider.addScan(Scan(
-                                  taskUuid: '',
-                                  resultStatus: status,
-                                  files: files,
-                                  comment: descController.text,
-                                  priority: priority,
-                                  equipmentUuid: widget.machine.uuid,
-                                  faultUuid: faultUUID,
-                                  periodicTaskUuid: ''));
+                              if (status == 'closed') {
+                                await dataProvider.addScan(Scan(
+                                    taskUuid: '',
+                                    resultStatus: status,
+                                    files: files,
+                                    comment: descController.text,
+                                    priority: priority,
+                                    equipmentUuid: widget.machine.uuid,
+                                    faultUuid: faultUUID,
+                                    closedAt: GlobalState.nowUTCDate,
+                                    createdAt: widget.openDateTime,
+                                    periodicTaskUuid: ''));
+                              } else {
+                                await dataProvider.addScan(Scan(
+                                    taskUuid: '',
+                                    resultStatus: status,
+                                    files: files,
+                                    comment: descController.text,
+                                    priority: priority,
+                                    equipmentUuid: widget.machine.uuid,
+                                    createdAt: widget.openDateTime,
+                                    faultUuid: faultUUID,
+                                    periodicTaskUuid: ''));
+                              }
                             }
 
                             //TODO:     ts: GlobalState.now

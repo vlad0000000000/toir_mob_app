@@ -233,7 +233,6 @@ class API {
 
     // Добавляем поля из объекта Scan (кроме files)
     var scanJson = scan.toJson();
-    print(scanJson);
     scanJson.forEach((key, value) {
       if (key != 'files' && value != null && (value as String).length > 0) {
         request.fields[key] = value.toString();
@@ -306,7 +305,7 @@ class API {
     }
 
     final url = Uri.parse(
-        '$baseUrl/v1/company/fault_inspections/?limit=${limit}&skip=${offset}&today_only=1&status=scheduled');
+        '$baseUrl/v1/company/fault_inspections/?limit=${limit}&skip=${offset}&status=scheduled');
 
     final response = await http.get(
       url,
@@ -316,13 +315,50 @@ class API {
     );
 
     if (response.statusCode == 200 || response.statusCode == 201) {
+      var now = DateTime.now().toUtc();
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
       final decodedBytes = utf8Decoder.convert(response.bodyBytes);
       final List<dynamic> data = jsonDecode(decodedBytes);
       return data
           .where((json) {
             return (json['result_status'] as String) == 'scheduled' &&
-                json['periodic_task'] != null;
+                json['periodic_task'] != null &&
+                json['periodic_task']['next_due_at'] != null &&
+                json['periodic_task']['last_run_at'] != null;
+          })
+          .where((json) {
+            // var b = (DateTime.parse(json['periodic_task']['next_due_at'])
+            //             .millisecondsSinceEpoch /
+            //         1000)
+            //     .round();
+            // var a = (DateTime.parse(json['periodic_task']['last_run_at'])
+            //             .millisecondsSinceEpoch /
+            //         1000)
+            //     .round();
+
+            // print(now);
+            var a = (DateTime.parse(json['periodic_task']['last_run_at']));
+            var b = (DateTime.parse(json['periodic_task']['next_due_at']));
+            var len = b.difference(a);
+            var c = (DateTime.parse(json['created_at']));
+            // print(a);
+            // print(b);
+            // print(len);
+            // print(c);
+            // print(c.add(len));
+            var filteredA = now.compareTo(c);
+            var filteredB = now.compareTo(c.add(len));
+            // print(filteredA);
+            // print(filteredB);
+            // print('----------');
+            return filteredA == 1 && filteredB == -1;
+            // return a <= GlobalState.nowUTC && GlobalState.nowUTC <= b;
+            // // print(DateTime.parse(json['periodic_task']['next_due_at']).toIso8601String());
+            // // print(DateTime.parse(json['periodic_task']['last_run_at']).toIso8601String());
+            // // print(json['periodic_task']['next_due_at']);
+            // // print(json['periodic_task']['last_run_at']);
+            // // print('-----------');
+            // // return true;
           })
           .map((json) => Task.fromJson(json))
           .toList();
@@ -417,8 +453,6 @@ class API {
     if (jwtToken == null) {
       throw Exception('Not authenticated');
     }
-
-    print(usageUpdate.toString());
 
     final url = Uri.parse(
         '$baseUrl/v1/company/equipment/${usageUpdate.equipmentUuid}/usage-parameters/${usageUpdate.usageParameterUuid}');

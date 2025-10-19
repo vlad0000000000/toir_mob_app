@@ -239,7 +239,7 @@ class MyApp extends StatelessWidget {
           return buildMyTransition<void>(
             child: QRResultScreen(
               machine,
-              key: const Key('qr_result'),
+              key: const Key('qr_result'), openDateTime: GlobalState.nowUTCDate,
             ),
             color: context.watch<Palette>().backgroundMain,
           );

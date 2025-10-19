@@ -47,7 +47,15 @@ class GlobalState {
     }
   }
 
-  static int get now => (DateTime.now().millisecondsSinceEpoch / 1000).round();
+  static int get nowLocal =>
+      (DateTime.now().millisecondsSinceEpoch / 1000).round();
+
+  static int get nowUTC =>
+      (DateTime.now().toUtc().millisecondsSinceEpoch / 1000).round();
+
+  static String get nowUTCDate => DateTime.now().toUtc().toIso8601String();
+
+  static String get nowLocalDate => DateTime.now().toIso8601String();
 
   static ValueNotifier<String> debug = ValueNotifier('');
 
@@ -132,6 +140,12 @@ class GlobalState {
 - **packageName**: ${packageName}
 - **version**: ${version}
 - **buildNumber**: ${buildNumber}
+
+---
+
+- **Time UTC**: ${nowUTCDate}
+- **Time local**: ${DateTime.now().toIso8601String()}
+
     """;
   }
 

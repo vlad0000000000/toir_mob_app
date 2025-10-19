@@ -25,6 +25,10 @@ class Scan {
   final String? usageParameterUuid;
   @HiveField(9)
   final double? usageParameterValue;
+  @HiveField(10)
+  final String? createdAt;
+  @HiveField(11)
+  final String? closedAt;
 
   String key() {
     return GlobalState.digest(jsonEncode(toJson()));
@@ -46,6 +50,8 @@ class Scan {
     this.priority,
     this.usageParameterUuid,
     this.usageParameterValue,
+    this.createdAt,
+    this.closedAt
   });
 
   Map<String, dynamic> toJson() {
@@ -60,6 +66,8 @@ class Scan {
       'priority': priority,
       'usage_parameter_uuid': usageParameterUuid,
       'usage_parameter_value': usageParameterValue,
+      'app_created_at': createdAt,
+      'app_closed_at': closedAt,
     };
   }
 }
@@ -81,6 +89,8 @@ class ScanAdapter extends TypeAdapter<Scan> {
       priority: reader.read(),
       usageParameterUuid: reader.read(),
       usageParameterValue: reader.read(),
+      createdAt: reader.read(),
+      closedAt: reader.read(),
     );
   }
 
@@ -96,5 +106,7 @@ class ScanAdapter extends TypeAdapter<Scan> {
     writer.write(obj.priority);
     writer.write(obj.usageParameterUuid);
     writer.write(obj.usageParameterValue);
+    writer.write(obj.createdAt);
+    writer.write(obj.closedAt);
   }
 }
