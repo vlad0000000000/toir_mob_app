@@ -319,7 +319,7 @@ class API {
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
       final decodedBytes = utf8Decoder.convert(response.bodyBytes);
       final List<dynamic> data = jsonDecode(decodedBytes);
-      return data
+      var scheduled = data
           .where((json) {
             return (json['result_status'] as String) == 'scheduled' &&
                 json['periodic_task'] != null &&
@@ -327,41 +327,33 @@ class API {
                 json['periodic_task']['last_run_at'] != null;
           })
           .where((json) {
-            // var b = (DateTime.parse(json['periodic_task']['next_due_at'])
-            //             .millisecondsSinceEpoch /
-            //         1000)
-            //     .round();
-            // var a = (DateTime.parse(json['periodic_task']['last_run_at'])
-            //             .millisecondsSinceEpoch /
-            //         1000)
-            //     .round();
-
-            // print(now);
             var a = (DateTime.parse(json['periodic_task']['last_run_at']));
             var b = (DateTime.parse(json['periodic_task']['next_due_at']));
             var len = b.difference(a);
             var c = (DateTime.parse(json['created_at']));
-            // print(a);
-            // print(b);
-            // print(len);
-            // print(c);
-            // print(c.add(len));
             var filteredA = now.compareTo(c);
             var filteredB = now.compareTo(c.add(len));
-            // print(filteredA);
-            // print(filteredB);
-            // print('----------');
             return filteredA == 1 && filteredB == -1;
-            // return a <= GlobalState.nowUTC && GlobalState.nowUTC <= b;
-            // // print(DateTime.parse(json['periodic_task']['next_due_at']).toIso8601String());
-            // // print(DateTime.parse(json['periodic_task']['last_run_at']).toIso8601String());
-            // // print(json['periodic_task']['next_due_at']);
-            // // print(json['periodic_task']['last_run_at']);
-            // // print('-----------');
-            // // return true;
           })
           .map((json) => Task.fromJson(json))
           .toList();
+
+      var once = data
+          .where((json) {
+            return (json['result_status'] as String) == 'scheduled' &&
+                json['periodic_task'] != null &&
+                json['periodic_task']['periodicity_rule'] == 'once';
+          })
+          .where((json) {
+            print(json);
+            return true;
+          })
+          .map((json) => Task.fromJson(json))
+          .toList();
+      for (var task in once) {
+        scheduled.add(task);
+      }
+      return scheduled;
     } else {
       throw Exception(
           'Failed to load typical problems: ${response.statusCode}');

@@ -174,6 +174,7 @@ class EquipmentListScreen extends StatelessWidget {
 // import 'models.dart';
 
 final Map<String, Color> periodColors = {
+  'Однократно': Colors.red,
   'Ежедневно (каждые 2.5 часа)': Colors.red,
   'Ежедневно': Colors.red,
   'Еженедельно': Colors.yellow,
