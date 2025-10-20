@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -205,6 +206,70 @@ class PauseMobileScannerButton extends StatelessWidget {
           icon: const Icon(Icons.pause),
           onPressed: () async {
             await controller.pause();
+          },
+        );
+      },
+    );
+  }
+}
+
+class ZoomButton extends StatefulWidget {
+  const ZoomButton({required this.controller, super.key});
+
+  final MobileScannerController controller;
+
+  @override
+  State<ZoomButton> createState() => _ZoomButtonState();
+}
+
+class _ZoomButtonState extends State<ZoomButton> {
+  final List<double> _zoomLevels = [1.0, 1.5, 2.0, 2.5, 3.0];
+  int _currentZoomIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder(
+      valueListenable: widget.controller,
+      builder: (context, state, child) {
+        if (!state.isInitialized || !state.isRunning) {
+          return const SizedBox.shrink();
+        }
+
+        return IconButton(
+          color: Colors.white,
+          iconSize: 32.0,
+          icon: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.zoom_in),
+              // Text(
+              //   '${_zoomLevels[_currentZoomIndex].toStringAsFixed(1)}x',
+              //   style: const TextStyle(
+              //     fontSize: 10,
+              //     color: Colors.white,
+              //   ),
+              // ),
+            ],
+          ),
+          onPressed: () async {
+            if (kIsWeb) {
+              return;
+            }
+
+            setState(() {
+              _currentZoomIndex = (_currentZoomIndex + 1) % _zoomLevels.length;
+            });
+            await widget.controller
+                .setZoomScale((_zoomLevels[_currentZoomIndex] - 1) / 2);
+            // Показываем уведомление о текущем уровне зума
+            // if (mounted) {
+            //   ScaffoldMessenger.of(context).showSnackBar(
+            //     SnackBar(
+            //       content: Text('Зум: ${_zoomLevels[_currentZoomIndex].toStringAsFixed(1)}x'),
+            //       duration: const Duration(seconds: 1),
+            //     ),
+            //   );
+            // }
           },
         );
       },
