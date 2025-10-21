@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:logging/logging.dart';
-import 'package:my_app/src/data/data_provider.dart';
+import '../data/data_provider.dart';
 import 'package:provider/provider.dart';
 import '../../global_state.dart';
 

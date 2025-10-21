@@ -56,6 +56,9 @@ class ResultControls extends StatefulWidget {
 }
 
 class _ResultControlsState extends State<ResultControls> {
+
+  bool firstPaint = true;
+
   void _onValueChanged() {
     setState(() {});
   }
@@ -78,12 +81,13 @@ class _ResultControlsState extends State<ResultControls> {
 
   @override
   Widget build(BuildContext context) {
-    if (Settings.qrResultShowTasksFirst) {
+    if (Settings.qrResultShowTasksFirst && firstPaint) {
       if (GlobalState.dataProvider
               .getTasksForMachine(widget.machine.uuid)
               .length >
           0) {
         scheduler.SchedulerBinding.instance.addPostFrameCallback((ts) {
+          firstPaint = false;
           SelectTaskButton.showModal(
               context, widget.machine, widget.equipmentDetailController);
         });

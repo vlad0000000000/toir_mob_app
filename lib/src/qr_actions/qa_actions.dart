@@ -7,6 +7,7 @@ import '../../src/utils/go_router_ext.dart';
 import '../../strings.dart';
 import '../../settings.dart';
 import '../../src/tasks/tasks.dart';
+import '../../src/widgets/square_button.dart' as sq;
 
 class QRActions extends StatelessWidget {
   const QRActions({super.key});
@@ -107,23 +108,32 @@ class QRActions extends StatelessWidget {
                         barrierColor: Colors.black54,
                         context: context,
                         shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+                            borderRadius: BorderRadius.vertical(
+                                top: Radius.circular(20))),
                         isScrollControlled: true,
                         enableDrag: false,
                         isDismissible: false,
                         backgroundColor: Colors.transparent,
                         builder: (context) => Modal(
                                 child: SafeArea(
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                    child: StatefulBuilder(
-                                      builder: (context, setState) {
-                                        bool value = Settings.qrResultShowTasksFirst;
-                                        return ListView(
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 8),
+                                child: StatefulBuilder(
+                                  builder: (context, setState) {
+                                    bool value =
+                                        Settings.qrResultShowTasksFirst;
+
+                                    return Column(
+                                      children: [
+                                        Expanded(
+                                            child: ListView(
                                           shrinkWrap: true,
                                           children: [
                                             Padding(
-                                              padding: const EdgeInsets.symmetric(vertical: 8),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      vertical: 8),
                                               child: Row(
                                                 children: [
                                                   const Expanded(
@@ -137,7 +147,8 @@ class QRActions extends StatelessWidget {
                                                     onChanged: (v) {
                                                       if (v == null) return;
                                                       setState(() {
-                                                        Settings.qrResultShowTasksFirst = v;
+                                                        Settings
+                                                            .qrResultShowTasksFirst = v;
                                                       });
                                                     },
                                                   ),
@@ -150,11 +161,24 @@ class QRActions extends StatelessWidget {
                                               color: Colors.grey.shade300,
                                             ),
                                           ],
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                )));
+                                        )),
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                                child: sq.SquareButton(
+                                                    onPressed: () {
+                                                      Navigator.of(context)
+                                                          .pop();
+                                                    },
+                                                    child: Text("Закрыть")))
+                                          ],
+                                        )
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ),
+                            )));
                   },
                 );
               }

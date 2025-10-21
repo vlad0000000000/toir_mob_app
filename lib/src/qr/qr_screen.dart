@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
+import '../../global_state.dart';
 import '../../src/app_bar/app_bar.dart';
 import '../../src/data/data_provider.dart';
 import '../../src/utils/go_router_ext.dart';
@@ -89,7 +90,6 @@ class _BarcodeScannerWithControllerState
                               // print(machine.getQRValue());
                               if (machine.uuid.toLowerCase() ==
                                   barcodeUUID.toLowerCase()) {
-                                // GlobalState.needTasksSync = true;
                                 GoRouter.of(context).clearStackAndNavigate(
                                     '/qr_result',
                                     extra: machine);
