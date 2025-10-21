@@ -1,2 +1,0 @@
-L:/AndroidStudioProjects/qr_scan_industry/android/app/.cxx/Debug/2m6a2po4/armeabi-v7a/CMakeFiles/edit_cache.dir
-L:/AndroidStudioProjects/qr_scan_industry/android/app/.cxx/Debug/2m6a2po4/armeabi-v7a/CMakeFiles/rebuild_cache.dir
