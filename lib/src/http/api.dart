@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import '../../src/model/usage_update.dart';
 import '../../global_state.dart';
+import '../../src/model/company.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/periodicity_rule.dart';
 import '../../src/model/scan.dart';
@@ -55,6 +56,30 @@ class API {
       return user;
     } else {
       throw Exception('Failed to authenticate: ${response.statusCode}');
+    }
+  }
+
+  // Получить информацию о компании
+  Future<Company> getCompany() async {
+    // Проверяем наличие токена
+    if (jwtToken == null) {
+      throw Exception('Not authenticated');
+    }
+
+    final response = await http.get(
+      Uri.parse('$baseUrl/v1/company/me'),
+      headers: {
+        'Authorization': 'Bearer $jwtToken', // Используем JWT
+      },
+    );
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      const utf8Decoder = Utf8Decoder(allowMalformed: true);
+      final decodedBytes = utf8Decoder.convert(response.bodyBytes);
+      final Map<String, dynamic> data = jsonDecode(decodedBytes);
+      return Company.fromJson(data);
+    } else {
+      throw Exception('Failed to load company: ${response.statusCode}');
     }
   }
 

@@ -102,6 +102,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     if (currentUser != null) {
                       GlobalState.authUser = currentUser;
                       await dataProvider.mainSync();
+                      await dataProvider.syncCompany();
                       await GlobalState.updateDebug();
                       GoRouter.of(context).clearStackAndNavigate("/actions");
                       return;

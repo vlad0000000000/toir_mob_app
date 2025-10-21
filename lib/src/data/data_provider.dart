@@ -2,6 +2,7 @@ import 'package:hive_ce/hive.dart';
 import 'package:intl/intl.dart';
 import '../../global_state.dart';
 import '../../src/http/api.dart';
+import '../../src/model/company.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/periodicity_rule.dart';
 import '../../src/model/scan.dart';
@@ -25,6 +26,7 @@ class DataProvider {
   final Box<TypicalProblem> typicalProblemBox;
   final Box<PeriodicityRule> periodicityRuleBox;
   final Box<UsageUnit> usageUnitBox;
+  final Box<Company> companyBox;
   final Box<String> stringBox;
 
   DataProvider(
@@ -40,12 +42,14 @@ class DataProvider {
       required this.typicalProblemBox,
       required this.periodicityRuleBox,
       required this.stringBox,
-      required this.usageUnitBox}) {
+      required this.usageUnitBox,
+      required this.companyBox}) {
     _users = userBox.values.toList();
     _inventoryRecords = inventoryBox.values.toList();
     _typicalProblems = typicalProblemBox.values.toList();
     _periodicityRules = periodicityRuleBox.values.toList();
     _usageUnits = usageUnitBox.values.toList();
+    _company = companyBox.get('company');
     _currentSession = sessionBox.get('current_session');
   }
 
@@ -54,6 +58,7 @@ class DataProvider {
   List<TypicalProblem> _typicalProblems = [];
   List<PeriodicityRule> _periodicityRules = [];
   List<UsageUnit> _usageUnits = [];
+  Company? _company;
   bool _isLoading = false;
 
   List<User> get users => _users;
@@ -65,6 +70,8 @@ class DataProvider {
   List<PeriodicityRule> get periodicityRules => _periodicityRules;
 
   List<UsageUnit> get usageUnits => _usageUnits;
+
+  Company? get company => _company;
 
   Session? get currentSession => _currentSession;
   Session? _currentSession;
@@ -280,6 +287,19 @@ class DataProvider {
       await usageUnitBox.addAll(_usageUnits);
     } catch (e) {
       print('Failed sync usage unit types: $e');
+    } finally {
+      _isLoading = false;
+    }
+  }
+
+  Future<void> syncCompany() async {
+    _isLoading = true;
+
+    try {
+      _company = await api.getCompany();
+      await companyBox.put('company', _company!);
+    } catch (e) {
+      print('Failed sync company: $e');
     } finally {
       _isLoading = false;
     }

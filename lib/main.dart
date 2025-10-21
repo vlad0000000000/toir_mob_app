@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:logging/logging.dart';
 import 'package:my_app/settings.dart';
+import '../../src/model/company.dart';
 import '../../src/model/usage_unit.dart';
 import '../../src/model/usage_update.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -102,6 +103,7 @@ Future<void> main() async {
   Hive.registerAdapter(UsageUnitAdapter());
   Hive.registerAdapter(UsageParameterAdapter());
   Hive.registerAdapter(UsageUpdateAdapter());
+  Hive.registerAdapter(CompanyAdapter());
 
   var dataProvider = DataProvider(
       api: API(),
@@ -110,14 +112,16 @@ Future<void> main() async {
       scanBox: await Hive.openBox<Scan>('scans'),
       scanUsageBox: await Hive.openBox<UsageUpdate>('usage_scans'),
       scanPendingBox: await Hive.openBox<Scan>('pending_scans'),
-      scanUsagePendingBox: await Hive.openBox<UsageUpdate>('pending_usage_scans'),
+      scanUsagePendingBox:
+          await Hive.openBox<UsageUpdate>('pending_usage_scans'),
       sessionBox: await Hive.openBox<Session>('sessions'),
       usageUnitBox: await Hive.openBox<UsageUnit>('usage_units'),
       typicalProblemBox: await Hive.openBox<TypicalProblem>('typical_problems'),
       stringBox: await Hive.openBox<String>('strings'),
       periodicityRuleBox:
           await Hive.openBox<PeriodicityRule>('periodicity_rules'),
-      taskBox: await Hive.openBox<Task>('tasks'));
+      taskBox: await Hive.openBox<Task>('tasks'),
+      companyBox: await Hive.openBox<Company>('company'));
 
   for (var scan in dataProvider.scanPendingBox.values) {
     await dataProvider.scanPendingBox.delete(scan.key());
@@ -210,6 +214,18 @@ class MyApp extends StatelessWidget {
         },
       ),
       GoRoute(
+        path: '/problems',
+        pageBuilder: (context, state) {
+          return buildMyTransition<void>(
+            child: EquipmentListScreen(
+              isProblems: true,
+              key: Key('problems'),
+            ),
+            color: context.watch<Palette>().backgroundMain,
+          );
+        },
+      ),
+      GoRoute(
         path: '/details/:index',
         pageBuilder: (context, state) {
           final index = int.parse(state.pathParameters['index']!);
@@ -241,7 +257,22 @@ class MyApp extends StatelessWidget {
           return buildMyTransition<void>(
             child: QRResultScreen(
               machine,
-              key: const Key('qr_result'), openDateTime: GlobalState.nowUTCDate,
+              key: const Key('qr_result'),
+              openDateTime: GlobalState.nowUTCDate,
+            ),
+            color: context.watch<Palette>().backgroundMain,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/qr_result_problems',
+        pageBuilder: (context, state) {
+          final machine = state.extra! as InventoryRecord;
+          return buildMyTransition<void>(
+            child: QRResultScreen(
+              machine,
+              key: const Key('qr_result'),
+              openDateTime: GlobalState.nowUTCDate,
             ),
             color: context.watch<Palette>().backgroundMain,
           );

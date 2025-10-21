@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:my_app/src/utils/go_router_ext.dart';
 import '../../global_state.dart';
 import '../../src/app_bar/app_bar.dart';
 import '../../src/model/inventory_record.dart';
@@ -72,8 +73,10 @@ class EquipmentDetailController {
 
 class EquipmentListScreen extends StatelessWidget {
   final bool isModal;
+  final bool isProblems;
 
-  const EquipmentListScreen({super.key, this.isModal = false});
+  const EquipmentListScreen(
+      {super.key, this.isModal = false, this.isProblems = false});
 
   @override
   Widget build(BuildContext context) {
@@ -95,12 +98,6 @@ class EquipmentListScreen extends StatelessWidget {
                       : 1;
               return bc.compareTo(ac);
             });
-            // equipmentList = equipmentList.where((x) {
-            //   return GlobalState.dataProvider
-            //           .getTasksForMachine(x.uuid)
-            //           .length >
-            //       0;
-            // }).toList();
             Widget list = ListView.builder(
               itemCount: equipmentList.length,
               itemBuilder: (context, index) {
@@ -108,6 +105,33 @@ class EquipmentListScreen extends StatelessWidget {
                 var taskCount = GlobalState.dataProvider
                     .getTasksForMachine(equipment.uuid)
                     .length;
+                if(isProblems){
+                  return Card(
+                      margin:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      elevation: 2,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: ListTile(
+                          title: Text(
+                            '${equipment.name}',
+                            style: const TextStyle(
+                              // color: Colors.blue,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          trailing: const Icon(Icons.arrow_forward),
+                          onTap: () {
+                            if (isProblems) {
+                              GoRouter.of(context).clearStackAndNavigate(
+                                  '/qr_result_problems',
+                                  extra: equipment);
+                            } else {
+                              GoRouter.of(context).go('/details/${equipment.id}');
+                            }
+                          }));
+                }
                 if (taskCount == 0) {
                   return Card(
                       margin: const EdgeInsets.symmetric(
@@ -134,17 +158,23 @@ class EquipmentListScreen extends StatelessWidget {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: ListTile(
-                      title: Text(
-                        '${equipment.name} (${taskCount})',
-                        style: const TextStyle(
-                          // color: Colors.blue,
-                          fontWeight: FontWeight.bold,
+                        title: Text(
+                          '${equipment.name} (${taskCount})',
+                          style: const TextStyle(
+                            // color: Colors.blue,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      ),
-                      trailing: const Icon(Icons.arrow_forward),
-                      onTap: () =>
-                          GoRouter.of(context).go('/details/${equipment.id}'),
-                    ));
+                        trailing: const Icon(Icons.arrow_forward),
+                        onTap: () {
+                          if (isProblems) {
+                            GoRouter.of(context).clearStackAndNavigate(
+                                '/qr_result_problems',
+                                extra: equipment);
+                          } else {
+                            GoRouter.of(context).go('/details/${equipment.id}');
+                          }
+                        }));
               },
             );
             return list;

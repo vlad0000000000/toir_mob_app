@@ -45,7 +45,32 @@ class MyAppBar {
         ],
       );
     }
+    if (GoRouter.of(context).location == '/qr_result_problems') {
+      return AppBar(
+        leading: BackButton(
+          onPressed: () {
+            GoRouter.of(context).clearStackAndNavigate('/problems');
+          },
+        ),
+        actions: [
+          // logoutBlackText
+        ],
+      );
+    }
     if (GoRouter.of(context).location == '/tasks') {
+      return AppBar(
+        leading: BackButton(
+          onPressed: () {
+            GoRouter.of(context).clearStackAndNavigate('/actions');
+          },
+        ),
+        title: Text('Оборудование'),
+        actions: [
+          // logoutBlackText
+        ],
+      );
+    }
+    if (GoRouter.of(context).location == '/problems') {
       return AppBar(
         leading: BackButton(
           onPressed: () {
