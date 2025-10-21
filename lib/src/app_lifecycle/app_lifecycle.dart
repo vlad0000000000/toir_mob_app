@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:logging/logging.dart';
+import 'package:my_app/src/data/data_provider.dart';
 import 'package:provider/provider.dart';
 import '../../global_state.dart';
 
@@ -46,6 +47,7 @@ class _AppLifecycleObserverState extends State<AppLifecycleObserver>
     // GlobalState.dataProvider.syncInventory();
     // GlobalState.dataProvider.syncScans();
     GlobalState.updateDebug();
+    DataProvider.closedTasks = {};
   }
 
   @override

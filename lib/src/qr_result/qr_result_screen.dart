@@ -79,10 +79,15 @@ class _ResultControlsState extends State<ResultControls> {
   @override
   Widget build(BuildContext context) {
     if (Settings.qrResultShowTasksFirst) {
-      scheduler.SchedulerBinding.instance.addPostFrameCallback((ts) {
-        SelectTaskButton.showModal(
-            context, widget.machine, widget.equipmentDetailController);
-      });
+      if (GlobalState.dataProvider
+              .getTasksForMachine(widget.machine.uuid)
+              .length >
+          0) {
+        scheduler.SchedulerBinding.instance.addPostFrameCallback((ts) {
+          SelectTaskButton.showModal(
+              context, widget.machine, widget.equipmentDetailController);
+        });
+      }
     }
 
     List<Widget> addButtons = [

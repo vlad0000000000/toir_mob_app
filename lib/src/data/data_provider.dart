@@ -89,8 +89,14 @@ class DataProvider {
     _users = userBox.values.toList();
   }
 
+  static Map<String, String> closedTasks = {};
+  
   addScan(Scan scan) async {
     await scanBox.put(scan.key(), scan);
+    if (scan.taskUuid != null) {
+      closedTasks[scan.taskUuid!] = scan.taskUuid!;
+      taskBox.delete(scan.taskUuid);
+    }
   }
 
   addUsageScan(UsageUpdate scan) async {
@@ -316,7 +322,12 @@ class DataProvider {
     try {
       List<Task> tasks = await loadAllTasks();
       await taskBox.clear();
-      await taskBox.addAll(tasks);
+      Map<String, Task> tasksDict = {};
+      for (var task in tasks) {
+        tasksDict[task.uuid] = task;
+      }
+      await taskBox.putAll(tasksDict);
+      // await taskBox.addAll(tasks);
     } catch (e, stack) {
       print('Error syncing tasks: $e');
       print(stack);
@@ -340,9 +351,19 @@ class DataProvider {
 
   // Получение задач для машины
   List<Task> getTasksForMachine(String machineUUID) {
+    final tasksInScans = {};
+    for (var scan in scanBox.values.toList()) {
+      tasksInScans[scan.taskUuid] = scan.taskUuid;
+    }
+    for (var scan in scanPendingBox.values.toList()) {
+      tasksInScans[scan.taskUuid] = scan.taskUuid;
+    }
     return taskBox.values
         .where((task) => task.equipmentUuid == machineUUID)
         .where((x) {
+      if (tasksInScans.containsKey(x.uuid) || closedTasks.containsKey(x.uuid)) {
+        return false;
+      }
       return x.periodicTask.customRoles.where((x) {
             if (GlobalState.authUser == null) {
               return false;

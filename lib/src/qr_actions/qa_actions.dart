@@ -6,6 +6,7 @@ import '../../src/utils/dialogs.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../strings.dart';
 import '../../settings.dart';
+import '../../src/tasks/tasks.dart';
 
 class QRActions extends StatelessWidget {
   const QRActions({super.key});
@@ -103,51 +104,57 @@ class QRActions extends StatelessWidget {
                   label: "Настройки",
                   onPressed: () async {
                     showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      showDragHandle: true,
-                      builder: (ctx) {
-                        bool value = Settings.qrResultShowTasksFirst;
-                        return StatefulBuilder(
-                          builder: (context, setState) {
-                            return SafeArea(
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                child: ListView(
-                                  shrinkWrap: true,
-                                  children: [
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(vertical: 8),
-                                      child: Row(
-                                        children: [
-                                          const Expanded(
-                                            child: Text(
-                                              'Показывать задачи сразу после сканирования',
-                                              // long text wraps
-                                              softWrap: true,
+                        barrierColor: Colors.black54,
+                        context: context,
+                        shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+                        isScrollControlled: true,
+                        enableDrag: false,
+                        isDismissible: false,
+                        backgroundColor: Colors.transparent,
+                        builder: (context) => Modal(
+                                child: SafeArea(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                    child: StatefulBuilder(
+                                      builder: (context, setState) {
+                                        bool value = Settings.qrResultShowTasksFirst;
+                                        return ListView(
+                                          shrinkWrap: true,
+                                          children: [
+                                            Padding(
+                                              padding: const EdgeInsets.symmetric(vertical: 8),
+                                              child: Row(
+                                                children: [
+                                                  const Expanded(
+                                                    child: Text(
+                                                      'Показывать задачи сразу после сканирования',
+                                                      softWrap: true,
+                                                    ),
+                                                  ),
+                                                  Checkbox(
+                                                    value: value,
+                                                    onChanged: (v) {
+                                                      if (v == null) return;
+                                                      setState(() {
+                                                        Settings.qrResultShowTasksFirst = v;
+                                                      });
+                                                    },
+                                                  ),
+                                                ],
+                                              ),
                                             ),
-                                          ),
-                                          Checkbox(
-                                            value: value,
-                                            onChanged: (v) {
-                                              if (v == null) return;
-                                              setState(() {
-                                                value = v;
-                                                Settings.qrResultShowTasksFirst = v;
-                                              });
-                                            },
-                                          ),
-                                        ],
-                                      ),
+                                            Divider(
+                                              height: 1,
+                                              thickness: 1,
+                                              color: Colors.grey.shade300,
+                                            ),
+                                          ],
+                                        );
+                                      },
                                     ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        );
-                      },
-                    );
+                                  ),
+                                )));
                   },
                 );
               }

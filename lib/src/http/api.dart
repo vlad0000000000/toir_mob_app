@@ -344,10 +344,10 @@ class API {
                 json['periodic_task'] != null &&
                 json['periodic_task']['periodicity_rule'] == 'once';
           })
-          .where((json) {
-            print(json);
-            return true;
-          })
+          // .where((json) {
+          //   print(json);
+          //   return true;
+          // })
           .map((json) => Task.fromJson(json))
           .toList();
       for (var task in once) {
