@@ -1,8 +1,10 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart' as scheduler;
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:go_router/go_router.dart';
+import 'package:my_app/settings.dart';
 import 'package:provider/provider.dart';
 import '../../src/widgets/select_priority_button.dart';
 import '../../src/model/priority.dart';
@@ -76,6 +78,13 @@ class _ResultControlsState extends State<ResultControls> {
 
   @override
   Widget build(BuildContext context) {
+    if (Settings.qrResultShowTasksFirst) {
+      scheduler.SchedulerBinding.instance.addPostFrameCallback((ts) {
+        SelectTaskButton.showModal(
+            context, widget.machine, widget.equipmentDetailController);
+      });
+    }
+
     List<Widget> addButtons = [
       SelectImageButton(
         controller: widget.imageData1Controller,

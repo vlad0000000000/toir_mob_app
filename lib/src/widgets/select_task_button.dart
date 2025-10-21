@@ -15,6 +15,28 @@ class SelectTaskButton extends StatefulWidget {
 
   @override
   State<SelectTaskButton> createState() => _SelectImageButton();
+
+  static showModal(context, machine, equipmentDetailController){
+    showModalBottomSheet(
+        barrierColor: Colors.black54,
+        context: context,
+        shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        isScrollControlled: true,
+        enableDrag: false,
+        isDismissible: false,
+        // Ключевой параметр для полного экрана
+        backgroundColor: Colors.transparent,
+        builder: (context) => Modal(
+            child: EquipmentDetailScreen(
+              isModal: true,
+              controller: equipmentDetailController,
+              onTaskTap: (Task task) {
+                Navigator.pop(context);
+              },
+              machine: machine,
+            )));
+  }
 }
 
 class _SelectImageButton extends State<SelectTaskButton> {
@@ -49,25 +71,7 @@ class _SelectImageButton extends State<SelectTaskButton> {
           : Text('Выбрать задачу'),
       onPressed: () {
         // GlobalState.needTaskSync = true;
-        showModalBottomSheet(
-            barrierColor: Colors.black54,
-            context: context,
-            shape: const RoundedRectangleBorder(
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-            isScrollControlled: true,
-            enableDrag: false,
-            isDismissible: false,
-            // Ключевой параметр для полного экрана
-            backgroundColor: Colors.transparent,
-            builder: (context) => Modal(
-                    child: EquipmentDetailScreen(
-                  isModal: true,
-                  controller: widget.equipmentDetailController,
-                  onTaskTap: (Task task) {
-                    Navigator.pop(context);
-                  },
-                  machine: widget.machine,
-                )));
+        SelectTaskButton.showModal(context, widget.machine, widget.equipmentDetailController);
       },
     ));
   }

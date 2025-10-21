@@ -9,6 +9,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:logging/logging.dart';
+import 'package:my_app/settings.dart';
 import '../../src/model/usage_unit.dart';
 import '../../src/model/usage_update.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -124,6 +125,7 @@ Future<void> main() async {
   }
 
   GlobalState.dataProvider = dataProvider;
+  Settings.dataProvider = dataProvider;
 
   // clear Hive of first launch
   // final prefs = await SharedPreferences.getInstance();

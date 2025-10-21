@@ -5,6 +5,7 @@ import '../../src/app_bar/app_bar.dart';
 import '../../src/utils/dialogs.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../strings.dart';
+import '../../settings.dart';
 
 class QRActions extends StatelessWidget {
   const QRActions({super.key});
@@ -21,7 +22,7 @@ class QRActions extends StatelessWidget {
               crossAxisSpacing: 16, // Горизонтальный отступ
               mainAxisSpacing: 16, // Вертикальный отступ
             ),
-            itemCount: 5,
+            itemCount: 6,
             itemBuilder: (context, index) {
               if (index == 0) {
                 return SquareButton(
@@ -93,6 +94,60 @@ class QRActions extends StatelessWidget {
                   onPressed: () async {
                     Dialogs.notifyMD(context, "Осмотры успешно сброшены", "",
                         await GlobalState.buildInfo());
+                  },
+                );
+              }
+              if (index == 5) {
+                return SquareButton(
+                  icon: Icons.settings,
+                  label: "Настройки",
+                  onPressed: () async {
+                    showModalBottomSheet(
+                      context: context,
+                      isScrollControlled: true,
+                      showDragHandle: true,
+                      builder: (ctx) {
+                        bool value = Settings.qrResultShowTasksFirst;
+                        return StatefulBuilder(
+                          builder: (context, setState) {
+                            return SafeArea(
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                child: ListView(
+                                  shrinkWrap: true,
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 8),
+                                      child: Row(
+                                        children: [
+                                          const Expanded(
+                                            child: Text(
+                                              'Показывать задачи сразу после сканирования',
+                                              // long text wraps
+                                              softWrap: true,
+                                            ),
+                                          ),
+                                          Checkbox(
+                                            value: value,
+                                            onChanged: (v) {
+                                              if (v == null) return;
+                                              setState(() {
+                                                value = v;
+                                                Settings.qrResultShowTasksFirst = v;
+                                              });
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    );
                   },
                 );
               }
