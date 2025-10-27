@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 import 'package:my_app/src/utils/go_router_ext.dart';
 import '../../global_state.dart';
@@ -6,6 +8,7 @@ import '../../src/app_bar/app_bar.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/task.dart';
 import '../../src/widgets/square_button.dart';
+import '../widgets/modal.dart';
 
 // models.dart
 class Equipment {
@@ -105,10 +108,10 @@ class EquipmentListScreen extends StatelessWidget {
                 var taskCount = GlobalState.dataProvider
                     .getTasksForMachine(equipment.uuid)
                     .length;
-                if(isProblems){
+                if (isProblems) {
                   return Card(
-                      margin:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      margin: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
                       elevation: 2,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -128,7 +131,8 @@ class EquipmentListScreen extends StatelessWidget {
                                   '/qr_result_problems',
                                   extra: equipment);
                             } else {
-                              GoRouter.of(context).go('/details/${equipment.id}');
+                              GoRouter.of(context)
+                                  .go('/details/${equipment.id}');
                             }
                           }));
                 }
@@ -204,6 +208,7 @@ class EquipmentListScreen extends StatelessWidget {
 // import 'models.dart';
 
 final Map<String, Color> periodColors = {
+  'Назначенные задачи': Colors.red,
   'Однократно': Colors.red,
   'Ежедневно (каждые 2.5 часа)': Colors.red,
   'Ежедневно': Colors.red,
@@ -219,61 +224,6 @@ final Map<String, Color> periodColors = {
   '1 раз в 3 года': Colors.grey,
   'Автоматический счетчик обслуживания': Colors.green,
 };
-
-class Modal extends StatelessWidget {
-  final Widget child;
-
-  const Modal({super.key, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    final mediaQuery = MediaQuery.of(context);
-    final height = mediaQuery.size.height * 0.9;
-    return Container(
-      padding: EdgeInsets.symmetric(vertical: 10),
-      height: height,
-      child: Column(
-        children: [
-          SizedBox(
-            height: 10,
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              InkWell(
-                child: Icon(
-                  Icons.close,
-                  size: 32,
-                ),
-                onTap: () => Navigator.of(context).pop(),
-              ),
-              SizedBox(width: 20)
-            ],
-          ),
-          SizedBox(
-            height: 10,
-          ),
-          Expanded(child: child)
-        ],
-      ),
-      margin: EdgeInsets.symmetric(
-        horizontal: 20,
-        vertical: 20,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.3),
-            blurRadius: 20,
-            spreadRadius: 5,
-          )
-        ],
-      ),
-    );
-  }
-}
 
 class EquipmentDetailScreen extends StatefulWidget {
   final InventoryRecord machine;
@@ -319,7 +269,16 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     Map<String, List<Task>> byPeriod = {};
     var periodOrder = periodColors.keys.toList();
     for (var task in tasks) {
-      var periodName = task.periodicityRuleDisplay;
+      print(task.resultStatus);
+      var periodName = '';
+      if (task.resultStatus == 'open') {
+        periodName = 'Назначенные задачи';
+      } else {
+        periodName = task.periodicTask!.periodicityRuleDisplay;
+      }
+      if (periodName.length == 0) {
+        continue;
+      }
       if (!byPeriod.containsKey(periodName)) {
         byPeriod[periodName] = [];
       }
@@ -343,17 +302,16 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       itemCount: equipment.checklists.length + (widget.isModal ? 1 : 0),
       itemBuilder: (context, index) {
         if (index == equipment.checklists.length) {
-          return Card(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              elevation: 2,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: SquareButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                  child: Text("Завершить")));
+          return Row(
+            children: [
+              Expanded(
+                  child: SquareButton(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                      },
+                      child: Text("Завершить")))
+            ],
+          );
         }
         final checklist = equipment.checklists[index];
 
@@ -398,7 +356,9 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                 children: checklist.tasks.map((task) {
                   return Padding(
                     padding: EdgeInsets.only(left: 8),
-                    child: _buildTaskItem(task),
+                    child: task.resultStatus == "scheduled"
+                        ? _buildTaskItem(task)
+                        : _buildOpenTaskItem(task),
                   );
                 }).toList(),
                 onExpansionChanged: (expanded) {
@@ -475,7 +435,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       children: [
         // Операция
         Text(
-          task.periodicTask.title,
+          task.periodicTask!.title,
           style: const TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 16,
@@ -485,11 +445,11 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
         const SizedBox(height: 8),
 
-        if (task.periodicTask.node != null &&
-            task.periodicTask.node!.length > 0)
+        if (task.periodicTask!.node != null &&
+            task.periodicTask!.node!.length > 0)
           // Узел
           Text(
-            task.periodicTask.node!,
+            task.periodicTask!.node!,
             style: const TextStyle(
               fontSize: 15,
             ),
@@ -498,14 +458,14 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
           width: MediaQuery.of(context).size.width,
         ),
         // Дополнительная информация (если есть)
-        if (task.periodicTask.description != null &&
-            task.periodicTask.description!.length > 0)
+        if (task.periodicTask!.description != null &&
+            task.periodicTask!.description!.length > 0)
           Padding(
             padding: const EdgeInsets.only(top: 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildDetailRow('Описание:', task.periodicTask.description!)
+                _buildDetailRow('Описание:', task.periodicTask!.description!)
               ],
             ),
           ),
@@ -566,6 +526,167 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         // border: Border.all(color: Colors.grey[200]!),
       ),
       child: content,
+    );
+  }
+
+  Widget _buildOpenTaskItem(Task task) {
+    final isSelected =
+        _isSelectionMode && _selectionController.selectedTasks.contains(task);
+
+    // Основное содержимое задачи
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      spacing: 8,
+      children: [
+        if (task.photos.length > 0)
+          Row(
+            spacing: 8,
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: task.photos.map(
+              (e) {
+                return InkWell(
+                  onTap: () {
+                    showModalBottomSheet(
+                        barrierColor: Colors.black54,
+                        context: context,
+                        shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.vertical(
+                                top: Radius.circular(20))),
+                        isScrollControlled: true,
+                        enableDrag: false,
+                        isDismissible: false,
+                        backgroundColor: Colors.transparent,
+                        builder: (context) => Modal(
+                                child: SafeArea(
+                              child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 8),
+                                  child: Column(
+                                    spacing: 8,
+                                    children: [
+                                      Expanded(
+                                        child: ClipRRect(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          // Image border
+                                          child: SizedBox.fromSize(
+                                            size: Size.fromWidth(0.8.sw),
+                                            // Image radius
+                                            child: Image.network(e,
+                                                fit: BoxFit.cover),
+                                          ),
+                                        ),
+                                      ),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                              child: SquareButton(
+                                                  onPressed: () {
+                                                    Navigator.of(context).pop();
+                                                  },
+                                                  child: Text("Закрыть")))
+                                        ],
+                                      )
+                                    ],
+                                  )),
+                            )));
+                  },
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12), // Image border
+                    child: SizedBox.fromSize(
+                      size: Size.fromRadius(48), // Image radius
+                      child: Image.network(e, fit: BoxFit.cover),
+                    ),
+                  ),
+                );
+                return ClipRRect(
+                  borderRadius: BorderRadius.circular(12), // Image border
+                  child: SizedBox.fromSize(
+                    size: Size.fromRadius(48), // Image radius
+                    child: Image.network(e, fit: BoxFit.cover),
+                  ),
+                );
+                return ClipRRect(
+                  // clipBehavior: Clip.,
+                  borderRadius: BorderRadius.circular(8.0),
+                  child: Image.network(
+                    e,
+                    height: 150.0,
+                    width: 100.0,
+                  ),
+                );
+                // return Container(
+                //   child: Image.network(
+                //     e,
+                //     height: 150.0,
+                //     width: 100.0,
+                //   ),
+                //   // width: 0.2.sw, // Set width
+                //   // height: 150, // Set height to be equal for a square
+                //   decoration: BoxDecoration(
+                //     // image: DecorationImage(
+                //     //   image: NetworkImage(e),
+                //     //   alignment: Alignment.centerLeft, // Your image source
+                //     //   fit: BoxFit
+                //     //       .contain, // How the image should be inscribed into the box
+                //     // ),
+                //     // You can add other decoration properties here, like:
+                //     // color: Colors.blue, // Background color of the container
+                //     borderRadius: BorderRadius.circular(10), // To make it a rounded square
+                //   ),
+                // );
+              },
+            ).toList(),
+          ),
+        if (task.comment != null)
+          MarkdownBody(data: "- **Комментарий**: ${task.comment!}"),
+        if (task.equipmentFault != null)
+          MarkdownBody(data: "- **Проблема**: ${task.equipmentFault!.title}"),
+      ],
+    );
+
+    // Для модального режима с выбором добавляем чекбокс
+    if (widget.isModal && _isSelectionMode) {
+      return InkWell(
+        onTap: () => _selectionController.toggleTaskSelection(task),
+        child: Container(
+          margin: const EdgeInsets.only(top: 10),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: isSelected ? Colors.blue[50] : Colors.grey[50],
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected ? Colors.blue : Colors.grey[200]!,
+              width: isSelected ? 2 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Checkbox(
+                value: isSelected,
+                onChanged: (_) =>
+                    _selectionController.toggleTaskSelection(task),
+              ),
+              const SizedBox(width: 12),
+              Expanded(child: content),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Стандартное отображение без выбора
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(10),
+        // border: Border.all(color: Colors.grey[200]!),
+      ),
+      child: Row(
+        children: [Expanded(child: content)],
+      ),
     );
   }
 

@@ -11,6 +11,7 @@ import '../../strings.dart';
 import '../../settings.dart';
 import '../../src/tasks/tasks.dart';
 import '../../src/widgets/square_button.dart' as sq;
+import '../widgets/modal.dart';
 
 class QRActions extends StatelessWidget {
   const QRActions({super.key});

@@ -53,6 +53,7 @@ class API {
       User user = User(role: '', username: '');
       user.effectiveRole = data['effective_role'];
       user.customRoleId = data['custom_role_id'];
+      user.uuid = data['uuid'];
       return user;
     } else {
       throw Exception('Failed to authenticate: ${response.statusCode}');
@@ -320,6 +321,41 @@ class API {
       throw Exception('Failed to send scan: $e');
     }
     return false;
+  }
+
+  Future<List<Task>> getCurrentOpenTasks({limit = 50, offset = 0}) async {
+    me();
+    // Проверяем наличие токена
+    if (jwtToken == null) {
+      throw Exception('Not authenticated');
+    }
+
+    final url = Uri.parse(
+        '$baseUrl/v1/company/fault_inspections/?limit=${limit}&skip=${offset}&status=open');
+
+    final response = await http.get(
+      url,
+      headers: {
+        'Authorization': 'Bearer $jwtToken',
+      },
+    );
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      const utf8Decoder = Utf8Decoder(allowMalformed: true);
+      final decodedBytes = utf8Decoder.convert(response.bodyBytes);
+      final List<dynamic> data = jsonDecode(decodedBytes);
+      var scheduled = data
+          .where((json) {
+            return (json['result_status'] as String) == 'open' &&
+                json['responsible_user'] != null;
+          })
+          .map((json) => Task.fromJson(json))
+          .toList();
+      return scheduled;
+    } else {
+      throw Exception(
+          'Failed to load typical problems: ${response.statusCode}');
+    }
   }
 
   Future<List<Task>> getCurrentTasks({limit = 50, offset = 0}) async {

@@ -8,6 +8,8 @@ import '../../src/tasks/tasks.dart';
 import '../../src/widgets/square_button.dart';
 import 'package:flutter/services.dart';
 
+import 'modal.dart';
+
 // class UsageController {
 //   final ValueNotifier<List<UsageUpdate>> _valueNotifier = ValueNotifier([]);
 //

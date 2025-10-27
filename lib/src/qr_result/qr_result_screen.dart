@@ -56,7 +56,6 @@ class ResultControls extends StatefulWidget {
 }
 
 class _ResultControlsState extends State<ResultControls> {
-
   bool firstPaint = true;
 
   void _onValueChanged() {
@@ -473,17 +472,32 @@ ${widget.machine.descriptionText}
 
                             var hasTasks = equipmentController.value.length > 0;
                             for (var task in equipmentController.value) {
-                              await dataProvider.addScan(Scan(
-                                  taskUuid: task.uuid,
-                                  resultStatus: 'closed',
-                                  files: files,
-                                  comment: descController.text,
-                                  priority: '',
-                                  equipmentUuid: widget.machine.uuid,
-                                  faultUuid: '',
-                                  closedAt: GlobalState.nowUTCDate,
-                                  createdAt: widget.openDateTime,
-                                  periodicTaskUuid: task.periodicTask.uuid));
+                              if (task.resultStatus == 'scheduled') {
+                                await dataProvider.addScan(Scan(
+                                    taskUuid: task.uuid,
+                                    resultStatus: 'closed',
+                                    files: files,
+                                    comment: descController.text,
+                                    priority: '',
+                                    equipmentUuid: widget.machine.uuid,
+                                    faultUuid: '',
+                                    closedAt: GlobalState.nowUTCDate,
+                                    createdAt: widget.openDateTime,
+                                    periodicTaskUuid: task.periodicTask!.uuid));
+                              }
+                              if (task.resultStatus == 'open') {
+                                await dataProvider.addScan(Scan(
+                                    taskUuid: task.uuid,
+                                    resultStatus: 'closed',
+                                    files: files,
+                                    comment: descController.text,
+                                    priority: '',
+                                    equipmentUuid: widget.machine.uuid,
+                                    faultUuid: '',
+                                    closedAt: GlobalState.nowUTCDate,
+                                    createdAt: widget.openDateTime,
+                                    periodicTaskUuid: ''));
+                              }
                             }
 
                             if ((problemController.value != null ||

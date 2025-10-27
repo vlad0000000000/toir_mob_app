@@ -97,7 +97,7 @@ class DataProvider {
   }
 
   static Map<String, String> closedTasks = {};
-  
+
   addScan(Scan scan) async {
     await scanBox.put(scan.key(), scan);
     if (scan.taskUuid != null) {
@@ -198,12 +198,32 @@ class DataProvider {
         currentUserMe = await api.me();
         currentUser.effectiveRole = currentUserMe.effectiveRole;
         currentUser.customRoleId = currentUserMe.customRoleId;
+        currentUser.uuid = currentUserMe.uuid;
+        print(currentUser.uuid);
         addUser(currentUser);
       } catch (e) {
         return null;
       }
     }
     return currentUser;
+  }
+
+  Future<List<Task>> loadAllOpenTasks() async {
+    int limit = 50;
+    int offset = 0;
+    List<Task> all = [];
+    while (true) {
+      List<Task> notAll =
+          await api.getCurrentOpenTasks(limit: limit, offset: offset);
+      for (var task in notAll) {
+        all.add(task);
+      }
+      if (notAll.isEmpty) {
+        break;
+      }
+      offset += limit;
+    }
+    return all;
   }
 
   Future<List<Task>> loadAllTasks() async {
@@ -341,6 +361,9 @@ class DataProvider {
     _isLoading = true;
     try {
       List<Task> tasks = await loadAllTasks();
+      for (var task in await loadAllOpenTasks()) {
+        tasks.add(task);
+      }
       await taskBox.clear();
       Map<String, Task> tasksDict = {};
       for (var task in tasks) {
@@ -384,13 +407,21 @@ class DataProvider {
       if (tasksInScans.containsKey(x.uuid) || closedTasks.containsKey(x.uuid)) {
         return false;
       }
-      return x.periodicTask.customRoles.where((x) {
-            if (GlobalState.authUser == null) {
-              return false;
-            }
-            return x.id == GlobalState.authUser!.customRoleId;
-          }).length >
-          0;
+      if (GlobalState.authUser == null) {
+        return false;
+      }
+      if (x.resultStatus == "scheduled") {
+        return x.periodicTask!.customRoles.where((x) {
+              return x.id == GlobalState.authUser!.customRoleId;
+            }).length >
+            0;
+      } else if (x.resultStatus == "open") {
+        // print(x.responsibleUser!.uuid);
+        print(GlobalState.authUser!.uuid);
+        return x.responsibleUser!.uuid == GlobalState.authUser!.uuid;
+      } else {
+        return false;
+      }
     }).toList();
   }
 

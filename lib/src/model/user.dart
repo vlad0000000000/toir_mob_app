@@ -6,6 +6,7 @@ class User {
   String role;
   String effectiveRole = '';
   String JWTToken = '';
+  String uuid = '';
   int customRoleId = -1;
 
   User({required this.username, required this.role});
@@ -33,6 +34,7 @@ class UserAdapter extends TypeAdapter<User> {
     user.customRoleId = reader.read();
     user.password = reader.read();
     user.JWTToken = reader.read();
+    user.uuid = reader.read();
     return user;
   }
 
@@ -44,5 +46,6 @@ class UserAdapter extends TypeAdapter<User> {
     writer.write(obj.customRoleId);
     writer.write(obj.password);
     writer.write(obj.JWTToken);
+    writer.write(obj.uuid);
   }
 }

@@ -10,6 +10,8 @@ import 'package:go_router/go_router.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:logging/logging.dart';
 import 'package:my_app/settings.dart';
+import 'package:my_app/src/model/equipment_fault.dart';
+import 'package:my_app/src/model/responsible_user.dart';
 import '../../src/model/company.dart';
 import '../../src/model/usage_unit.dart';
 import '../../src/model/usage_update.dart';
@@ -104,6 +106,8 @@ Future<void> main() async {
   Hive.registerAdapter(UsageParameterAdapter());
   Hive.registerAdapter(UsageUpdateAdapter());
   Hive.registerAdapter(CompanyAdapter());
+  Hive.registerAdapter(ResponsibleUserAdapter());
+  Hive.registerAdapter(EquipmentFaultAdapter());
 
   var dataProvider = DataProvider(
       api: API(),

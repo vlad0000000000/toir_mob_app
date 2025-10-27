@@ -3,6 +3,7 @@ import '../../src/model/inventory_record.dart';
 import '../../src/model/task.dart';
 import '../../src/tasks/tasks.dart';
 import '../../src/widgets/square_button.dart';
+import 'modal.dart';
 
 class SelectTaskButton extends StatefulWidget {
   final EquipmentDetailController equipmentDetailController;
