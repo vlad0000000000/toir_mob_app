@@ -35,15 +35,12 @@ class GlobalState {
     return dataProvider.userBox.get('auth_user') != null;
   }
 
-  static bool needTasksSync = false;
+  static bool allowSyncMainOnce = false;
 
-  static Future<void> syncTasks() async {
-    // return;
-    if (needTasksSync) {
-      // await dataProvider.syncInventory();
-      // await dataProvider.syncTasks();
+  static Future<void> syncMainOnce() async {
+    if (allowSyncMainOnce) {
       await dataProvider.mainSync();
-      needTasksSync = false;
+      allowSyncMainOnce = false;
     }
   }
 

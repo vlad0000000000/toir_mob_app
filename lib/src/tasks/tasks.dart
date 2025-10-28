@@ -84,7 +84,7 @@ class EquipmentListScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget body = FutureBuilder<void>(
-        future: GlobalState.syncTasks(),
+        future: GlobalState.syncMainOnce(),
         builder: (BuildContext context, AsyncSnapshot<void> snapshot) {
           if (snapshot.connectionState == ConnectionState.done) {
             var equipmentList = GlobalState.dataProvider.inventoryRecords;

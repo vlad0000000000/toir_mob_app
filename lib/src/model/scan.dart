@@ -3,35 +3,29 @@ import 'dart:convert';
 import 'package:hive_ce/hive.dart';
 import '../../global_state.dart';
 
-@HiveType(typeId: 2)
 class Scan {
-  @HiveField(0)
   final List<String>? files;
-  @HiveField(1)
   final String? periodicTaskUuid;
-  @HiveField(2)
   final String? equipmentUuid;
-  @HiveField(3)
   final String resultStatus;
-  @HiveField(4)
   final String? comment;
-  @HiveField(5)
   final String? faultUuid;
-  @HiveField(6)
   final String? taskUuid;
-  @HiveField(7)
   final String? priority;
-  @HiveField(8)
-  final String? usageParameterUuid;
-  @HiveField(9)
-  final double? usageParameterValue;
-  @HiveField(10)
   final String? createdAt;
-  @HiveField(11)
   final String? closedAt;
 
   String key() {
-    return GlobalState.digest(jsonEncode(toJson()));
+    return GlobalState.digest(jsonEncode({
+      'files': files,
+      'periodic_task_uuid': periodicTaskUuid,
+      'equipment_uuid': equipmentUuid,
+      'result_status': resultStatus,
+      'comment': comment,
+      'fault_uuid': faultUuid,
+      'task_uuid': taskUuid,
+      'priority': priority,
+    }));
   }
 
   @override
@@ -39,20 +33,17 @@ class Scan {
     return "Scan(resultStatus: $resultStatus, equipmentUuid: $equipmentUuid)";
   }
 
-  Scan({
-    this.files,
-    this.periodicTaskUuid,
-    this.equipmentUuid,
-    required this.resultStatus,
-    this.comment,
-    this.faultUuid,
-    this.taskUuid,
-    this.priority,
-    this.usageParameterUuid,
-    this.usageParameterValue,
-    this.createdAt,
-    this.closedAt
-  });
+  Scan(
+      {this.files,
+      this.periodicTaskUuid,
+      this.equipmentUuid,
+      required this.resultStatus,
+      this.comment,
+      this.faultUuid,
+      this.taskUuid,
+      this.priority,
+      this.createdAt,
+      this.closedAt});
 
   Map<String, dynamic> toJson() {
     return {
@@ -64,8 +55,6 @@ class Scan {
       'fault_uuid': faultUuid,
       'task_uuid': taskUuid,
       'priority': priority,
-      'usage_parameter_uuid': usageParameterUuid,
-      'usage_parameter_value': usageParameterValue,
       'app_created_at': createdAt,
       'app_closed_at': closedAt,
     };
@@ -87,8 +76,6 @@ class ScanAdapter extends TypeAdapter<Scan> {
       faultUuid: reader.read(),
       taskUuid: reader.read(),
       priority: reader.read(),
-      usageParameterUuid: reader.read(),
-      usageParameterValue: reader.read(),
       createdAt: reader.read(),
       closedAt: reader.read(),
     );
@@ -104,8 +91,6 @@ class ScanAdapter extends TypeAdapter<Scan> {
     writer.write(obj.faultUuid);
     writer.write(obj.taskUuid);
     writer.write(obj.priority);
-    writer.write(obj.usageParameterUuid);
-    writer.write(obj.usageParameterValue);
     writer.write(obj.createdAt);
     writer.write(obj.closedAt);
   }

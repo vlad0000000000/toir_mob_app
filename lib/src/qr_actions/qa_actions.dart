@@ -41,7 +41,7 @@ class QRActions extends StatelessWidget {
         icon: Icons.list_alt,
         label: Strings.tasks,
         onPressed: () {
-          GlobalState.needTasksSync = true;
+          GlobalState.allowSyncMainOnce = true;
           GoRouter.of(context).clearStackAndNavigate('/tasks');
         },
       ),
