@@ -88,6 +88,13 @@ class EquipmentListScreen extends StatelessWidget {
         builder: (BuildContext context, AsyncSnapshot<void> snapshot) {
           if (snapshot.connectionState == ConnectionState.done) {
             var equipmentList = GlobalState.dataProvider.inventoryRecords;
+            equipmentList = equipmentList
+                .where((element) =>
+                    GlobalState.dataProvider
+                        .getTasksForMachine(element.uuid)
+                        .length >
+                    0)
+                .toList();
             equipmentList.sort((a, b) {
               var ac =
                   GlobalState.dataProvider.getTasksForMachine(a.uuid).length ==
@@ -101,6 +108,30 @@ class EquipmentListScreen extends StatelessWidget {
                       : 1;
               return bc.compareTo(ac);
             });
+            if (equipmentList.length == 0) {
+              Widget list = ListView.builder(
+                itemCount: 1,
+                itemBuilder: (context, index) {
+                  return Card(
+                      margin: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: ListTile(
+                        title: Text(
+                          'Нет задач',
+                          style: const TextStyle(
+                            // color: Colors.blue,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ));
+                },
+              );
+              return list;
+            }
             Widget list = ListView.builder(
               itemCount: equipmentList.length,
               itemBuilder: (context, index) {

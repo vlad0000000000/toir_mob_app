@@ -56,6 +56,7 @@ flutter:
   assets:
     - assets/images/
     - .env
+    - shorebird.yaml
 
 # dart run flutter_launcher_icons
 flutter_launcher_icons:

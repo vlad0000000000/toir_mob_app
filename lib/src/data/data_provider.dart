@@ -466,25 +466,53 @@ class DataProvider {
   }
 
   Future<void> syncScans() async {
+    // Проверяем pending сканы - возвращаем в scanBox те, что прождали 60 секунд
+    final pendingScans = scanPendingBox.values.toList();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (final scan in pendingScans) {
+      final timestampKey = 'scan_pending_${scan.key()}';
+      final timestampStr = stringBox.get(timestampKey);
+      if (timestampStr != null) {
+        final timestamp = int.tryParse(timestampStr);
+        if (timestamp != null) {
+          final elapsedSeconds = (now - timestamp) ~/ 1000;
+          if (elapsedSeconds >= 120) {
+            // Прошло 60 секунд - возвращаем скан в scanBox для повторной попытки
+            await scanPendingBox.delete(scan.key());
+            await stringBox.delete(timestampKey);
+            await scanBox.put(scan.key(), scan);
+          }
+        }
+      }
+    }
+
+    // Обрабатываем сканы из scanBox
     final scans = scanBox.values.toList();
-    // print('sync scans ' + scanBox.values.length.toString());
     for (final scan in scans) {
       try {
-        await GlobalState.dataProvider.scanBox.delete(scan.key());
-        await GlobalState.dataProvider.scanPendingBox.delete(scan.key());
-        await GlobalState.dataProvider.scanPendingBox.put(scan.key(), scan);
+        // Перемещаем скан в pending перед отправкой
+        await scanBox.delete(scan.key());
+        await scanPendingBox.put(scan.key(), scan);
+        
+        // Сохраняем timestamp текущей попытки
+        final timestampKey = 'scan_pending_${scan.key()}';
+        await stringBox.put(timestampKey, now.toString());
+        
+        // Пытаемся отправить
         if (await api.sendScan(scan)) {
-          await GlobalState.dataProvider.scanPendingBox.delete(scan.key());
-          await GlobalState.dataProvider.scanBox.delete(scan.key());
+          // Успешно - удаляем из всех хранилищ
+          await scanPendingBox.delete(scan.key());
+          await stringBox.delete(timestampKey);
         } else {
-          await GlobalState.dataProvider.scanPendingBox.delete(scan.key());
-          await GlobalState.dataProvider.scanBox.delete(scan.key());
-          await GlobalState.dataProvider.scanBox.put(scan.key(), scan);
+          // Неуспешно - оставляем в pending с timestamp, вернется через 60 секунд
+          // Ничего не делаем, скан уже в scanPendingBox с timestamp
         }
       } catch (e) {
-        await GlobalState.dataProvider.scanBox.delete(scan.key());
-        await GlobalState.dataProvider.scanPendingBox.delete(scan.key());
-        await GlobalState.dataProvider.scanBox.put(scan.key(), scan);
+        // При ошибке также оставляем в pending с timestamp
+        // Убеждаемся, что скан в scanPendingBox и timestamp сохранен
+        await scanPendingBox.put(scan.key(), scan);
+        final timestampKey = 'scan_pending_${scan.key()}';
+        await stringBox.put(timestampKey, now.toString());
         print('Error syncing data: $e');
       }
     }
