@@ -10,6 +10,7 @@ import '../../src/app_bar/app_bar.dart';
 import '../../src/data/data_provider.dart';
 import '../../src/utils/go_router_ext.dart';
 
+import '../update_manager.dart';
 import 'scanner_button_widgets.dart';
 import 'scanner_error_widget.dart';
 
@@ -159,6 +160,11 @@ class QRScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+
+    WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
+      UpdateManager.checkForUpdate(context);
+    },);
+
     return BarcodeScannerWithController();
   }
 }

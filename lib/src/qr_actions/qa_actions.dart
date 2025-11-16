@@ -1,25 +1,37 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:my_app/src/update_manager.dart';
 import '../../global_state.dart';
 import '../../src/app_bar/app_bar.dart';
 import '../../src/utils/dialogs.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../strings.dart';
 import '../../settings.dart';
-import '../../src/tasks/tasks.dart';
 import '../../src/widgets/square_button.dart' as sq;
 import '../widgets/modal.dart';
 
-class QRActions extends StatelessWidget {
+class QRActions extends StatefulWidget {
   const QRActions({super.key});
+
+  @override
+  State<QRActions> createState() => _QRActionsState();
+}
+
+class _QRActionsState extends State<QRActions> {
+  bool _showAdditionalButtons = false;
 
   @override
   Widget build(BuildContext context) {
     print(GlobalState.dataProvider.company!.allowRequestsWithoutQr);
-    List<Widget> buttons = [
+
+    WidgetsBinding.instance.addPostFrameCallback(
+      (timeStamp) {
+        UpdateManager.checkForUpdate(context);
+      },
+    );
+
+    // Первый массив - первые 3 кнопки (всегда видимы)
+    List<Widget> primaryButtons = [
       SquareButton(
         icon: Icons.qr_code_scanner,
         label: Strings.scanner,
@@ -32,6 +44,7 @@ class QRActions extends StatelessWidget {
           GlobalState.dataProvider.company!.allowRequestsWithoutQr)
         SquareButton(
           icon: Icons.warehouse,
+          fontSize: 12,
           label: 'Осмотр оборудования/ТМЦ',
           onPressed: () {
             GoRouter.of(context).clearStackAndNavigate('/problems');
@@ -45,6 +58,10 @@ class QRActions extends StatelessWidget {
           GoRouter.of(context).clearStackAndNavigate('/tasks');
         },
       ),
+    ];
+
+    // Второй массив - остальные кнопки (видимы только если switch включен)
+    List<Widget> additionalButtons = [
       SquareButton(
         icon: Icons.sync,
         label: Strings.syncData,
@@ -116,7 +133,8 @@ class QRActions extends StatelessWidget {
                             children: [
                               Text(
                                 "Настройки",
-                                style: TextStyle(fontSize: 24,fontWeight: FontWeight.bold),
+                                style: TextStyle(
+                                    fontSize: 24, fontWeight: FontWeight.bold),
                               ),
                               Expanded(
                                   child: ListView(
@@ -170,35 +188,72 @@ class QRActions extends StatelessWidget {
                     ),
                   )));
         },
-      )
+      ),
+      SquareButton(
+        icon: Icons.update,
+        label: "Обновить приложение",
+        onPressed: () async {
+          final updateInfo = await UpdateManager.getUpdateInfo();
+          if (updateInfo != null) {
+            await UpdateManager.downloadAndInstall(context, updateInfo);
+          }
+        },
+      ),
+    ];
+
+    // Объединяем кнопки в зависимости от состояния switch
+    List<Widget> allButtons = [
+      ...primaryButtons,
+      if (_showAdditionalButtons) ...additionalButtons,
     ];
 
     return Scaffold(
         appBar: MyAppBar.build(context) as AppBar,
-        body: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: GridView.builder(
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2, // Количество столбцов
-              crossAxisSpacing: 16, // Горизонтальный отступ
-              mainAxisSpacing: 16, // Вертикальный отступ
-            ),
-            itemCount: buttons.length,
-            itemBuilder: (context, index) {
-              if (index < buttons.length) {
-                return buttons[index];
-              }
+        body: Column(
+          children: [
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: GridView.builder(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2, // Количество столбцов
+                    crossAxisSpacing: 16, // Горизонтальный отступ
+                    mainAxisSpacing: 16, // Вертикальный отступ
+                  ),
+                  itemCount: allButtons.length + 1,
+                  itemBuilder: (context, index) {
+                    if (index < allButtons.length) {
+                      return allButtons[index];
+                    }
 
-              return SquareButton(
-                label: '',
-                icon: Icons.add,
-                onPressed: () {
-                  // Обработка нажатия
-                  print('Нажата');
-                },
-              );
-            },
-          ),
+                    return SizedBox(height: 8,);
+                  },
+                ),
+              ),
+            ),
+            // Switch внизу страницы
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'Расширенные настройки',
+                    style: TextStyle(fontSize: 16),
+                  ),
+                  SizedBox(width: 12),
+                  Switch(
+                    value: _showAdditionalButtons,
+                    onChanged: (value) {
+                      setState(() {
+                        _showAdditionalButtons = value;
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ],
         ));
   }
 }
@@ -207,13 +262,14 @@ class SquareButton extends StatelessWidget {
   final String label;
   final IconData icon;
   final VoidCallback onPressed;
+  final double fontSize;
 
-  const SquareButton({
-    super.key,
-    required this.label,
-    required this.icon,
-    required this.onPressed,
-  });
+  const SquareButton(
+      {super.key,
+      required this.label,
+      required this.icon,
+      required this.onPressed,
+      this.fontSize = 16});
 
   @override
   Widget build(BuildContext context) {
@@ -237,7 +293,7 @@ class SquareButton extends StatelessWidget {
             Text(
               label,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 16),
+              style: TextStyle(fontSize: fontSize),
             )
           ],
         ),

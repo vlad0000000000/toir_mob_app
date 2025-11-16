@@ -324,7 +324,6 @@ class API {
   }
 
   Future<List<Task>> getCurrentOpenTasks({limit = 50, offset = 0}) async {
-    me();
     // Проверяем наличие токена
     if (jwtToken == null) {
       throw Exception('Not authenticated');
@@ -359,7 +358,6 @@ class API {
   }
 
   Future<List<Task>> getCurrentTasks({limit = 50, offset = 0}) async {
-    me();
     // Проверяем наличие токена
     if (jwtToken == null) {
       throw Exception('Not authenticated');

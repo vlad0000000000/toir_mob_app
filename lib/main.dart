@@ -12,6 +12,7 @@ import 'package:logging/logging.dart';
 import 'package:my_app/settings.dart';
 import 'package:my_app/src/model/equipment_fault.dart';
 import 'package:my_app/src/model/responsible_user.dart';
+import 'package:my_app/src/update_manager.dart';
 import '../../src/model/company.dart';
 import '../../src/model/usage_unit.dart';
 import '../../src/model/usage_update.dart';

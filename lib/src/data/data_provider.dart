@@ -336,12 +336,14 @@ class DataProvider {
   }
 
   Future mainSync() async {
-    await syncInventory();
-    await syncTypicalProblems();
-    await syncPeriodicityRules();
-    await syncTasks();
-    await syncUsageUnitTypes();
-    await saveLastSyncDate();
+    if (GlobalState.isAuthorized) {
+      await syncInventory();
+      await syncTypicalProblems();
+      await syncPeriodicityRules();
+      await syncTasks();
+      await syncUsageUnitTypes();
+      await saveLastSyncDate();
+    }
   }
 
   void startSyncing() {
@@ -493,11 +495,11 @@ class DataProvider {
         // Перемещаем скан в pending перед отправкой
         await scanBox.delete(scan.key());
         await scanPendingBox.put(scan.key(), scan);
-        
+
         // Сохраняем timestamp текущей попытки
         final timestampKey = 'scan_pending_${scan.key()}';
         await stringBox.put(timestampKey, now.toString());
-        
+
         // Пытаемся отправить
         if (await api.sendScan(scan)) {
           // Успешно - удаляем из всех хранилищ

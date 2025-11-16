@@ -10,6 +10,8 @@ import '../../src/utils/go_router_ext.dart';
 import '../../strings.dart';
 import 'package:themed/themed.dart';
 
+import '../update_manager.dart';
+
 class LoginScreen extends StatefulWidget {
   LoginScreen({super.key});
 
@@ -34,6 +36,10 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final dataProvider = context.watch<DataProvider>();
+
+    WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
+      UpdateManager.checkForUpdate(context);
+    },);
 
     return Scaffold(
       body: Form(

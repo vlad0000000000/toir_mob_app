@@ -23,6 +23,7 @@ import '../../src/widgets/square_button.dart';
 import '../../strings.dart';
 import '../model/typical_problem.dart';
 import '../model/usage_update.dart';
+import '../update_manager.dart';
 import '../utils/any_controller.dart';
 import '../../src/widgets/select_usage_button.dart';
 import '../../src/model/usage_unit.dart';
@@ -402,6 +403,10 @@ ${widget.machine.descriptionText}
   @override
   Widget build(BuildContext context) {
     final dataProvider = context.watch<DataProvider>();
+
+    WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
+      UpdateManager.checkForUpdate(context);
+    },);
 
     return Scaffold(
       appBar: MyAppBar.build(context) as AppBar,
