@@ -404,9 +404,11 @@ ${widget.machine.descriptionText}
   Widget build(BuildContext context) {
     final dataProvider = context.watch<DataProvider>();
 
-    WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
-      UpdateManager.checkForUpdate(context);
-    },);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (timeStamp) {
+        UpdateManager.checkForUpdate(context);
+      },
+    );
 
     return Scaffold(
       appBar: MyAppBar.build(context) as AppBar,
@@ -471,6 +473,12 @@ ${widget.machine.descriptionText}
                             var priority = priorityController.value == null
                                 ? null
                                 : priorityController.value!.value;
+                            if (problemController.value != null &&
+                                priority == null) {
+                              priority =
+                                  (priorityController.value! as TypicalProblem)
+                                      .defaultPriority;
+                            }
                             var hasData = false;
                             hasData = hasData || descController.text.length > 0;
                             hasData = hasData || files.length > 0;
@@ -508,30 +516,17 @@ ${widget.machine.descriptionText}
                             if ((problemController.value != null ||
                                     !hasTasks) &&
                                 hasData) {
-                              if (status == 'closed') {
-                                await dataProvider.addScan(Scan(
-                                    taskUuid: '',
-                                    resultStatus: status,
-                                    files: files,
-                                    comment: descController.text,
-                                    priority: priority,
-                                    equipmentUuid: widget.machine.uuid,
-                                    faultUuid: faultUUID,
-                                    closedAt: GlobalState.nowUTCDate,
-                                    createdAt: widget.openDateTime,
-                                    periodicTaskUuid: ''));
-                              } else {
-                                await dataProvider.addScan(Scan(
-                                    taskUuid: '',
-                                    resultStatus: status,
-                                    files: files,
-                                    comment: descController.text,
-                                    priority: priority,
-                                    equipmentUuid: widget.machine.uuid,
-                                    createdAt: widget.openDateTime,
-                                    faultUuid: faultUUID,
-                                    periodicTaskUuid: ''));
-                              }
+                              await dataProvider.addScan(Scan(
+                                  taskUuid: '',
+                                  resultStatus: status,
+                                  files: files,
+                                  comment: descController.text,
+                                  priority: priority,
+                                  equipmentUuid: widget.machine.uuid,
+                                  closedAt: GlobalState.nowUTCDate,
+                                  createdAt: widget.openDateTime,
+                                  faultUuid: faultUUID,
+                                  periodicTaskUuid: ''));
                             }
 
                             //TODO:     ts: GlobalState.now
