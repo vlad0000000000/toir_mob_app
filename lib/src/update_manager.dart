@@ -29,6 +29,7 @@ class UpdateManager {
   }
 
   static Future<void> checkForUpdate(BuildContext context) async {
+    return;
     final updateInfo = await getUpdateInfo();
     if (updateInfo != null) {
       if (await _isNewVersionAvailable(updateInfo.version)) {

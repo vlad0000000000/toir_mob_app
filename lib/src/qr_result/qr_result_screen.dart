@@ -476,7 +476,7 @@ ${widget.machine.descriptionText}
                             if (problemController.value != null &&
                                 priority == null) {
                               priority =
-                                  (priorityController.value! as TypicalProblem)
+                                  (problemController.value!)
                                       .defaultPriority;
                             }
                             var hasData = false;
