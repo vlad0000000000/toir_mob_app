@@ -300,7 +300,6 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     Map<String, List<Task>> byPeriod = {};
     var periodOrder = periodColors.keys.toList();
     for (var task in tasks) {
-      print(task.resultStatus);
       var periodName = '';
       if (task.resultStatus == 'open') {
         periodName = 'Назначенные задачи';

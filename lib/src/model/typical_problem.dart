@@ -7,6 +7,13 @@ class TypicalProblem {
   final String defaultPriority;
   final String equipmentUUID;
 
+  static TypicalProblem other = TypicalProblem(
+      id: 0,
+      title: "Другое",
+      defaultPriority: "low",
+      equipmentUUID: "-1",
+      uuid: '');
+
   TypicalProblem({
     required this.id,
     required this.title,

@@ -22,8 +22,6 @@ class _QRActionsState extends State<QRActions> {
 
   @override
   Widget build(BuildContext context) {
-    print(GlobalState.dataProvider.company!.allowRequestsWithoutQr);
-
     WidgetsBinding.instance.addPostFrameCallback(
       (timeStamp) {
         UpdateManager.checkForUpdate(context);
@@ -47,6 +45,7 @@ class _QRActionsState extends State<QRActions> {
           fontSize: 12,
           label: 'Осмотр оборудования/ТМЦ',
           onPressed: () {
+            GlobalState.dataProvider.mainSync();
             GoRouter.of(context).clearStackAndNavigate('/problems');
           },
         ),
@@ -226,7 +225,9 @@ class _QRActionsState extends State<QRActions> {
                       return allButtons[index];
                     }
 
-                    return SizedBox(height: 8,);
+                    return SizedBox(
+                      height: 8,
+                    );
                   },
                 ),
               ),

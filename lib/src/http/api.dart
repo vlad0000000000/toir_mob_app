@@ -403,15 +403,31 @@ class API {
                 json['periodic_task'] != null &&
                 json['periodic_task']['periodicity_rule'] == 'once';
           })
-          // .where((json) {
-          //   print(json);
-          //   return true;
-          // })
           .map((json) => Task.fromJson(json))
           .toList();
       for (var task in once) {
         scheduled.add(task);
       }
+
+      var to = data
+          .where((json) {
+            return (json['result_status'] as String) == 'scheduled' &&
+                json['periodic_task'] != null &&
+                json['periodic_task']['next_due_at'] == null &&
+                json['periodic_task']['last_run_at'] != null;
+          })
+          .where((json) {
+            var a = (DateTime.parse(json['periodic_task']['last_run_at']));
+            var c = (DateTime.parse(json['created_at']));
+            var filteredA = now.compareTo(c);
+            return filteredA == 1;
+          })
+          .map((json) => Task.fromJson(json))
+          .toList();
+      for (var task in to) {
+        scheduled.add(task);
+      }
+
       return scheduled;
     } else {
       throw Exception(

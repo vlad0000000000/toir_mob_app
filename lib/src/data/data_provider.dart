@@ -99,6 +99,7 @@ class DataProvider {
   static Map<String, String> closedTasks = {};
 
   addScan(Scan scan) async {
+    print(scan.toJson());
     await scanBox.put(scan.key(), scan);
     if (scan.taskUuid != null) {
       closedTasks[scan.taskUuid!] = scan.taskUuid!;
@@ -199,7 +200,6 @@ class DataProvider {
         currentUser.effectiveRole = currentUserMe.effectiveRole;
         currentUser.customRoleId = currentUserMe.customRoleId;
         currentUser.uuid = currentUserMe.uuid;
-        print(currentUser.uuid);
         addUser(currentUser);
       } catch (e) {
         return null;
@@ -418,8 +418,6 @@ class DataProvider {
             }).length >
             0;
       } else if (x.resultStatus == "open") {
-        // print(x.responsibleUser!.uuid);
-        print(GlobalState.authUser!.uuid);
         return x.responsibleUser!.uuid == GlobalState.authUser!.uuid;
       } else {
         return false;

@@ -141,7 +141,6 @@ class UpdateManager {
                         setState(() => progress = fraction),
                   );
                   setState(() => installing = true);
-                  print(filePath);
                   await _installAPK(filePath);
                   if (Navigator.of(dialogContext).canPop()) {
                     Navigator.of(dialogContext).pop();

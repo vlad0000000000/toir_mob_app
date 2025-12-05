@@ -59,13 +59,8 @@ class _SelectProblemButton extends State<SelectProblemButton> {
       return DropdownMenuEntry(value: x, label: x.title);
     }).toList());
     problems.add(DropdownMenuEntry(
-        value: TypicalProblem(
-            id: 0,
-            title: "Другое",
-            defaultPriority: "low",
-            equipmentUUID: "-1",
-            uuid: ''),
-        label: "Другое"));
+        value: TypicalProblem.other,
+        label: TypicalProblem.other.title));
 
     return Expanded(
         child: DropdownMenu(
