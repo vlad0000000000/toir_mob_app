@@ -127,6 +127,7 @@ class _QRActionsState extends State<QRActions> {
                       child: StatefulBuilder(
                         builder: (context, setState) {
                           bool value = Settings.qrResultShowTasksFirst;
+                          bool simplifiedValue = Settings.qrResultShowSimplifiedView;
 
                           return Column(
                             children: [
@@ -156,6 +157,30 @@ class _QRActionsState extends State<QRActions> {
                                             if (v == null) return;
                                             setState(() {
                                               Settings.qrResultShowTasksFirst =
+                                                  v;
+                                            });
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding:
+                                        const EdgeInsets.symmetric(vertical: 8),
+                                    child: Row(
+                                      children: [
+                                        const Expanded(
+                                          child: Text(
+                                            'Упрощенный вид станка на экране результата сканирования',
+                                            softWrap: true,
+                                          ),
+                                        ),
+                                        Checkbox(
+                                          value: simplifiedValue,
+                                          onChanged: (v) {
+                                            if (v == null) return;
+                                            setState(() {
+                                              Settings.qrResultShowSimplifiedView =
                                                   v;
                                             });
                                           },

@@ -23,4 +23,13 @@ class Settings {
     var v = dataProvider.stringBox.get('qrResultShowTasksFirst');
     return v != null && v == "1";
   }
+
+  static set qrResultShowSimplifiedView(bool value) {
+    dataProvider.stringBox.put('qrResultShowSimplifiedView', value ? "1" : "0");
+  }
+
+  static bool get qrResultShowSimplifiedView {
+    var v = dataProvider.stringBox.get('qrResultShowSimplifiedView');
+    return v != null && v == "1";
+  }
 }

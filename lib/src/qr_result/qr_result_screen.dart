@@ -359,6 +359,21 @@ class _QRResultScreenState extends State<QRResultScreen> {
   final usageController = AnyController<List<UsageUpdate>>();
 
   Widget passport() {
+    // Упрощенный вид - только название станка
+    if (Settings.qrResultShowSimplifiedView) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16.0),
+        child: Text(
+          widget.machine.name,
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+
     var passportType = 1;
     // image + text
     if (passportType == 1) {
