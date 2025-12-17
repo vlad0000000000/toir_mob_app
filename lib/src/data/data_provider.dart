@@ -1,5 +1,6 @@
 import 'package:hive_ce/hive.dart';
 import 'package:intl/intl.dart';
+import 'dart:io';
 import '../../global_state.dart';
 import '../../src/http/api.dart';
 import '../../src/model/company.dart';
@@ -12,6 +13,7 @@ import '../../src/model/typical_problem.dart';
 import '../../src/model/usage_unit.dart';
 import '../../src/model/user.dart';
 import '../model/usage_update.dart';
+import '../exceptions/login_exceptions.dart';
 
 class DataProvider {
   final API api;
@@ -173,27 +175,66 @@ class DataProvider {
 
   Future<User?> login(login, password) async {
     User? currentUser = null;
+    bool apiLoginFailed = false;
+    
     try {
       currentUser = await api.login(login, password);
       GlobalState.authUser = currentUser;
-    } on Exception catch (_) {}
+    } on InvalidCredentialsException {
+      // Сервер вернул, что учетные данные неверны - не проверяем локальных пользователей
+      rethrow;
+    } on NoConnectionException {
+      // Нет соединения с сервером - пробуем локальных пользователей
+      apiLoginFailed = true;
+    } on SocketException catch (_) {
+      // Ошибка соединения с сервером - пробуем локальных пользователей
+      apiLoginFailed = true;
+    } on HttpException catch (_) {
+      // Ошибка HTTP соединения - пробуем локальных пользователей
+      apiLoginFailed = true;
+    } on Exception catch (e) {
+      // Проверяем, не является ли это ошибкой соединения
+      if (e.toString().contains('SocketException') ||
+          e.toString().contains('Failed host lookup') ||
+          e.toString().contains('Connection refused') ||
+          e.toString().contains('Network is unreachable') ||
+          e.toString().contains('Timeout')) {
+        // Ошибка соединения - пробуем локальных пользователей
+        apiLoginFailed = true;
+      } else {
+        // Для других исключений пробуем локальных пользователей
+        apiLoginFailed = true;
+      }
+    }
 
-    if (currentUser == null) {
+    // Если API логин не удался из-за отсутствия соединения, пробуем локальных пользователей
+    if (apiLoginFailed && currentUser == null) {
       for (var user in users) {
         if (user.username == login && user.password == password) {
           currentUser = user;
+          break;
         }
       }
+
+      // Если не нашли локального пользователя, выбрасываем соответствующее исключение
+      if (currentUser == null) {
+        // Если была ошибка соединения, выбрасываем NoConnectionException
+        // так как мы не можем проверить учетные данные на сервере
+        throw NoConnectionException();
+      }
     }
 
-    // only walkers allowed
+    // Проверка на роль walker должна быть после успешного логина
     if (currentUser != null) {
+      // only walkers allowed
       if (currentUser.role != 'walker') {
-        currentUser = null;
+        throw WalkerOnlyException();
       }
     }
 
     if (currentUser != null) {
+      // Пытаемся получить дополнительную информацию о пользователе через API
+      // Если это не удается из-за отсутствия соединения, это не критично
       User? currentUserMe = null;
       try {
         currentUserMe = await api.me();
@@ -202,7 +243,15 @@ class DataProvider {
         currentUser.uuid = currentUserMe.uuid;
         addUser(currentUser);
       } catch (e) {
-        return null;
+        // Если не удалось получить информацию о пользователе, но логин прошел успешно
+        // Это не критично, если мы используем локального пользователя
+        // Но если это был API логин, возможно, это проблема соединения
+        if (!apiLoginFailed && (e is SocketException || e is HttpException)) {
+          // Если это был успешный API логин, но не удалось получить me(), 
+          // это может быть проблема соединения, но пользователь уже авторизован
+          // Поэтому просто продолжаем
+        }
+        // Для других ошибок просто продолжаем с текущим пользователем
       }
     }
     return currentUser;

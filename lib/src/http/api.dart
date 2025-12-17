@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
@@ -14,6 +15,7 @@ import '../../src/model/task.dart';
 import '../../src/model/typical_problem.dart';
 import '../../src/model/usage_unit.dart';
 import '../../src/model/user.dart';
+import '../exceptions/login_exceptions.dart';
 
 class API {
   static String baseUrl = dotenv.env["API_ENDPOINT"]!;
@@ -108,27 +110,63 @@ class API {
 
   // Метод для авторизации и получения JWT токена
   Future<User> login(String username, String password) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/v1/auth/login'),
-      headers: {
-        'Content-Type': 'application/json',
-        // Если требуется базовая аутентификация для этого эндпоинта, раскомментировать:
-        // 'Authorization': basicAuth,
-      },
-      body: jsonEncode({
-        'username': username,
-        'password': password,
-      }),
-    );
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/v1/auth/login'),
+        headers: {
+          'Content-Type': 'application/json',
+          // Если требуется базовая аутентификация для этого эндпоинта, раскомментировать:
+          // 'Authorization': basicAuth,
+        },
+        body: jsonEncode({
+          'username': username,
+          'password': password,
+        }),
+      ).timeout(Duration(seconds: 10));
 
-    if (response.statusCode == 200) {
-      final Map<String, dynamic> responseData = jsonDecode(response.body);
-      User user = User(role: responseData['role'], username: username);
-      user.password = password;
-      user.JWTToken = responseData['access_token'];
-      return user;
-    } else {
-      throw Exception('Failed to login: ${response.statusCode}');
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = jsonDecode(response.body);
+        User user = User(role: responseData['role'], username: username);
+        user.password = password;
+        user.JWTToken = responseData['access_token'];
+        return user;
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        // Неверные учетные данные
+        throw InvalidCredentialsException();
+      } else {
+        // Другие ошибки сервера
+        throw Exception('Failed to login: ${response.statusCode}');
+      }
+    } on SocketException catch (_) {
+      // Ошибка соединения с сервером
+      throw NoConnectionException();
+    } on HttpException catch (_) {
+      // Ошибка HTTP соединения
+      throw NoConnectionException();
+    } on InvalidCredentialsException {
+      // Перебрасываем исключение о неверных учетных данных
+      rethrow;
+    } on NoConnectionException {
+      // Перебрасываем исключение об отсутствии соединения
+      rethrow;
+    } on Exception catch (e) {
+      // Проверяем, не является ли это ошибкой соединения
+      if (e.toString().contains('SocketException') ||
+          e.toString().contains('Failed host lookup') ||
+          e.toString().contains('Connection refused') ||
+          e.toString().contains('Network is unreachable') ||
+          e.toString().contains('TimeoutException')) {
+        throw NoConnectionException();
+      }
+      // Для других исключений пробрасываем дальше
+      rethrow;
+    } catch (e) {
+      // Обработка любых других ошибок (например, TimeoutException)
+      if (e.toString().contains('Timeout') ||
+          e.toString().contains('timeout')) {
+        throw NoConnectionException();
+      }
+      throw Exception('Failed to login: $e');
     }
   }
 

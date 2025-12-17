@@ -9,6 +9,7 @@ import '../../src/utils/dialogs.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../strings.dart';
 import 'package:themed/themed.dart';
+import '../../src/exceptions/login_exceptions.dart';
 
 import '../update_manager.dart';
 
@@ -102,18 +103,38 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               ElevatedButton(
                   onPressed: () async {
-                    User? currentUser = await dataProvider.login(
-                        loginController.text, passwordController.text);
+                    try {
+                      User? currentUser = await dataProvider.login(
+                          loginController.text, passwordController.text);
 
-                    if (currentUser != null) {
-                      GlobalState.authUser = currentUser;
-                      await dataProvider.mainSync();
-                      await dataProvider.syncCompany();
-                      await GlobalState.updateDebug();
-                      GoRouter.of(context).clearStackAndNavigate("/actions");
+                      if (currentUser != null) {
+                        GlobalState.authUser = currentUser;
+                        await dataProvider.mainSync();
+                        await dataProvider.syncCompany();
+                        await GlobalState.updateDebug();
+                        GoRouter.of(context).clearStackAndNavigate("/actions");
+                        return;
+                      }
+                    } on WalkerOnlyException {
+                      Dialogs.notify(
+                          context, Strings.walkerOnlyTitle, Strings.walkerOnlyDesc);
+                      return;
+                    } on NoConnectionException {
+                      Dialogs.notify(
+                          context, Strings.noConnectionTitle, Strings.noConnectionDesc);
+                      return;
+                    } on InvalidCredentialsException {
+                      Dialogs.notify(
+                          context, Strings.invalidCredentialsTitle, Strings.invalidCredentialsDesc);
+                      return;
+                    } catch (e) {
+                      // Общая ошибка
+                      Dialogs.notify(
+                          context, Strings.loginFailTitle, Strings.loginFailDesc);
                       return;
                     }
 
+                    // Если дошли сюда, значит что-то пошло не так
                     Dialogs.notify(
                         context, Strings.loginFailTitle, Strings.loginFailDesc);
                   },

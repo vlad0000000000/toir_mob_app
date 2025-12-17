@@ -25,6 +25,30 @@ class Strings {
     return {'ru': 'Проверьте логин и пароль'}[Strings.locale];
   }
 
+  static get walkerOnlyTitle {
+    return {'ru': 'Доступ запрещен'}[Strings.locale];
+  }
+
+  static get walkerOnlyDesc {
+    return {'ru': 'Только обходчик может авторизироваться'}[Strings.locale];
+  }
+
+  static get noConnectionTitle {
+    return {'ru': 'Нет соединения'}[Strings.locale];
+  }
+
+  static get noConnectionDesc {
+    return {'ru': 'Не удалось подключиться к серверу. Проверьте подключение к интернету'}[Strings.locale];
+  }
+
+  static get invalidCredentialsTitle {
+    return {'ru': 'Неверные учетные данные'}[Strings.locale];
+  }
+
+  static get invalidCredentialsDesc {
+    return {'ru': 'Неверный логин или пароль'}[Strings.locale];
+  }
+
   static get understand {
     return {'ru': 'Понятно'}[Strings.locale];
   }
