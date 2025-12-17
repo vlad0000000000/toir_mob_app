@@ -343,6 +343,7 @@ class DataProvider {
       await syncTasks();
       await syncUsageUnitTypes();
       await saveLastSyncDate();
+      await syncCompany();
     }
   }
 

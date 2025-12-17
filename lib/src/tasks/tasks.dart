@@ -339,7 +339,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                       onPressed: () {
                         Navigator.of(context).pop();
                       },
-                      child: Text("Завершить")))
+                      child: Text("Выбрать")))
             ],
           );
         }

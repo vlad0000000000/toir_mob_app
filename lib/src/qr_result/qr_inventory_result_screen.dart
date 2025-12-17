@@ -55,9 +55,9 @@ class _ResultControlsState extends State<ResultControls> {
               controller: widget.problemController,
               expandedInsets: EdgeInsets.zero,
               label: Text("Проблема"),
-              initialSelection: "Проблем нет",
+              initialSelection: "",
               dropdownMenuEntries: [
-                "Проблем нет",
+                "",
                 "Не включается",
                 "Не выключается",
                 "Шумит",
@@ -136,7 +136,7 @@ class _ResultControlsState extends State<ResultControls> {
     ]);
 
     if (widget.problemController.text.length == 0 ||
-        widget.problemController.text == 'Проблем нет') {
+        widget.problemController.text == '') {
       return Column(
         spacing: 8,
         children: [problemSelect],

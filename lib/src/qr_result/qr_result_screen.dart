@@ -121,7 +121,7 @@ class _ResultControlsState extends State<ResultControls> {
         //   controller: widget.problemController,
         //   expandedInsets: EdgeInsets.zero,
         //   label: Text("Проблема"),
-        //   initialSelection: "Проблем нет",
+        //   initialSelection: "",
         //   dropdownMenuEntries: GlobalState.dataProvider.getTypicalProblemsForMachine(widget.machine.uuid).map((x) {
         //     return DropdownMenuEntry(value: x, label: x.title);
         //   }).toList(),

@@ -47,11 +47,11 @@ class _SelectProblemButton extends State<SelectProblemButton> {
       DropdownMenuEntry(
           value: TypicalProblem(
               id: -1,
-              title: "Проблем нет",
+              title: "",
               defaultPriority: "low",
               equipmentUUID: "-1",
               uuid: ''),
-          label: "Проблем нет")
+          label: "")
     ];
     problems.addAll(GlobalState.dataProvider
         .getTypicalProblemsForMachine(widget.machine.uuid)
@@ -75,7 +75,7 @@ class _SelectProblemButton extends State<SelectProblemButton> {
       expandedInsets: EdgeInsets.zero,
       label: Text("Проблема"),
       initialSelection: widget.controller.value == null
-          ? "Проблем нет"
+          ? ""
           : widget.controller.value!.title,
       dropdownMenuEntries: problems,
     ));
