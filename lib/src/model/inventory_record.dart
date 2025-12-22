@@ -1,4 +1,5 @@
 import 'package:hive_ce/hive.dart';
+import '../../global_state.dart';
 
 class InventoryRecord {
   final int id;
@@ -13,6 +14,7 @@ class InventoryRecord {
   final String? description;
   final String imageData;
   final List<UsageParameter> usageParameters;
+  final String? state;
 
   String get descriptionText {
     final List<String> parts = [];
@@ -25,9 +27,37 @@ class InventoryRecord {
       parts.add('**Местоположение**: $location');
     if (manufacturer != null && manufacturer!.isNotEmpty)
       parts.add('**Производитель**: $manufacturer');
+    if (state != null && state!.isNotEmpty) {
+      // Получаем название состояния из dataProvider
+      final stateName = GlobalState.dataProvider.getEquipmentStateName(state!);
+      if (stateName != null && stateName.isNotEmpty) {
+        parts.add('**Состояние**: $stateName');
+      }
+      // else {
+      //   parts.add('**Состояние**: $state');
+      // }
+    }
     if (description != null && description!.isNotEmpty)
       parts.add('**Описание**: $description');
     return parts.join('\n\n');
+  }
+
+  String get descriptionTextSimple {
+    final List<String> parts = [];
+    parts.add('$name');
+
+    if (state != null && state!.isNotEmpty) {
+      // Получаем название состояния из dataProvider
+      final stateName = GlobalState.dataProvider.getEquipmentStateName(state!);
+      if (stateName != null && stateName.isNotEmpty) {
+        parts.add('($stateName)');
+      }
+      // else {
+      //   parts.add('**Состояние**: $state');
+      // }
+    }
+
+    return parts.join('\n');
   }
 
   const InventoryRecord({
@@ -43,6 +73,7 @@ class InventoryRecord {
     this.description,
     this.imageData = '',
     this.usageParameters = const [],
+    this.state,
   });
 
   String getQRValue() {
@@ -82,6 +113,7 @@ class InventoryRecord {
                       (e) => UsageParameter.fromJson(e as Map<String, dynamic>))
                   .toList() ??
               const [],
+          state: json['state'] as String?,
         ),
       _ => throw const FormatException('Failed to load InventoryRecord.'),
     };
@@ -107,6 +139,7 @@ class InventoryAdapter extends TypeAdapter<InventoryRecord> {
       description: reader.read(),
       imageData: reader.read(),
       usageParameters: reader.read().cast<UsageParameter>(),
+      state: reader.read(),
     );
   }
 
@@ -124,6 +157,7 @@ class InventoryAdapter extends TypeAdapter<InventoryRecord> {
     writer.write(obj.description);
     writer.write(obj.imageData);
     writer.write(obj.usageParameters);
+    writer.write(obj.state);
   }
 }
 

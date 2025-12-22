@@ -16,6 +16,7 @@ import 'package:my_app/src/update_manager.dart';
 import '../../src/model/company.dart';
 import '../../src/model/usage_unit.dart';
 import '../../src/model/usage_update.dart';
+import '../../src/model/equipment_state.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
@@ -109,6 +110,7 @@ Future<void> main() async {
   Hive.registerAdapter(CompanyAdapter());
   Hive.registerAdapter(ResponsibleUserAdapter());
   Hive.registerAdapter(EquipmentFaultAdapter());
+  Hive.registerAdapter(EquipmentStateAdapter());
 
   var dataProvider = DataProvider(
       api: API(),
@@ -126,7 +128,8 @@ Future<void> main() async {
       periodicityRuleBox:
           await Hive.openBox<PeriodicityRule>('periodicity_rules'),
       taskBox: await Hive.openBox<Task>('tasks'),
-      companyBox: await Hive.openBox<Company>('company'));
+      companyBox: await Hive.openBox<Company>('company'),
+      equipmentStateBox: await Hive.openBox<EquipmentState>('equipment_states'));
 
   for (var scan in dataProvider.scanPendingBox.values) {
     await dataProvider.scanPendingBox.delete(scan.key());

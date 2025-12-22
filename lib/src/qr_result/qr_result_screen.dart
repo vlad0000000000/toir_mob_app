@@ -364,7 +364,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 16.0),
         child: Text(
-          widget.machine.name,
+          widget.machine.descriptionTextSimple,
           style: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.bold,

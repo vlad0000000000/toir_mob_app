@@ -15,6 +15,7 @@ import '../../src/model/task.dart';
 import '../../src/model/typical_problem.dart';
 import '../../src/model/usage_unit.dart';
 import '../../src/model/user.dart';
+import '../../src/model/equipment_state.dart';
 import '../exceptions/login_exceptions.dart';
 
 class API {
@@ -551,6 +552,31 @@ class API {
     } else {
       throw Exception(
           'Failed to load usage unit types: ${response.statusCode}');
+    }
+  }
+
+  Future<EquipmentState> getEquipmentStates() async {
+    if (jwtToken == null) {
+      throw Exception('Not authenticated');
+    }
+
+    final url = Uri.parse('$baseUrl/v1/company/equipment/states');
+
+    final response = await http.get(
+      url,
+      headers: {
+        'Authorization': 'Bearer $jwtToken',
+      },
+    );
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      const utf8Decoder = Utf8Decoder(allowMalformed: true);
+      final decodedBytes = utf8Decoder.convert(response.bodyBytes);
+      final Map<String, dynamic> data = jsonDecode(decodedBytes);
+      return EquipmentState.fromJson(data);
+    } else {
+      throw Exception(
+          'Failed to load equipment states: ${response.statusCode}');
     }
   }
 

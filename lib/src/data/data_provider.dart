@@ -12,6 +12,7 @@ import '../../src/model/task.dart';
 import '../../src/model/typical_problem.dart';
 import '../../src/model/usage_unit.dart';
 import '../../src/model/user.dart';
+import '../../src/model/equipment_state.dart';
 import '../model/usage_update.dart';
 import '../exceptions/login_exceptions.dart';
 
@@ -29,6 +30,7 @@ class DataProvider {
   final Box<PeriodicityRule> periodicityRuleBox;
   final Box<UsageUnit> usageUnitBox;
   final Box<Company> companyBox;
+  final Box<EquipmentState> equipmentStateBox;
   final Box<String> stringBox;
 
   DataProvider(
@@ -45,7 +47,8 @@ class DataProvider {
       required this.periodicityRuleBox,
       required this.stringBox,
       required this.usageUnitBox,
-      required this.companyBox}) {
+      required this.companyBox,
+      required this.equipmentStateBox}) {
     _users = userBox.values.toList();
     _inventoryRecords = inventoryBox.values.toList();
     _typicalProblems = typicalProblemBox.values.toList();
@@ -53,6 +56,7 @@ class DataProvider {
     _usageUnits = usageUnitBox.values.toList();
     _company = companyBox.get('company');
     _currentSession = sessionBox.get('current_session');
+    _equipmentState = equipmentStateBox.get('equipment_state');
   }
 
   List<User> _users = [];
@@ -61,6 +65,7 @@ class DataProvider {
   List<PeriodicityRule> _periodicityRules = [];
   List<UsageUnit> _usageUnits = [];
   Company? _company;
+  EquipmentState? _equipmentState;
   bool _isLoading = false;
 
   List<User> get users => _users;
@@ -74,6 +79,8 @@ class DataProvider {
   List<UsageUnit> get usageUnits => _usageUnits;
 
   Company? get company => _company;
+
+  EquipmentState? get equipmentState => _equipmentState;
 
   Session? get currentSession => _currentSession;
   Session? _currentSession;
@@ -101,7 +108,6 @@ class DataProvider {
   static Map<String, String> closedTasks = {};
 
   addScan(Scan scan) async {
-    print(scan.toJson());
     await scanBox.put(scan.key(), scan);
     if (scan.taskUuid != null) {
       closedTasks[scan.taskUuid!] = scan.taskUuid!;
@@ -374,6 +380,19 @@ class DataProvider {
     }
   }
 
+  Future<void> syncEquipmentStates() async {
+    _isLoading = true;
+
+    try {
+      _equipmentState = await api.getEquipmentStates();
+      await equipmentStateBox.put('equipment_state', _equipmentState!);
+    } catch (e) {
+      print('Failed sync equipment states: $e');
+    } finally {
+      _isLoading = false;
+    }
+  }
+
   void startScanSyncing() {
     Future.sync(() async {
       while (true) {
@@ -391,6 +410,7 @@ class DataProvider {
       await syncPeriodicityRules();
       await syncTasks();
       await syncUsageUnitTypes();
+      await syncEquipmentStates();
       await saveLastSyncDate();
       await syncCompany();
     }
@@ -487,6 +507,10 @@ class DataProvider {
         .where((unit) => unit.value == value)
         .toList()[0]
         .shortName;
+  }
+
+  String? getEquipmentStateName(String stateCode) {
+    return _equipmentState?.getStateName(stateCode);
   }
 
   Future<void> syncUsageScans() async {
