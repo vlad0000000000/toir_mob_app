@@ -26,7 +26,7 @@ import '../model/usage_update.dart';
 import '../update_manager.dart';
 import '../utils/any_controller.dart';
 import '../../src/widgets/select_usage_button.dart';
-import '../../src/model/usage_unit.dart';
+import '../../src/widgets/select_state_button.dart';
 
 class ResultControls extends StatefulWidget {
   final TextEditingController descController;
@@ -357,21 +357,49 @@ class _QRResultScreenState extends State<QRResultScreen> {
   final problemController = AnyController<TypicalProblem>();
   final equipmentController = EquipmentDetailController();
   final usageController = AnyController<List<UsageUpdate>>();
+  final stateController = AnyController<String>();
+
+  void _onStateChanged() async {
+    final newState = stateController.value;
+    if (newState != null && newState.isNotEmpty) {
+      try {
+        await GlobalState.dataProvider.api
+            .updateEquipmentState(widget.machine.uuid, newState);
+        // Состояние будет обновлено при следующей синхронизации
+      } catch (e) {
+        // В случае ошибки можно показать уведомление пользователю
+        print('Ошибка обновления статуса оборудования: $e');
+      }
+    }
+  }
 
   Widget passport() {
     // Упрощенный вид - только название станка
     if (Settings.qrResultShowSimplifiedView) {
       return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16.0),
-        child: Text(
-          widget.machine.descriptionTextSimple,
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-          ),
-          textAlign: TextAlign.center,
-        ),
-      );
+          padding: const EdgeInsets.symmetric(vertical: 16.0),
+          child: Column(
+            spacing: 8,
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: [
+              Text(
+                widget.machine.descriptionTextSimple,
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              Row(
+                children: [
+                  SelectStateButton(
+                    controller: stateController,
+                    initialValue: widget.machine.state,
+                  ),
+                ],
+              ),
+            ],
+          ));
     }
 
     var passportType = 1;
@@ -404,6 +432,17 @@ class _QRResultScreenState extends State<QRResultScreen> {
               Expanded(child: MarkdownBody(data: """
 ${widget.machine.descriptionText}
     """))
+            ],
+          ),
+          SizedBox(
+            height: 0,
+          ),
+          Row(
+            children: [
+              SelectStateButton(
+                controller: stateController,
+                initialValue: widget.machine.state,
+              ),
             ],
           ),
         ],
@@ -458,7 +497,6 @@ ${widget.machine.descriptionText}
         (problemController.value != null &&
             problemController.value != TypicalProblem.other);
 
-    var hasTasks = equipmentController.value.length > 0;
     for (var task in equipmentController.value) {
       if (task.resultStatus == 'scheduled') {
         result.add(Scan(
@@ -534,7 +572,7 @@ ${widget.machine.descriptionText}
             Expanded(
                 child: SingleChildScrollView(
               child: Column(
-                spacing: 16,
+                spacing: 8,
                 children: [
                   passport(),
                   ResultControls(
@@ -594,6 +632,7 @@ ${widget.machine.descriptionText}
   @override
   void initState() {
     super.initState();
+    stateController.valueNotifier.addListener(_onStateChanged);
 
     // Preload ad for the win screen.
     // final adsRemoved =
@@ -602,5 +641,16 @@ ${widget.machine.descriptionText}
     //   final adsController = context.read<AdsController?>();
     //   adsController?.preloadAd();
     // }
+  }
+
+  @override
+  void dispose() {
+    stateController.valueNotifier.removeListener(_onStateChanged);
+    descController.dispose();
+    imageData1Controller.dispose();
+    imageData2Controller.dispose();
+    imageData3Controller.dispose();
+    equipmentController.dispose();
+    super.dispose();
   }
 }

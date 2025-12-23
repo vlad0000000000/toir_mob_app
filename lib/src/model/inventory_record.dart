@@ -27,16 +27,6 @@ class InventoryRecord {
       parts.add('**Местоположение**: $location');
     if (manufacturer != null && manufacturer!.isNotEmpty)
       parts.add('**Производитель**: $manufacturer');
-    if (state != null && state!.isNotEmpty) {
-      // Получаем название состояния из dataProvider
-      final stateName = GlobalState.dataProvider.getEquipmentStateName(state!);
-      if (stateName != null && stateName.isNotEmpty) {
-        parts.add('**Состояние**: $stateName');
-      }
-      // else {
-      //   parts.add('**Состояние**: $state');
-      // }
-    }
     if (description != null && description!.isNotEmpty)
       parts.add('**Описание**: $description');
     return parts.join('\n\n');
@@ -46,16 +36,16 @@ class InventoryRecord {
     final List<String> parts = [];
     parts.add('$name');
 
-    if (state != null && state!.isNotEmpty) {
-      // Получаем название состояния из dataProvider
-      final stateName = GlobalState.dataProvider.getEquipmentStateName(state!);
-      if (stateName != null && stateName.isNotEmpty) {
-        parts.add('($stateName)');
-      }
-      // else {
-      //   parts.add('**Состояние**: $state');
-      // }
-    }
+    // if (state != null && state!.isNotEmpty) {
+    //   // Получаем название состояния из dataProvider
+    //   final stateName = GlobalState.dataProvider.getEquipmentStateName(state!);
+    //   if (stateName != null && stateName.isNotEmpty) {
+    //     parts.add('($stateName)');
+    //   }
+    //   // else {
+    //   //   parts.add('**Состояние**: $state');
+    //   // }
+    // }
 
     return parts.join('\n');
   }

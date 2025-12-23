@@ -611,4 +611,40 @@ class API {
 
     return false;
   }
+
+  // Обновить статус оборудования
+  Future<bool> updateEquipmentState(String equipmentUuid, String state) async {
+    if (jwtToken == null) {
+      throw Exception('Not authenticated');
+    }
+
+    // Создаем multipart request
+    var request = http.MultipartRequest(
+      'PATCH',
+      Uri.parse('$baseUrl/v1/company/equipment/$equipmentUuid'),
+    );
+
+    // Добавляем заголовки
+    request.headers['Authorization'] = 'Bearer $jwtToken';
+    request.headers['accept'] = 'application/json';
+
+    // Добавляем state как строку в multipart form data
+    request.fields['state'] = state;
+
+    try {
+      final response = await request.send().timeout(Duration(seconds: 10));
+
+      // Получаем и проверяем ответ
+      final responseBody = await response.stream.bytesToString();
+
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        throw Exception(
+            'Failed to update equipment state: ${response.statusCode} - $responseBody');
+      }
+
+      return true;
+    } catch (e) {
+      throw Exception('Failed to update equipment state: $e');
+    }
+  }
 }
