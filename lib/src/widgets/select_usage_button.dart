@@ -4,7 +4,6 @@ import '../../src/utils/any_controller.dart';
 import '../../global_state.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/usage_unit.dart';
-import '../../src/tasks/tasks.dart';
 import '../../src/widgets/square_button.dart';
 import 'package:flutter/services.dart';
 
@@ -90,6 +89,17 @@ class _SelectUsageButtonState extends State<SelectUsageButton> {
 
   @override
   Widget build(BuildContext context) {
+    // Проверяем наличие параметров с соответствующей ролью
+    final currentUserRole = GlobalState.authUser?.effectiveRole;
+    final hasMatchingParameters = widget.machine.usageParameters.any(
+      (param) => param.maintenanceRole?.name == currentUserRole,
+    );
+    
+    // Если нет подходящих параметров, не показываем кнопку
+    if (!hasMatchingParameters) {
+      return const SizedBox.shrink();
+    }
+    
     int selectedUsageCount =
         widget.controller.value == null ? 0 : widget.controller.value!.length;
 
@@ -145,7 +155,13 @@ class _UsageSelectionModalState extends State<UsageSelectionModal> {
   @override
   void initState() {
     super.initState();
-    for (var unit in widget.machine.usageParameters) {
+    final currentUserRole = GlobalState.authUser?.effectiveRole;
+    // Фильтруем параметры по роли пользователя
+    final matchingParameters = widget.machine.usageParameters.where(
+      (param) => param.maintenanceRole?.name == currentUserRole,
+    );
+    
+    for (var unit in matchingParameters) {
       usageControllers[unit.unitType] = TextEditingController();
       usageControllers[unit.unitType]!.text =
           unit.currentValue.toString(); // Display current value
@@ -169,6 +185,11 @@ class _UsageSelectionModalState extends State<UsageSelectionModal> {
 
   @override
   Widget build(BuildContext context) {
+    final currentUserRole = GlobalState.authUser?.effectiveRole;
+    // Фильтруем параметры по роли пользователя
+    final matchingParameters = widget.machine.usageParameters.where(
+      (param) => param.maintenanceRole?.name == currentUserRole,
+    ).toList();
 
     return Form(
       child: Column(
@@ -185,9 +206,9 @@ class _UsageSelectionModalState extends State<UsageSelectionModal> {
           ),
           Expanded(
             child: ListView.builder(
-              itemCount: widget.machine.usageParameters.length,
+              itemCount: matchingParameters.length,
               itemBuilder: (context, index) {
-                final usageParameter = widget.machine.usageParameters[index];
+                final usageParameter = matchingParameters[index];
                 final controller = usageControllers[usageParameter.unitType]!;
                 List<UsageUnit> usageUnits =
                     GlobalState.dataProvider.usageUnits.toList();
@@ -213,8 +234,8 @@ class _UsageSelectionModalState extends State<UsageSelectionModal> {
                           children: [
                             Text(
                                 'Текущее значение: ${usageParameter.currentValue}'),
-                            Text(
-                                'Следующее ТО: ${usageParameter.nextMaintenanceValue}'),
+                            // Text(
+                            //     'Следующее ТО: ${usageParameter.nextMaintenanceValue}'),
                             const SizedBox(height: 16),
                             TextFormField(
                               onChanged: (value) {
@@ -256,8 +277,14 @@ class _UsageSelectionModalState extends State<UsageSelectionModal> {
                     if (!formKey.currentState!.validate()) {
                       return;
                     }
+                    final currentUserRole = GlobalState.authUser?.effectiveRole;
+                    // Фильтруем параметры по роли пользователя
+                    final matchingParameters = widget.machine.usageParameters.where(
+                      (param) => param.maintenanceRole?.name == currentUserRole,
+                    );
+                    
                     List<UsageUpdate> newValues = [];
-                    widget.machine.usageParameters.forEach(
+                    matchingParameters.forEach(
                       (element) {
                         var controller = usageControllers[element.unitType];
                         if (controller != null &&

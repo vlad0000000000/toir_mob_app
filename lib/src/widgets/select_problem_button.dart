@@ -45,13 +45,7 @@ class _SelectProblemButton extends State<SelectProblemButton> {
   Widget build(BuildContext context) {
     List<DropdownMenuEntry> problems = [
       DropdownMenuEntry(
-          value: TypicalProblem(
-              id: -1,
-              title: "",
-              defaultPriority: "low",
-              equipmentUUID: "-1",
-              uuid: ''),
-          label: "")
+          value: TypicalProblem.empty, label: TypicalProblem.empty.title)
     ];
     problems.addAll(GlobalState.dataProvider
         .getTypicalProblemsForMachine(widget.machine.uuid)
@@ -59,14 +53,13 @@ class _SelectProblemButton extends State<SelectProblemButton> {
       return DropdownMenuEntry(value: x, label: x.title);
     }).toList());
     problems.add(DropdownMenuEntry(
-        value: TypicalProblem.other,
-        label: TypicalProblem.other.title));
+        value: TypicalProblem.other, label: TypicalProblem.other.title));
 
     return Expanded(
         child: DropdownMenu(
       requestFocusOnTap: true,
       onSelected: (value) {
-        if ((value as TypicalProblem).id == -1) {
+        if ((value as TypicalProblem) == TypicalProblem.empty) {
           widget.controller.value = null;
           return;
         }
@@ -74,9 +67,8 @@ class _SelectProblemButton extends State<SelectProblemButton> {
       },
       expandedInsets: EdgeInsets.zero,
       label: Text("Проблема"),
-      initialSelection: widget.controller.value == null
-          ? ""
-          : widget.controller.value!.title,
+      initialSelection:
+          widget.controller.value == null ? "" : widget.controller.value!.title,
       dropdownMenuEntries: problems,
     ));
   }

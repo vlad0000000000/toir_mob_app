@@ -14,6 +14,13 @@ class TypicalProblem {
       equipmentUUID: "-1",
       uuid: '');
 
+  static TypicalProblem empty = TypicalProblem(
+      id: -1,
+      title: "Нет проблем",
+      defaultPriority: "low",
+      equipmentUUID: "-1",
+      uuid: '');
+
   TypicalProblem({
     required this.id,
     required this.title,

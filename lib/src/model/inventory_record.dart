@@ -151,6 +151,42 @@ class InventoryAdapter extends TypeAdapter<InventoryRecord> {
   }
 }
 
+class MaintenanceRoleAdapter extends TypeAdapter<MaintenanceRole> {
+  @override
+  final int typeId = 19;
+
+  @override
+  MaintenanceRole read(BinaryReader reader) {
+    return MaintenanceRole(
+      uuid: reader.read(),
+      name: reader.read(),
+    );
+  }
+
+  @override
+  void write(BinaryWriter writer, MaintenanceRole obj) {
+    writer.write(obj.uuid);
+    writer.write(obj.name);
+  }
+}
+
+class MaintenanceRole {
+  final String uuid;
+  final String name;
+
+  const MaintenanceRole({
+    required this.uuid,
+    required this.name,
+  });
+
+  factory MaintenanceRole.fromJson(Map<String, dynamic> json) {
+    return MaintenanceRole(
+      uuid: json['uuid'] as String,
+      name: json['name'] as String,
+    );
+  }
+}
+
 class UsageParameterAdapter extends TypeAdapter<UsageParameter> {
   @override
   final int typeId = 13;
@@ -167,6 +203,7 @@ class UsageParameterAdapter extends TypeAdapter<UsageParameter> {
       lastMaintenanceValue: reader.read(),
       maintenanceInterval: reader.read(),
       nextMaintenanceValue: reader.read(),
+      maintenanceRole: reader.read(),
     );
   }
 
@@ -181,6 +218,7 @@ class UsageParameterAdapter extends TypeAdapter<UsageParameter> {
     writer.write(obj.lastMaintenanceValue);
     writer.write(obj.maintenanceInterval);
     writer.write(obj.nextMaintenanceValue);
+    writer.write(obj.maintenanceRole);
   }
 }
 
@@ -194,6 +232,7 @@ class UsageParameter {
   final double lastMaintenanceValue;
   final double maintenanceInterval;
   final double nextMaintenanceValue;
+  final MaintenanceRole? maintenanceRole;
 
   String? validate(value, {allowCurrentValue = false}) {
     if (value == null || value.isEmpty) {
@@ -227,6 +266,7 @@ class UsageParameter {
     required this.lastMaintenanceValue,
     required this.maintenanceInterval,
     required this.nextMaintenanceValue,
+    this.maintenanceRole,
   });
 
   factory UsageParameter.fromJson(Map<String, dynamic> json) {
@@ -237,11 +277,18 @@ class UsageParameter {
       currentValue: double.parse(json['current_value']) as double,
       prohibitDecrease: json['prohibit_decrease'] as bool,
       createMaintenanceTasks: json['create_maintenance_tasks'] as bool,
+      // lastMaintenanceValue: 0,
+      // maintenanceInterval: 0,
+      // nextMaintenanceValue: 0,
       lastMaintenanceValue:
           double.parse(json['last_maintenance_value']) as double,
       maintenanceInterval: double.parse(json['maintenance_interval']) as double,
       nextMaintenanceValue:
           double.parse(json['next_maintenance_value']) as double,
+      maintenanceRole: (json['maintenance_role'] is Map<String, dynamic>)
+          ? MaintenanceRole.fromJson(
+              json['maintenance_role'] as Map<String, dynamic>)
+          : null,
     );
   }
 }

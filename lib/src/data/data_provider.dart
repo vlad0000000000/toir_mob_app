@@ -13,6 +13,7 @@ import '../../src/model/typical_problem.dart';
 import '../../src/model/usage_unit.dart';
 import '../../src/model/user.dart';
 import '../../src/model/equipment_state.dart';
+import '../../src/model/periodic_task_request.dart';
 import '../model/usage_update.dart';
 import '../exceptions/login_exceptions.dart';
 
@@ -25,6 +26,8 @@ class DataProvider {
   final Box<UsageUpdate> scanUsageBox;
   final Box<Scan> scanPendingBox;
   final Box<UsageUpdate> scanUsagePendingBox;
+  final Box<PeriodicTaskRequest> periodicTaskBox;
+  final Box<PeriodicTaskRequest> periodicTaskPendingBox;
   final Box<Session> sessionBox;
   final Box<TypicalProblem> typicalProblemBox;
   final Box<PeriodicityRule> periodicityRuleBox;
@@ -48,7 +51,9 @@ class DataProvider {
       required this.stringBox,
       required this.usageUnitBox,
       required this.companyBox,
-      required this.equipmentStateBox}) {
+      required this.equipmentStateBox,
+      required this.periodicTaskBox,
+      required this.periodicTaskPendingBox}) {
     _users = userBox.values.toList();
     _inventoryRecords = inventoryBox.values.toList();
     _typicalProblems = typicalProblemBox.values.toList();
@@ -117,6 +122,10 @@ class DataProvider {
 
   addUsageScan(UsageUpdate scan) async {
     await scanUsageBox.put(scan.key(), scan);
+  }
+
+  addPeriodicTask(PeriodicTaskRequest taskRequest) async {
+    await periodicTaskBox.put(taskRequest.key(), taskRequest);
   }
 
   setCurrentSession(session) async {
@@ -311,15 +320,21 @@ class DataProvider {
     }
   }
 
+  void updateInventoryRecords() async {
+    _inventoryRecords = inventoryBox.values.toList();
+  }
+
   Future<void> syncInventory() async {
     _isLoading = true;
 
     try {
-      _inventoryRecords = await loadAllInventory();
+      var inventoryRecords = await loadAllInventory();
       await inventoryBox.clear();
-      await inventoryBox.addAll(_inventoryRecords);
-    } catch (e) {
+      await inventoryBox.addAll(inventoryRecords);
+      updateInventoryRecords();
+    } catch (e, s) {
       print('Failed sync inventory: $e');
+      print(s);
     } finally {
       _isLoading = false;
     }
@@ -399,6 +414,7 @@ class DataProvider {
         await Future.delayed(Duration(seconds: 5));
         await syncScans();
         await syncUsageScans();
+        await syncPeriodicTasks();
       }
     });
   }
@@ -588,6 +604,59 @@ class DataProvider {
         final timestampKey = 'scan_pending_${scan.key()}';
         await stringBox.put(timestampKey, now.toString());
         print('Error syncing data: $e');
+      }
+    }
+  }
+
+  Future<void> syncPeriodicTasks() async {
+    // Проверяем pending задачи - возвращаем в periodicTaskBox те, что прождали 60 секунд
+    final pendingTasks = periodicTaskPendingBox.values.toList();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (final task in pendingTasks) {
+      final timestampKey = 'periodic_task_pending_${task.key()}';
+      final timestampStr = stringBox.get(timestampKey);
+      if (timestampStr != null) {
+        final timestamp = int.tryParse(timestampStr);
+        if (timestamp != null) {
+          final elapsedSeconds = (now - timestamp) ~/ 1000;
+          if (elapsedSeconds >= 120) {
+            // Прошло 120 секунд - возвращаем задачу в periodicTaskBox для повторной попытки
+            await periodicTaskPendingBox.delete(task.key());
+            await stringBox.delete(timestampKey);
+            await periodicTaskBox.put(task.key(), task);
+          }
+        }
+      }
+    }
+
+    // Обрабатываем задачи из periodicTaskBox
+    final tasks = periodicTaskBox.values.toList();
+    for (final task in tasks) {
+      try {
+        // Перемещаем задачу в pending перед отправкой
+        await periodicTaskBox.delete(task.key());
+        await periodicTaskPendingBox.put(task.key(), task);
+
+        // Сохраняем timestamp текущей попытки
+        final timestampKey = 'periodic_task_pending_${task.key()}';
+        await stringBox.put(timestampKey, now.toString());
+
+        // Пытаемся отправить
+        if (await api.createPeriodicTask(task)) {
+          // Успешно - удаляем из всех хранилищ
+          await periodicTaskPendingBox.delete(task.key());
+          await stringBox.delete(timestampKey);
+        } else {
+          // Неуспешно - оставляем в pending с timestamp, вернется через 120 секунд
+          // Ничего не делаем, задача уже в periodicTaskPendingBox с timestamp
+        }
+      } catch (e) {
+        // При ошибке также оставляем в pending с timestamp
+        // Убеждаемся, что задача в periodicTaskPendingBox и timestamp сохранен
+        await periodicTaskPendingBox.put(task.key(), task);
+        final timestampKey = 'periodic_task_pending_${task.key()}';
+        await stringBox.put(timestampKey, now.toString());
+        print('Error syncing periodic task: $e');
       }
     }
   }

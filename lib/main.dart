@@ -23,6 +23,7 @@ import 'package:provider/provider.dart';
 import '../../src/login/login_screen.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/periodic_task_models.dart';
+import '../../src/model/periodic_task_request.dart';
 import '../../src/model/periodicity_rule.dart';
 import '../../src/model/scan.dart';
 import '../../src/model/task.dart';
@@ -106,11 +107,13 @@ Future<void> main() async {
   Hive.registerAdapter(CustomRoleAdapter());
   Hive.registerAdapter(UsageUnitAdapter());
   Hive.registerAdapter(UsageParameterAdapter());
+  Hive.registerAdapter(MaintenanceRoleAdapter());
   Hive.registerAdapter(UsageUpdateAdapter());
   Hive.registerAdapter(CompanyAdapter());
   Hive.registerAdapter(ResponsibleUserAdapter());
   Hive.registerAdapter(EquipmentFaultAdapter());
   Hive.registerAdapter(EquipmentStateAdapter());
+  Hive.registerAdapter(PeriodicTaskRequestAdapter());
 
   var dataProvider = DataProvider(
       api: API(),
@@ -129,7 +132,9 @@ Future<void> main() async {
           await Hive.openBox<PeriodicityRule>('periodicity_rules'),
       taskBox: await Hive.openBox<Task>('tasks'),
       companyBox: await Hive.openBox<Company>('company'),
-      equipmentStateBox: await Hive.openBox<EquipmentState>('equipment_states'));
+      equipmentStateBox: await Hive.openBox<EquipmentState>('equipment_states'),
+      periodicTaskBox: await Hive.openBox<PeriodicTaskRequest>('periodic_tasks'),
+      periodicTaskPendingBox: await Hive.openBox<PeriodicTaskRequest>('pending_periodic_tasks'));
 
   for (var scan in dataProvider.scanPendingBox.values) {
     await dataProvider.scanPendingBox.delete(scan.key());

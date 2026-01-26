@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -23,6 +24,7 @@ import '../../src/widgets/square_button.dart';
 import '../../strings.dart';
 import '../model/typical_problem.dart';
 import '../model/usage_update.dart';
+import '../model/periodic_task_request.dart';
 import '../update_manager.dart';
 import '../utils/any_controller.dart';
 import '../../src/widgets/select_usage_button.dart';
@@ -232,7 +234,13 @@ class _ResultControlsState extends State<ResultControls> {
       ],
     );
 
-    if (widget.machine.usageParameters.length == 0) {
+    // Проверяем наличие параметров и соответствие роли пользователя
+    final currentUserRole = GlobalState.authUser?.effectiveRole;
+    final hasMatchingParameters = widget.machine.usageParameters.any(
+      (param) => param.maintenanceRole?.name == currentUserRole,
+    );
+    
+    if (widget.machine.usageParameters.length == 0 || !hasMatchingParameters) {
       selectUsage = null;
     }
 
@@ -358,17 +366,111 @@ class _QRResultScreenState extends State<QRResultScreen> {
   final equipmentController = EquipmentDetailController();
   final usageController = AnyController<List<UsageUpdate>>();
   final stateController = AnyController<String>();
+  String? _previousState;
 
   void _onStateChanged() async {
     final newState = stateController.value;
-    if (newState != null && newState.isNotEmpty) {
+    if (newState != null && newState.isNotEmpty && newState != _previousState) {
       try {
         await GlobalState.dataProvider.api
             .updateEquipmentState(widget.machine.uuid, newState);
         // Состояние будет обновлено при следующей синхронизации
+        _previousState = newState;
+
+        // Обновляем состояние оборудования в Hive боксе
+        final inventoryBox = GlobalState.dataProvider.inventoryBox;
+        for (var key in inventoryBox.keys) {
+          final record = inventoryBox.get(key);
+          if (record != null && record.uuid == widget.machine.uuid) {
+            // Создаем новую запись с обновленным состоянием
+            final updatedRecord = InventoryRecord(
+              id: record.id,
+              uuid: record.uuid,
+              name: record.name,
+              typeModel: record.typeModel,
+              serialNumber: record.serialNumber,
+              location: record.location,
+              manufacturer: record.manufacturer,
+              quantity: record.quantity,
+              dateOfEntry: record.dateOfEntry,
+              description: record.description,
+              imageData: record.imageData,
+              usageParameters: record.usageParameters,
+              state: newState,
+            );
+            await inventoryBox.put(key, updatedRecord);
+            GlobalState.dataProvider.updateInventoryRecords();
+            break;
+          }
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Состояние оборудования успешно изменено',
+                style: TextStyle(color: Colors.black),
+              ),
+              backgroundColor: Colors.greenAccent,
+            ),
+          );
+        }
+      } on SocketException catch (_) {
+        // Ошибка соединения с сервером
+        print('Ошибка обновления статуса оборудования: отсутствует интернет');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Состояние не обновлено, потому что нет интернета',
+                  style: TextStyle(color: Colors.black)),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+      } on HttpException catch (_) {
+        // Ошибка HTTP соединения
+        print('Ошибка обновления статуса оборудования: отсутствует интернет');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Состояние не обновлено, потому что нет интернета',
+                  style: TextStyle(color: Colors.black)),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
       } catch (e) {
-        // В случае ошибки можно показать уведомление пользователю
-        print('Ошибка обновления статуса оборудования: $e');
+        // Проверяем, не является ли это ошибкой соединения
+        final errorString = e.toString();
+        if (errorString.contains('SocketException') ||
+            errorString.contains('Failed host lookup') ||
+            errorString.contains('Connection refused') ||
+            errorString.contains('Network is unreachable') ||
+            errorString.contains('TimeoutException')) {
+          print('Ошибка обновления статуса оборудования: отсутствует интернет');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                    'Состояние не обновлено, потому что нет интернета',
+                    style: TextStyle(color: Colors.black)),
+                backgroundColor: Colors.redAccent,
+              ),
+            );
+          }
+        } else {
+          // Другие ошибки
+          print('Ошибка обновления статуса оборудования: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Не удалось изменить состояние оборудования',
+                    style: TextStyle(color: Colors.black)),
+                backgroundColor: Colors.redAccent,
+              ),
+            );
+          }
+        }
       }
     }
   }
@@ -542,6 +644,62 @@ ${widget.machine.descriptionText}
     return result;
   }
 
+  PeriodicTaskRequest? createPeriodicTask() {
+    var status = 'closed';
+    if (problemController.value != null) {
+      status = 'open';
+    }
+    
+    var hasData = false;
+    var files = [
+      imageData1Controller.value,
+      imageData2Controller.value,
+      imageData3Controller.value,
+    ].where((v) {
+      return v.length > 0;
+    }).toList();
+    
+    hasData = hasData || descController.text.length > 0;
+    hasData = hasData || files.length > 0;
+    hasData =
+        hasData || (hasData && problemController.value == TypicalProblem.other);
+    hasData = hasData ||
+        (problemController.value != null &&
+            problemController.value != TypicalProblem.other);
+
+    // Создаем периодическую задачу только если status=open и hasData=true
+    if (status == 'open' && hasData) {
+      var priority = priorityController.value == null
+          ? null
+          : priorityController.value!.value;
+      if (problemController.value != null && priority == null) {
+        priority = (problemController.value!).defaultPriority;
+      }
+      
+      // Если priority все еще null, используем "low" по умолчанию
+      if (priority == null) {
+        priority = 'low';
+      }
+
+      return PeriodicTaskRequest(
+        equipmentUuid: widget.machine.uuid,
+        node: null,
+        title: 'Проблема',
+        description: descController.text.isNotEmpty ? descController.text : null,
+        periodicityRule: 'once',
+        customRoleIds: null,
+        nextDueAt: GlobalState.nowUTCDate,
+        params: {
+          'target_type': 'ad_hoc',
+          'result_status': 'open',
+          'priority': priority,
+        },
+      );
+    }
+    
+    return null;
+  }
+
   addScans(List<Scan> scans, List<UsageUpdate> usageScans) async {
     for (var usageParameter in usageScans) {
       await GlobalState.dataProvider.addUsageScan(usageParameter);
@@ -549,6 +707,12 @@ ${widget.machine.descriptionText}
 
     for (var scan in scans) {
       await GlobalState.dataProvider.addScan(scan);
+    }
+
+    // Создаем и добавляем периодическую задачу, если нужно
+    var periodicTask = createPeriodicTask();
+    if (periodicTask != null) {
+      await GlobalState.dataProvider.addPeriodicTask(periodicTask);
     }
   }
 
@@ -632,6 +796,7 @@ ${widget.machine.descriptionText}
   @override
   void initState() {
     super.initState();
+    _previousState = widget.machine.state;
     stateController.valueNotifier.addListener(_onStateChanged);
 
     // Preload ad for the win screen.
@@ -645,7 +810,8 @@ ${widget.machine.descriptionText}
 
   @override
   void dispose() {
-    stateController.valueNotifier.removeListener(_onStateChanged);
+    // stateController.valueNotifier.removeListener(_onStateChanged);
+    stateController.dispose();
     descController.dispose();
     imageData1Controller.dispose();
     imageData2Controller.dispose();

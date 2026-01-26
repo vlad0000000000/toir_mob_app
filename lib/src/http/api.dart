@@ -16,6 +16,7 @@ import '../../src/model/typical_problem.dart';
 import '../../src/model/usage_unit.dart';
 import '../../src/model/user.dart';
 import '../../src/model/equipment_state.dart';
+import '../../src/model/periodic_task_request.dart';
 import '../exceptions/login_exceptions.dart';
 
 class API {
@@ -646,5 +647,37 @@ class API {
     } catch (e) {
       throw Exception('Failed to update equipment state: $e');
     }
+  }
+
+  // Создать периодическую задачу
+  Future<bool> createPeriodicTask(PeriodicTaskRequest taskRequest) async {
+    if (jwtToken == null) {
+      throw Exception('Not authenticated');
+    }
+
+    final url = Uri.parse('$baseUrl/v1/company/periodic_task/');
+
+    final response = await http.post(
+      url,
+      headers: {
+        'Authorization': 'Bearer $jwtToken',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode(taskRequest.toJson()),
+    ).timeout(Duration(seconds: 10));
+
+    final responseBody = response.body;
+    final Map<String, dynamic> responseData = jsonDecode(responseBody);
+
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception(
+          'Failed to create periodic task: ${response.statusCode} - $responseBody');
+    }
+
+    if (responseData.containsKey('uuid')) {
+      return true;
+    }
+
+    return false;
   }
 }
