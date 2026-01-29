@@ -116,8 +116,9 @@ class _SelectImageButton extends State<SelectImageButton> {
 
                 final XFile? image = await picker.pickImage(
                   source: ImageSource.camera,
-                  maxWidth: 512,
-                  maxHeight: 512
+                  maxWidth: 1024,
+                  maxHeight: 1024,
+                  imageQuality: 100
                 );
 
                 if (image != null) {

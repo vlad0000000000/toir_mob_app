@@ -7,7 +7,7 @@ class Scan {
   final List<String>? files;
   final String? periodicTaskUuid;
   final String? equipmentUuid;
-  final String resultStatus;
+  String resultStatus;
   final String? comment;
   final String? faultUuid;
   final String? taskUuid;

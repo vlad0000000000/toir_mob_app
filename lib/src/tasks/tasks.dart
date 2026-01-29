@@ -49,17 +49,24 @@ class EquipmentDetailController {
 
   void toggleTaskSelection(Task task) {
     if (selectedTasks.contains(task)) {
-      selectedTasks.remove(task);
+      selectedTasks.clear();
     } else {
-      selectedTasks.add(task);
+      selectedTasks
+        ..clear()
+        ..add(task);
     }
     onSelectionChanged?.call();
     value = selectedTasks.toList();
   }
 
   void selectAll(List<Task> allTasks) {
-    selectedTasks.addAll(allTasks);
-    value = allTasks;
+    selectedTasks.clear();
+    if (allTasks.isNotEmpty) {
+      selectedTasks.add(allTasks.first);
+      value = [allTasks.first];
+    } else {
+      value = [];
+    }
     onSelectionChanged?.call();
   }
 
@@ -439,7 +446,8 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                 //   ],
                 // ),
                 Text(
-                  'Выбрано: ${_selectionController.selectedTasks.length}',
+                  // 'Выбрано: ${_selectionController.selectedTasks.length}',
+                  'Выберите только одну задачу',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 IconButton(

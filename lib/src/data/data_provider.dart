@@ -115,8 +115,16 @@ class DataProvider {
   addScan(Scan scan) async {
     await scanBox.put(scan.key(), scan);
     if (scan.taskUuid != null) {
-      closedTasks[scan.taskUuid!] = scan.taskUuid!;
-      taskBox.delete(scan.taskUuid);
+      final taskUuid = scan.taskUuid!;
+      final task = taskBox.get(taskUuid);
+      final periodicTitle = task?.periodicTask?.title ?? '';
+      if (scan.periodicTaskUuid != null &&
+          scan.periodicTaskUuid!.isNotEmpty &&
+          periodicTitle.contains('Техническое обслуживание')) {
+        await stringBox.put('maintenance_task_$taskUuid', '1');
+      }
+      closedTasks[taskUuid] = taskUuid;
+      taskBox.delete(taskUuid);
     }
   }
 
@@ -579,6 +587,27 @@ class DataProvider {
     // Обрабатываем сканы из scanBox
     final scans = scanBox.values.toList();
     for (final scan in scans) {
+      final taskUuid = scan.taskUuid;
+      final isMaintenancePeriodicTask = taskUuid != null &&
+          taskUuid.isNotEmpty &&
+          scan.periodicTaskUuid != null &&
+          scan.periodicTaskUuid!.isNotEmpty &&
+          stringBox.get('maintenance_task_$taskUuid') == '1';
+
+      // Если есть наработка по этому оборудованию, задачи ТО ждем ее отправки
+      if (isMaintenancePeriodicTask &&
+          scan.equipmentUuid != null &&
+          scan.equipmentUuid!.isNotEmpty) {
+        final hasPendingUsage = scanUsageBox.values.any(
+              (usage) => usage.equipmentUuid == scan.equipmentUuid,
+            ) ||
+            scanUsagePendingBox.values.any(
+              (usage) => usage.equipmentUuid == scan.equipmentUuid,
+            );
+        if (hasPendingUsage) {
+          continue;
+        }
+      }
       try {
         // Перемещаем скан в pending перед отправкой
         await scanBox.delete(scan.key());
@@ -593,6 +622,9 @@ class DataProvider {
           // Успешно - удаляем из всех хранилищ
           await scanPendingBox.delete(scan.key());
           await stringBox.delete(timestampKey);
+          if (scan.taskUuid != null) {
+            await stringBox.delete('maintenance_task_${scan.taskUuid}');
+          }
         } else {
           // Неуспешно - оставляем в pending с timestamp, вернется через 60 секунд
           // Ничего не делаем, скан уже в scanPendingBox с timestamp

@@ -239,7 +239,7 @@ class _ResultControlsState extends State<ResultControls> {
     final hasMatchingParameters = widget.machine.usageParameters.any(
       (param) => param.maintenanceRole?.name == currentUserRole,
     );
-    
+
     if (widget.machine.usageParameters.length == 0 || !hasMatchingParameters) {
       selectUsage = null;
     }
@@ -568,11 +568,8 @@ ${widget.machine.descriptionText}
 
   List<Scan> createScans() {
     List<Scan> result = [];
-    var status = 'closed';
-    if (problemController.value != null) {
-      status = 'open';
-    }
-    var files = [
+
+    var images = [
       imageData1Controller.value,
       imageData2Controller.value,
       imageData3Controller.value,
@@ -592,19 +589,19 @@ ${widget.machine.descriptionText}
     }
     var hasData = false;
     hasData = hasData || descController.text.length > 0;
-    hasData = hasData || files.length > 0;
-    hasData =
-        hasData || (hasData && problemController.value == TypicalProblem.other);
-    hasData = hasData ||
+    // hasData = hasData || files.length > 0;
+    var hasProblem = (problemController.value == TypicalProblem.other);
+    hasProblem = hasProblem ||
         (problemController.value != null &&
             problemController.value != TypicalProblem.other);
 
+    var hasTasks = false;
     for (var task in equipmentController.value) {
       if (task.resultStatus == 'scheduled') {
         result.add(Scan(
             taskUuid: task.uuid,
             resultStatus: 'closed',
-            files: files,
+            files: images,
             comment: descController.text,
             priority: '',
             equipmentUuid: widget.machine.uuid,
@@ -612,12 +609,13 @@ ${widget.machine.descriptionText}
             closedAt: GlobalState.nowUTCDate,
             createdAt: widget.openDateTime,
             periodicTaskUuid: task.periodicTask!.uuid));
+        hasTasks = true;
       }
       if (task.resultStatus == 'open') {
         result.add(Scan(
             taskUuid: task.uuid,
             resultStatus: 'closed',
-            files: files,
+            files: images,
             comment: descController.text,
             priority: '',
             equipmentUuid: widget.machine.uuid,
@@ -625,14 +623,15 @@ ${widget.machine.descriptionText}
             closedAt: GlobalState.nowUTCDate,
             createdAt: widget.openDateTime,
             periodicTaskUuid: ''));
+        hasTasks = true;
       }
     }
 
-    if (hasData) {
+    if ((hasData && (hasProblem || !hasTasks))) {
       result.add(Scan(
           taskUuid: '',
-          resultStatus: status,
-          files: files,
+          resultStatus: hasProblem ? 'open' : 'closed',
+          files: images,
           comment: descController.text,
           priority: priority,
           equipmentUuid: widget.machine.uuid,
@@ -644,75 +643,36 @@ ${widget.machine.descriptionText}
     return result;
   }
 
-  PeriodicTaskRequest? createPeriodicTask() {
-    var status = 'closed';
-    if (problemController.value != null) {
-      status = 'open';
-    }
-    
-    var hasData = false;
-    var files = [
-      imageData1Controller.value,
-      imageData2Controller.value,
-      imageData3Controller.value,
-    ].where((v) {
-      return v.length > 0;
-    }).toList();
-    
-    hasData = hasData || descController.text.length > 0;
-    hasData = hasData || files.length > 0;
-    hasData =
-        hasData || (hasData && problemController.value == TypicalProblem.other);
-    hasData = hasData ||
-        (problemController.value != null &&
-            problemController.value != TypicalProblem.other);
-
-    // Создаем периодическую задачу только если status=open и hasData=true
-    if (status == 'open' && hasData) {
-      var priority = priorityController.value == null
-          ? null
-          : priorityController.value!.value;
-      if (problemController.value != null && priority == null) {
-        priority = (problemController.value!).defaultPriority;
-      }
-      
-      // Если priority все еще null, используем "low" по умолчанию
-      if (priority == null) {
-        priority = 'low';
-      }
-
-      return PeriodicTaskRequest(
-        equipmentUuid: widget.machine.uuid,
-        node: null,
-        title: 'Проблема',
-        description: descController.text.isNotEmpty ? descController.text : null,
-        periodicityRule: 'once',
-        customRoleIds: null,
-        nextDueAt: GlobalState.nowUTCDate,
-        params: {
-          'target_type': 'ad_hoc',
-          'result_status': 'open',
-          'priority': priority,
-        },
-      );
-    }
-    
-    return null;
-  }
-
   addScans(List<Scan> scans, List<UsageUpdate> usageScans) async {
     for (var usageParameter in usageScans) {
       await GlobalState.dataProvider.addUsageScan(usageParameter);
     }
 
+    // for (var scan in scans) {
+    //   if (scan.resultStatus == 'open') {
+    //     scan.resultStatus = 'closed';
+    //     var periodicTask = PeriodicTaskRequest(
+    //       equipmentUuid: widget.machine.uuid,
+    //       node: null,
+    //       title: 'Проблема',
+    //       description:
+    //           descController.text.isNotEmpty ? descController.text : null,
+    //       periodicityRule: 'once',
+    //       customRoleIds: null,
+    //       nextDueAt: GlobalState.nowUTCDate,
+    //       params: {
+    //         'target_type': 'ad_hoc',
+    //         'result_status': 'open',
+    //         'priority': scan.priority,
+    //       },
+    //     );
+    //     await GlobalState.dataProvider.addPeriodicTask(periodicTask);
+    //   }
+    //   await GlobalState.dataProvider.addScan(scan);
+    // }
+
     for (var scan in scans) {
       await GlobalState.dataProvider.addScan(scan);
-    }
-
-    // Создаем и добавляем периодическую задачу, если нужно
-    var periodicTask = createPeriodicTask();
-    if (periodicTask != null) {
-      await GlobalState.dataProvider.addPeriodicTask(periodicTask);
     }
   }
 
@@ -764,7 +724,7 @@ ${widget.machine.descriptionText}
                           var usageScans = createUsageScans();
                           if (scans.length + usageScans.length == 0) {
                             Dialogs.notify(context, 'Не отправлено',
-                                'Укажите данные обхода (комментарий, фото, типовая неисправность, задача или наработка)');
+                                'Укажите данные обхода (комментарий, типовая неисправность, задача или наработка)');
                           } else {
                             Dialogs.areYouSure(context, onOk: () async {
                               // await dataProvider.syncScans();
