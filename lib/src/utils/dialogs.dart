@@ -45,15 +45,15 @@ class Dialogs {
     ).show();
   }
 
-  static void areYouSure(context, {onOk = null}) async {
+  static void areYouSure(context, {onOk = null, rewriteMessage = null, desc = null}) async {
     AwesomeDialog(
       reverseBtnOrder: true,
       context: context,
       animType: AnimType.scale,
       dialogType: DialogType.noHeader,
       headerAnimationLoop: false,
-      title: Strings.areYouSure,
-      // desc: desc,
+      title: rewriteMessage != null ? rewriteMessage : Strings.areYouSure,
+      desc: desc,
       btnOk: ElevatedButton(
           style: style,
           onPressed: () {

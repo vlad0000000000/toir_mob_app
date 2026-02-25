@@ -147,6 +147,52 @@ class LocationAdapter extends TypeAdapter<Location> {
   }
 }
 
+class PeriodicTaskPhoto {
+  final int id;
+  final String uuid;
+  final String url;
+  final int order;
+
+  PeriodicTaskPhoto({
+    required this.id,
+    required this.uuid,
+    required this.url,
+    required this.order,
+  });
+
+  factory PeriodicTaskPhoto.fromJson(Map<String, dynamic> json) {
+    return PeriodicTaskPhoto(
+      id: json['id'] as int,
+      uuid: json['uuid'] as String,
+      url: json['url'] as String,
+      order: json['order'] as int,
+    );
+  }
+}
+
+class PeriodicTaskPhotoAdapter extends TypeAdapter<PeriodicTaskPhoto> {
+  @override
+  final int typeId = 21;
+
+  @override
+  PeriodicTaskPhoto read(BinaryReader reader) {
+    return PeriodicTaskPhoto(
+      id: reader.read(),
+      uuid: reader.read(),
+      url: reader.read(),
+      order: reader.read(),
+    );
+  }
+
+  @override
+  void write(BinaryWriter writer, PeriodicTaskPhoto obj) {
+    writer.write(obj.id);
+    writer.write(obj.uuid);
+    writer.write(obj.url);
+    writer.write(obj.order);
+  }
+}
+
 @HiveType(typeId: 11)
 class PeriodicTask {
   @HiveField(0)
@@ -177,6 +223,8 @@ class PeriodicTask {
   final DateTime? createdAt;
   @HiveField(13)
   final DateTime? updatedAt;
+  @HiveField(14)
+  final List<PeriodicTaskPhoto> photos;
 
   PeriodicTask({
     required this.id,
@@ -193,6 +241,7 @@ class PeriodicTask {
     required this.isActive,
     required this.createdAt,
     this.updatedAt,
+    this.photos = const [],
   });
 
   factory PeriodicTask.fromJson(Map<String, dynamic> json) {
@@ -221,6 +270,10 @@ class PeriodicTask {
       updatedAt: json['updated_at'] != null
           ? DateTime.parse(json['updated_at'] as String)
           : null,
+      photos: (json['photos'] as List<dynamic>?)
+              ?.map((e) => PeriodicTaskPhoto.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
     );
   }
 }
@@ -246,6 +299,7 @@ class PeriodicTaskAdapter extends TypeAdapter<PeriodicTask> {
       isActive: reader.read(),
       createdAt: reader.read(),
       updatedAt: reader.read(),
+      photos: reader.read().cast<PeriodicTaskPhoto>(),
     );
   }
 
@@ -265,5 +319,6 @@ class PeriodicTaskAdapter extends TypeAdapter<PeriodicTask> {
     writer.write(obj.isActive);
     writer.write(obj.createdAt);
     writer.write(obj.updatedAt);
+    writer.write(obj.photos);
   }
 }

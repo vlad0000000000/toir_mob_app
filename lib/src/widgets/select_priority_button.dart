@@ -5,8 +5,9 @@ import '../../strings.dart';
 
 class SelectPriorityButton extends StatefulWidget {
   late final AnyController<Priority> controller;
+  final String? errorText;
 
-  SelectPriorityButton({super.key, controller = null}) {
+  SelectPriorityButton({super.key, controller = null, this.errorText}) {
     if (controller == null) {
       this.controller = AnyController<Priority>();
     } else {
@@ -49,6 +50,7 @@ class _SelectPriorityButton extends State<SelectPriorityButton> {
       },
       expandedInsets: EdgeInsets.zero,
       label: Text(Strings.priority),
+      errorText: widget.errorText,
       initialSelection:
           widget.controller.value == null ? "" : widget.controller.value!.name,
       dropdownMenuEntries: Priorities.ALL.map((x) {

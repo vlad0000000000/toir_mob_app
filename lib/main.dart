@@ -102,6 +102,7 @@ Future<void> main() async {
   Hive.registerAdapter(TypicalProblemAdapter());
   Hive.registerAdapter(PeriodicityRuleAdapter());
   Hive.registerAdapter(PeriodicTaskAdapter());
+  Hive.registerAdapter(PeriodicTaskPhotoAdapter());
   Hive.registerAdapter(LocationAdapter());
   Hive.registerAdapter(EquipmentAdapter());
   Hive.registerAdapter(CustomRoleAdapter());

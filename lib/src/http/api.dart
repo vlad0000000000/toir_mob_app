@@ -113,18 +113,20 @@ class API {
   // Метод для авторизации и получения JWT токена
   Future<User> login(String username, String password) async {
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/v1/auth/login'),
-        headers: {
-          'Content-Type': 'application/json',
-          // Если требуется базовая аутентификация для этого эндпоинта, раскомментировать:
-          // 'Authorization': basicAuth,
-        },
-        body: jsonEncode({
-          'username': username,
-          'password': password,
-        }),
-      ).timeout(Duration(seconds: 10));
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/v1/auth/login'),
+            headers: {
+              'Content-Type': 'application/json',
+              // Если требуется базовая аутентификация для этого эндпоинта, раскомментировать:
+              // 'Authorization': basicAuth,
+            },
+            body: jsonEncode({
+              'username': username,
+              'password': password,
+            }),
+          )
+          .timeout(Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> responseData = jsonDecode(response.body);
@@ -657,14 +659,16 @@ class API {
 
     final url = Uri.parse('$baseUrl/v1/company/periodic_task/');
 
-    final response = await http.post(
-      url,
-      headers: {
-        'Authorization': 'Bearer $jwtToken',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode(taskRequest.toJson()),
-    ).timeout(Duration(seconds: 10));
+    final response = await http
+        .post(
+          url,
+          headers: {
+            'Authorization': 'Bearer $jwtToken',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode(taskRequest.toJson()),
+        )
+        .timeout(Duration(seconds: 10));
 
     final responseBody = response.body;
     final Map<String, dynamic> responseData = jsonDecode(responseBody);
@@ -675,6 +679,53 @@ class API {
     }
 
     if (responseData.containsKey('uuid')) {
+      final photoUrl = Uri.parse(
+          '$baseUrl/v1/company/periodic_task/${responseData['uuid']}/photos');
+
+      // Создаем multipart request
+      var request = http.MultipartRequest(
+        'POST',
+        photoUrl,
+      );
+
+      // Добавляем заголовки
+      request.headers['Authorization'] = 'Bearer $jwtToken';
+      request.headers['accept'] = 'application/json';
+
+      // Добавляем изображения из поля files
+      if (taskRequest.photos != null && taskRequest.photos!.isNotEmpty) {
+        for (int i = 0; i < taskRequest.photos!.length; i++) {
+          final base64Image = taskRequest.photos![i];
+
+          // Убираем префикс data:image/...;base64, если присутствует
+          final cleanBase64 = base64Image.contains(',')
+              ? base64Image.split(',').last
+              : base64Image;
+
+          try {
+            final bytes = base64Decode(cleanBase64);
+            final file = http.MultipartFile.fromBytes(
+              'files', // Имя поля (должно совпадать с серверным)
+              bytes,
+              filename: 'image_$i.jpg', // Имя файла
+              contentType:
+                  MediaType('image', 'jpeg'), // Замените при необходимости
+            );
+            request.files.add(file);
+          } catch (e) {
+            print('Ошибка декодирования изображения $i: $e');
+            // Можно продолжить отправку без этого изображения или прервать операцию
+          }
+        }
+      }
+
+      final response = await request.send().timeout(Duration(seconds: 10));
+      final responseBody = await response.stream.bytesToString();
+
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        // throw Exception(
+        //     'Failed to create periodic task photos: ${response.statusCode} - ${responseBody}');
+      }
       return true;
     }
 

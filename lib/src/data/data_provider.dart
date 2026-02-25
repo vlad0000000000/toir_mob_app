@@ -430,9 +430,9 @@ class DataProvider {
   Future mainSync() async {
     if (GlobalState.isAuthorized) {
       await syncInventory();
+      await syncTasks();
       await syncTypicalProblems();
       await syncPeriodicityRules();
-      await syncTasks();
       await syncUsageUnitTypes();
       await syncEquipmentStates();
       await saveLastSyncDate();

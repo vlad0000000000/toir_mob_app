@@ -226,12 +226,12 @@ class UsageParameter {
   final int id;
   final String uuid;
   final String unitType;
-  final double currentValue;
+  double currentValue;
   final bool prohibitDecrease;
   final bool createMaintenanceTasks;
-  final double lastMaintenanceValue;
-  final double maintenanceInterval;
-  final double nextMaintenanceValue;
+  final double? lastMaintenanceValue;
+  final double? maintenanceInterval;
+  final double? nextMaintenanceValue;
   final MaintenanceRole? maintenanceRole;
 
   String? validate(value, {allowCurrentValue = false}) {
@@ -256,7 +256,7 @@ class UsageParameter {
     return null;
   }
 
-  const UsageParameter({
+  UsageParameter({
     required this.id,
     required this.uuid,
     required this.unitType,
@@ -274,17 +274,21 @@ class UsageParameter {
       id: json['id'] as int,
       uuid: json['uuid'] as String,
       unitType: json['unit_type'] as String,
-      currentValue: double.parse(json['current_value']) as double,
+      currentValue: double.parse(json['current_value']),
       prohibitDecrease: json['prohibit_decrease'] as bool,
       createMaintenanceTasks: json['create_maintenance_tasks'] as bool,
       // lastMaintenanceValue: 0,
       // maintenanceInterval: 0,
       // nextMaintenanceValue: 0,
-      lastMaintenanceValue:
-          double.parse(json['last_maintenance_value']) as double,
-      maintenanceInterval: double.parse(json['maintenance_interval']) as double,
-      nextMaintenanceValue:
-          double.parse(json['next_maintenance_value']) as double,
+      lastMaintenanceValue: json['last_maintenance_value'] != null
+          ? double.parse(json['last_maintenance_value'])
+          : null,
+      maintenanceInterval: json['maintenance_interval'] != null
+          ? double.parse(json['maintenance_interval'])
+          : null,
+      nextMaintenanceValue: json['next_maintenance_value'] != null
+          ? double.parse(json['next_maintenance_value'])
+          : null,
       maintenanceRole: (json['maintenance_role'] is Map<String, dynamic>)
           ? MaintenanceRole.fromJson(
               json['maintenance_role'] as Map<String, dynamic>)

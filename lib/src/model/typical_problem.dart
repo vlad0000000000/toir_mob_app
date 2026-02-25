@@ -4,20 +4,20 @@ class TypicalProblem {
   final int id;
   final String title;
   final String uuid;
-  final String defaultPriority;
+  final String? defaultPriority;
   final String equipmentUUID;
 
   static TypicalProblem other = TypicalProblem(
       id: 0,
       title: "Другое",
-      defaultPriority: "low",
+      defaultPriority: null,
       equipmentUUID: "-1",
       uuid: '');
 
   static TypicalProblem empty = TypicalProblem(
       id: -1,
       title: "Нет проблем",
-      defaultPriority: "low",
+      defaultPriority: null,
       equipmentUUID: "-1",
       uuid: '');
 

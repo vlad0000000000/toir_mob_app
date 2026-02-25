@@ -40,6 +40,8 @@ class ResultControls extends StatefulWidget {
   final EquipmentDetailController equipmentDetailController;
   final AnyController<List<UsageUpdate>> usageController;
   final InventoryRecord machine;
+  final bool highlightDescError;
+  final bool highlightPriorityError;
 
   const ResultControls({
     super.key,
@@ -52,6 +54,8 @@ class ResultControls extends StatefulWidget {
     required this.machine,
     required this.equipmentDetailController,
     required this.usageController,
+    this.highlightDescError = false,
+    this.highlightPriorityError = false,
   });
 
   @override
@@ -135,6 +139,7 @@ class _ResultControlsState extends State<ResultControls> {
       children: [
         SelectPriorityButton(
           controller: widget.priorityController,
+          errorText: widget.highlightPriorityError ? 'Укажите приоритет' : null,
         )
         // Expanded(
         //     child: DropdownMenu(
@@ -265,7 +270,9 @@ class _ResultControlsState extends State<ResultControls> {
               filled: true,
               alignLabelWithHint: true,
               hoverColor: Colors.white,
-              labelText: Strings.checkDescription),
+              labelText: Strings.checkDescription,
+              errorText:
+                  widget.highlightDescError ? 'Укажите комментарий' : null),
           validator: (value) {
             // if (value == null || value.isEmpty) {
             //   return Strings.passwordHelp;
@@ -367,6 +374,8 @@ class _QRResultScreenState extends State<QRResultScreen> {
   final usageController = AnyController<List<UsageUpdate>>();
   final stateController = AnyController<String>();
   String? _previousState;
+  bool _highlightDescError = false;
+  bool _highlightPriorityError = false;
 
   void _onStateChanged() async {
     final newState = stateController.value;
@@ -566,7 +575,7 @@ ${widget.machine.descriptionText}
     return result;
   }
 
-  List<Scan> createScans() {
+  List<Scan>? createScans() {
     List<Scan> result = [];
 
     var images = [
@@ -587,13 +596,11 @@ ${widget.machine.descriptionText}
     if (problemController.value != null && priority == null) {
       priority = (problemController.value!).defaultPriority;
     }
-    var hasData = false;
-    hasData = hasData || descController.text.length > 0;
-    // hasData = hasData || files.length > 0;
-    var hasProblem = (problemController.value == TypicalProblem.other);
-    hasProblem = hasProblem ||
-        (problemController.value != null &&
-            problemController.value != TypicalProblem.other);
+    var hasDesc = descController.text.length > 0;
+    var hasPriority = priority != null;
+    var hasOtherProblem = (problemController.value == TypicalProblem.other);
+    var hasTypicalProblem = (problemController.value != null &&
+        problemController.value != TypicalProblem.other);
 
     var hasTasks = false;
     for (var task in equipmentController.value) {
@@ -627,10 +634,45 @@ ${widget.machine.descriptionText}
       }
     }
 
-    if ((hasData && (hasProblem || !hasTasks))) {
+    print('hasDesc ${hasDesc}');
+    print('hasProblem ${hasTypicalProblem}');
+    print('hasProblem ${hasOtherProblem}');
+    print('hasPriority ${hasPriority}');
+    print('hasTasks ${hasTasks}');
+
+    if (hasOtherProblem) {
+      var returnEmpty = false;
+      if (!hasDesc) {
+        returnEmpty = true;
+      }
+      if (!hasPriority) {
+        returnEmpty = true;
+      }
+      if (returnEmpty) {
+        if (mounted) {
+          setState(() {
+            _highlightDescError = !hasDesc;
+            _highlightPriorityError = !hasPriority;
+          });
+        }
+        return null;
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _highlightDescError = false;
+        _highlightPriorityError = false;
+      });
+    }
+
+    if ((hasDesc && hasOtherProblem && hasPriority) ||
+        (hasTypicalProblem) ||
+        (hasDesc && !hasOtherProblem && !hasPriority && !hasTypicalProblem && !hasTasks)) {
       result.add(Scan(
           taskUuid: '',
-          resultStatus: hasProblem ? 'open' : 'closed',
+          resultStatus:
+              (hasOtherProblem && faultUUID.length == 0) ? 'open' : 'closed',
           files: images,
           comment: descController.text,
           priority: priority,
@@ -648,30 +690,26 @@ ${widget.machine.descriptionText}
       await GlobalState.dataProvider.addUsageScan(usageParameter);
     }
 
-    // for (var scan in scans) {
-    //   if (scan.resultStatus == 'open') {
-    //     scan.resultStatus = 'closed';
-    //     var periodicTask = PeriodicTaskRequest(
-    //       equipmentUuid: widget.machine.uuid,
-    //       node: null,
-    //       title: 'Проблема',
-    //       description:
-    //           descController.text.isNotEmpty ? descController.text : null,
-    //       periodicityRule: 'once',
-    //       customRoleIds: null,
-    //       nextDueAt: GlobalState.nowUTCDate,
-    //       params: {
-    //         'target_type': 'ad_hoc',
-    //         'result_status': 'open',
-    //         'priority': scan.priority,
-    //       },
-    //     );
-    //     await GlobalState.dataProvider.addPeriodicTask(periodicTask);
-    //   }
-    //   await GlobalState.dataProvider.addScan(scan);
-    // }
-
     for (var scan in scans) {
+      if (scan.resultStatus == 'open') {
+        scan.resultStatus = 'closed';
+        var periodicTask = PeriodicTaskRequest(
+          equipmentUuid: widget.machine.uuid,
+          node: null,
+          title: 'Проблема',
+          description:
+              descController.text.isNotEmpty ? descController.text : null,
+          periodicityRule: 'once',
+          customRoleIds: null,
+          nextDueAt: GlobalState.nowUTCDate,
+          photos: scan.files,
+          params: {
+            'target_type': 'ad_hoc',
+            'priority': scan.priority,
+          },
+        );
+        await GlobalState.dataProvider.addPeriodicTask(periodicTask);
+      }
       await GlobalState.dataProvider.addScan(scan);
     }
   }
@@ -709,6 +747,8 @@ ${widget.machine.descriptionText}
                     problemController: problemController,
                     equipmentDetailController: equipmentController,
                     usageController: usageController,
+                    highlightDescError: _highlightDescError,
+                    highlightPriorityError: _highlightPriorityError,
                   )
                 ],
               ),
@@ -722,24 +762,45 @@ ${widget.machine.descriptionText}
                         onPressed: () {
                           var scans = createScans();
                           var usageScans = createUsageScans();
-                          if (scans.length + usageScans.length == 0) {
-                            Dialogs.notify(context, 'Не отправлено',
-                                'Укажите данные обхода (комментарий, типовая неисправность, задача или наработка)');
-                          } else {
-                            Dialogs.areYouSure(context, onOk: () async {
-                              // await dataProvider.syncScans();
-                              // dataProvider.syncInventory();
-                              await addScans(scans, usageScans);
-                              dataProvider.mainSync();
-                              if (GoRouter.of(context).location ==
-                                  '/qr_result_problems') {
-                                GoRouter.of(context)
-                                    .clearStackAndNavigate("/problems");
-                              } else {
-                                GoRouter.of(context)
-                                    .clearStackAndNavigate("/qr_scanner");
-                              }
-                            });
+                          if (scans != null) {
+                            if (scans.length + usageScans.length == 0) {
+                              Dialogs.notify(context, 'Не отправлено',
+                                  'Укажите данные обхода (комментарий, проблему, задачу или наработку)');
+                            } else {
+                              var rewriteMessage = null;
+                              var desc = null;
+                              // if (scans.length == 0) {
+                              //   rewriteMessage =
+                              //       'Вы уверены, что хотите отправить только наработку?';
+                              // }
+                              Dialogs.areYouSure(context, onOk: () async {
+                                // await dataProvider.syncScans();
+                                // dataProvider.syncInventory();
+                                await addScans(scans, usageScans);
+                                dataProvider.mainSync();
+                                for (var usageScan in usageScans) {
+                                  if (usageScan.usageParameterValue == null) {
+                                    continue;
+                                  }
+                                  for (var usageParam
+                                      in widget.machine.usageParameters) {
+                                    if (usageScan.usageParameterUuid ==
+                                        usageParam.uuid) {
+                                      usageParam.currentValue =
+                                          usageScan.usageParameterValue!;
+                                    }
+                                  }
+                                }
+                                if (GoRouter.of(context).location ==
+                                    '/qr_result_problems') {
+                                  GoRouter.of(context)
+                                      .clearStackAndNavigate("/problems");
+                                } else {
+                                  GoRouter.of(context)
+                                      .clearStackAndNavigate("/qr_scanner");
+                                }
+                              }, rewriteMessage: rewriteMessage, desc: desc);
+                            }
                           }
                         },
                         child: Text("Отправить")))
@@ -753,11 +814,30 @@ ${widget.machine.descriptionText}
     );
   }
 
+  void _clearValidationHighlights() {
+    if (_highlightDescError || _highlightPriorityError) {
+      setState(() {
+        _highlightDescError = false;
+        _highlightPriorityError = false;
+      });
+    }
+  }
+
+  void _onProblemChanged() {
+    if (problemController.value != TypicalProblem.other &&
+        priorityController.value != null) {
+      priorityController.value = null;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _previousState = widget.machine.state;
     stateController.valueNotifier.addListener(_onStateChanged);
+    descController.addListener(_clearValidationHighlights);
+    priorityController.valueNotifier.addListener(_clearValidationHighlights);
+    problemController.valueNotifier.addListener(_onProblemChanged);
 
     // Preload ad for the win screen.
     // final adsRemoved =
@@ -771,6 +851,9 @@ ${widget.machine.descriptionText}
   @override
   void dispose() {
     // stateController.valueNotifier.removeListener(_onStateChanged);
+    descController.removeListener(_clearValidationHighlights);
+    priorityController.valueNotifier.removeListener(_clearValidationHighlights);
+    problemController.valueNotifier.removeListener(_onProblemChanged);
     stateController.dispose();
     descController.dispose();
     imageData1Controller.dispose();
