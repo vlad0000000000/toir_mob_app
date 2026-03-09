@@ -57,7 +57,8 @@ class _SelectProblemButton extends State<SelectProblemButton> {
 
     return Expanded(
         child: DropdownMenu(
-      requestFocusOnTap: true,
+      requestFocusOnTap: false,
+      enableSearch: false,
       onSelected: (value) {
         if ((value as TypicalProblem) == TypicalProblem.empty) {
           widget.controller.value = null;

@@ -64,7 +64,8 @@ class _SelectStateButton extends State<SelectStateButton> {
 
     return Expanded(
         child: DropdownMenu<String>(
-      requestFocusOnTap: true,
+      requestFocusOnTap: false,
+      enableSearch: false,
       onSelected: (selectedValue) {
         widget.controller.value = selectedValue;
       },

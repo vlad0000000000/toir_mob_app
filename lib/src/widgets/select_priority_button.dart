@@ -44,7 +44,8 @@ class _SelectPriorityButton extends State<SelectPriorityButton> {
   Widget build(BuildContext context) {
     return Expanded(
         child: DropdownMenu(
-      requestFocusOnTap: true,
+      requestFocusOnTap: false,
+      enableSearch: false,
       onSelected: (value) {
         widget.controller.value = value as Priority?;
       },

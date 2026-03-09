@@ -29,6 +29,7 @@ import '../../src/model/scan.dart';
 import '../../src/model/task.dart';
 import '../../src/model/typical_problem.dart';
 import '../../src/qr/qr_screen.dart';
+import '../../src/knowledge_base/knowledge_base_screen.dart';
 import '../../src/qr_actions/qa_actions.dart';
 import '../../src/qr_result/qr_result_screen.dart';
 import '../../src/splash/splash_screen.dart';
@@ -235,6 +236,15 @@ class MyApp extends StatelessWidget {
               isProblems: true,
               key: Key('problems'),
             ),
+            color: context.watch<Palette>().backgroundMain,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/knowledge_base',
+        pageBuilder: (context, state) {
+          return buildMyTransition<void>(
+            child: const KnowledgeBaseScreen(key: Key('knowledge_base')),
             color: context.watch<Palette>().backgroundMain,
           );
         },

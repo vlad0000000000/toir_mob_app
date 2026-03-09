@@ -83,6 +83,19 @@ class MyAppBar {
         ],
       );
     }
+    if (GoRouter.of(context).location == '/knowledge_base') {
+      return AppBar(
+        leading: BackButton(
+          onPressed: () {
+            GoRouter.of(context).clearStackAndNavigate('/actions');
+          },
+        ),
+        title: Text('База знаний'),
+        actions: [
+          // logoutBlackText
+        ],
+      );
+    }
     if (GoRouter.of(context).location.startsWith('/details')) {
       return AppBar(
         leading: BackButton(
