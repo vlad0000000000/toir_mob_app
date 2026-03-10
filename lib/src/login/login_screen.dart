@@ -108,7 +108,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           loginController.text, passwordController.text);
 
                       if (currentUser != null) {
-                        GlobalState.authUser = currentUser;
                         await dataProvider.mainSync();
                         await dataProvider.syncCompany();
                         await GlobalState.updateDebug();
