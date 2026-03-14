@@ -1,10 +1,44 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import '../../global_state.dart';
 import '../../src/knowledge_base/knowledge_base_utils.dart';
 import '../../src/utils/dialogs.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../strings.dart';
+
+/// Серая подчёркнутая ссылка "Помощь" — как на экране логина
+Widget _buildHelpLink(BuildContext context) {
+  return GestureDetector(
+    onTap: () => context.push('/knowledge_base'),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SvgPicture.asset(
+            'assets/images/ix_user-manual.svg',
+            width: 20,
+            height: 20,
+            colorFilter: ColorFilter.mode(
+              Colors.grey.shade700,
+              BlendMode.srcIn,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            'Помощь',
+            style: TextStyle(
+              color: Colors.grey.shade700,
+              fontSize: 16,
+              decoration: TextDecoration.underline,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
 
 class MyAppBar {
   static Widget build(BuildContext context) {
@@ -136,6 +170,8 @@ class MyAppBar {
     if (GoRouter.of(context).location.startsWith('/actions')) {
       return AppBar(
         automaticallyImplyLeading: false,
+        leading: _buildHelpLink(context),
+        leadingWidth: 120,
         actions: [logoutBlackText],
       );
     }
