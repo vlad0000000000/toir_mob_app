@@ -57,13 +57,6 @@ class _QRActionsState extends State<QRActions> {
           GoRouter.of(context).clearStackAndNavigate('/tasks');
         },
       ),
-      SquareButton(
-        icon: Icons.menu_book,
-        label: 'База знаний',
-        onPressed: () {
-          GoRouter.of(context).clearStackAndNavigate('/knowledge_base');
-        },
-      ),
     ];
 
     // Второй массив - остальные кнопки (видимы только если switch включен)

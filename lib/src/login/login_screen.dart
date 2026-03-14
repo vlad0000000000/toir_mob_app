@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -43,8 +44,10 @@ class _LoginScreenState extends State<LoginScreen> {
     },);
 
     return Scaffold(
-      body: Form(
-          child: Center(
+      body: Stack(
+        children: [
+          Form(
+            child: Center(
         child: Container(
           width: 0.7.sw,
           height: 1.sh,
@@ -148,6 +151,40 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
       )),
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            left: 16,
+            child: GestureDetector(
+              onTap: () {
+                context.push('/knowledge_base');
+              },
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SvgPicture.asset(
+                    'assets/images/ix_user-manual.svg',
+                    width: 20,
+                    height: 20,
+                    colorFilter: ColorFilter.mode(
+                      Colors.grey.shade700,
+                      BlendMode.srcIn,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Помощь',
+                    style: TextStyle(
+                      color: Colors.grey.shade700,
+                      fontSize: 16,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

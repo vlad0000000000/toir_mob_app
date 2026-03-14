@@ -680,6 +680,7 @@ ${widget.machine.descriptionText}
           closedAt: GlobalState.nowUTCDate,
           createdAt: widget.openDateTime,
           faultUuid: faultUUID,
+          isOtherFault: hasOtherProblem,
           periodicTaskUuid: ''));
     }
     return result;

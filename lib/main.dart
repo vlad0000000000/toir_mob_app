@@ -180,7 +180,8 @@ class MyApp extends StatelessWidget {
       final bool isAuthenticated = GlobalState.isAuthorized;
 
       final bool isGoingToProtectedRoute =
-          !state.matchedLocation.startsWith('/login');
+          !state.matchedLocation.startsWith('/login') &&
+          state.matchedLocation != '/knowledge_base';
 
       if (!isAuthenticated && isGoingToProtectedRoute) {
         return '/login';

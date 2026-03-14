@@ -10,6 +10,7 @@ class Scan {
   String resultStatus;
   final String? comment;
   final String? faultUuid;
+  final bool? isOtherFault;
   final String? taskUuid;
   final String? priority;
   final String? createdAt;
@@ -40,13 +41,14 @@ class Scan {
       required this.resultStatus,
       this.comment,
       this.faultUuid,
+      this.isOtherFault,
       this.taskUuid,
       this.priority,
       this.createdAt,
       this.closedAt});
 
   Map<String, dynamic> toJson() {
-    return {
+    var result = <String, dynamic>{
       'files': files,
       'periodic_task_uuid': periodicTaskUuid,
       'equipment_uuid': equipmentUuid,
@@ -58,6 +60,10 @@ class Scan {
       'app_created_at': createdAt,
       'app_closed_at': closedAt,
     };
+    if (isOtherFault == true) {
+      result['is_other_fault'] = 'true';
+    }
+    return result;
   }
 }
 
@@ -67,17 +73,34 @@ class ScanAdapter extends TypeAdapter<Scan> {
 
   @override
   Scan read(BinaryReader reader) {
+    var files = reader.read().cast<String>();
+    var periodicTaskUuid = reader.read();
+    var equipmentUuid = reader.read();
+    var resultStatus = reader.read();
+    var comment = reader.read();
+    var faultUuid = reader.read();
+    var taskUuid = reader.read();
+    var priority = reader.read();
+    var createdAt = reader.read();
+    var closedAt = reader.read();
+    bool? isOtherFault;
+    try {
+      isOtherFault = reader.read();
+    } catch (_) {
+      isOtherFault = null; // старые записи без поля is_other_fault
+    }
     return Scan(
-      files: reader.read().cast<String>(),
-      periodicTaskUuid: reader.read(),
-      equipmentUuid: reader.read(),
-      resultStatus: reader.read(),
-      comment: reader.read(),
-      faultUuid: reader.read(),
-      taskUuid: reader.read(),
-      priority: reader.read(),
-      createdAt: reader.read(),
-      closedAt: reader.read(),
+      files: files,
+      periodicTaskUuid: periodicTaskUuid,
+      equipmentUuid: equipmentUuid,
+      resultStatus: resultStatus,
+      comment: comment,
+      faultUuid: faultUuid,
+      taskUuid: taskUuid,
+      priority: priority,
+      createdAt: createdAt,
+      closedAt: closedAt,
+      isOtherFault: isOtherFault,
     );
   }
 
@@ -93,5 +116,6 @@ class ScanAdapter extends TypeAdapter<Scan> {
     writer.write(obj.priority);
     writer.write(obj.createdAt);
     writer.write(obj.closedAt);
+    writer.write(obj.isOtherFault);
   }
 }

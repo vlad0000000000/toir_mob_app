@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../global_state.dart';
+import '../../src/knowledge_base/knowledge_base_utils.dart';
 import '../../src/utils/dialogs.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../strings.dart';
@@ -87,12 +88,20 @@ class MyAppBar {
       return AppBar(
         leading: BackButton(
           onPressed: () {
-            GoRouter.of(context).clearStackAndNavigate('/actions');
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              GoRouter.of(context).go('/login');
+            }
           },
         ),
-        title: Text('База знаний'),
+        title: Text('Помощь'),
         actions: [
-          // logoutBlackText
+          IconButton(
+            icon: const Icon(Icons.open_in_browser),
+            tooltip: 'Открыть в браузере',
+            onPressed: openKnowledgeBaseInBrowser,
+          ),
         ],
       );
     }

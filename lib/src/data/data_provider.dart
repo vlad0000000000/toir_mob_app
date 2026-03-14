@@ -199,9 +199,13 @@ class DataProvider {
   Future<User?> login(login, password) async {
     User? currentUser = null;
     bool apiLoginFailed = false;
-    
+
     try {
       currentUser = await api.login(login, password);
+      final currentUserMe = await api.me(currentUser.JWTToken);
+      currentUser.effectiveRole = currentUserMe.effectiveRole;
+      currentUser.customRoleId = currentUserMe.customRoleId;
+      currentUser.uuid = currentUserMe.uuid;
     } on InvalidCredentialsException {
       // Сервер вернул, что учетные данные неверны - не проверяем локальных пользователей
       rethrow;
@@ -255,25 +259,6 @@ class DataProvider {
     }
 
     if (currentUser != null) {
-      // Пытаемся получить дополнительную информацию о пользователе через API
-      // Если это не удается из-за отсутствия соединения, это не критично
-      try {
-        final currentUserMe = await api.me();
-        currentUser.effectiveRole = currentUserMe.effectiveRole;
-        currentUser.customRoleId = currentUserMe.customRoleId;
-        currentUser.uuid = currentUserMe.uuid;
-      } catch (e) {
-        // Если не удалось получить информацию о пользователе, но логин прошел успешно
-        // Это не критично, если мы используем локального пользователя
-        // Но если это был API логин, возможно, это проблема соединения
-        if (!apiLoginFailed && (e is SocketException || e is HttpException)) {
-          // Если это был успешный API логин, но не удалось получить me(),
-          // это может быть проблема соединения, но пользователь уже авторизован
-          // Поэтому просто продолжаем
-        }
-        // Для других ошибок просто продолжаем с текущим пользователем
-      }
-
       // Сохраняем данные логина только при успешном завершении
       await addUser(currentUser);
       GlobalState.authUser = currentUser;

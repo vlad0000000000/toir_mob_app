@@ -1,16 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../app_bar/app_bar.dart';
-
-const _knowledgeBaseUrl = 'https://docs.toir.sampo-smart.ru/m';
-
-Future<void> _openInBrowser() async {
-  final uri = Uri.parse(_knowledgeBaseUrl);
-  if (await canLaunchUrl(uri)) {
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
-}
+import 'knowledge_base_utils.dart';
 
 class KnowledgeBaseScreen extends StatefulWidget {
   const KnowledgeBaseScreen({super.key});
@@ -20,40 +13,29 @@ class KnowledgeBaseScreen extends StatefulWidget {
 }
 
 class _KnowledgeBaseScreenState extends State<KnowledgeBaseScreen> {
-  WebViewController? _controller;
-  bool _isLoading = true;
-  bool _webViewFailed = false;
+  double _progress = 0;
+  bool _loadError = false;
+  Timer? _loadTimeout;
 
   @override
   void initState() {
     super.initState();
-    _initWebView();
+    _loadTimeout = Timer(const Duration(seconds: 20), () {
+      if (mounted && _progress < 1 && !_loadError) {
+        setState(() => _loadError = true);
+      }
+    });
   }
 
-  void _initWebView() {
-    try {
-      _controller = WebViewController()
-        ..setJavaScriptMode(JavaScriptMode.unrestricted)
-        ..setNavigationDelegate(
-          NavigationDelegate(
-            onPageStarted: (_) => setState(() => _isLoading = true),
-            onPageFinished: (_) => setState(() => _isLoading = false),
-            onWebResourceError: (error) {
-              if (error.isForMainFrame != false && mounted) {
-                setState(() => _webViewFailed = true);
-              }
-            },
-          ),
-        )
-        ..loadRequest(Uri.parse(_knowledgeBaseUrl));
-    } catch (_) {
-      if (mounted) setState(() => _webViewFailed = true);
-    }
+  @override
+  void dispose() {
+    _loadTimeout?.cancel();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_webViewFailed) {
+    if (_loadError) {
       return Scaffold(
         appBar: MyAppBar.build(context) as AppBar,
         body: Center(
@@ -71,7 +53,7 @@ class _KnowledgeBaseScreenState extends State<KnowledgeBaseScreen> {
                 ),
                 const SizedBox(height: 24),
                 FilledButton.icon(
-                  onPressed: _openInBrowser,
+                  onPressed: openKnowledgeBaseInBrowser,
                   icon: const Icon(Icons.open_in_browser),
                   label: const Text('Открыть в браузере'),
                 ),
@@ -84,13 +66,40 @@ class _KnowledgeBaseScreenState extends State<KnowledgeBaseScreen> {
 
     return Scaffold(
       appBar: MyAppBar.build(context) as AppBar,
-      body: Stack(
+      body: Column(
         children: [
-          if (_controller != null) WebViewWidget(controller: _controller!),
-          if (_isLoading)
-            const Center(
-              child: CircularProgressIndicator(),
+          if (_progress < 1)
+            LinearProgressIndicator(
+              value: _progress,
+              backgroundColor: Colors.grey.shade200,
             ),
+          Expanded(
+            child: InAppWebView(
+              initialUrlRequest: URLRequest(url: WebUri(knowledgeBaseUrl)),
+              initialSettings: InAppWebViewSettings(
+                javaScriptEnabled: true,
+                domStorageEnabled: true,
+                useHybridComposition: true,
+              ),
+              onWebViewCreated: (_) {},
+              onLoadStart: (controller, url) {
+                if (mounted) setState(() => _progress = 0);
+              },
+              onLoadStop: (controller, url) {
+                _loadTimeout?.cancel();
+                if (mounted) setState(() => _progress = 1);
+              },
+              onProgressChanged: (controller, progress) {
+                if (mounted) setState(() => _progress = progress / 100);
+              },
+              onReceivedError: (controller, request, error) {
+                if (request.isForMainFrame == true && mounted) {
+                  _loadTimeout?.cancel();
+                  setState(() => _loadError = true);
+                }
+              },
+            ),
+          ),
         ],
       ),
     );

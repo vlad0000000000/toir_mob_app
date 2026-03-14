@@ -36,16 +36,16 @@ class API {
 
   static Session? currentSession;
 
-  Future<User> me() async {
-    // Проверяем наличие токена
-    if (jwtToken == null) {
-      throw Exception('Not authenticated');
-    }
+  Future<User> me(String meJWTToken) async {
+    // // Проверяем наличие токена
+    // if (meJWTToken == null) {
+    //   throw Exception('Not authenticated');
+    // }
 
     final response = await http.get(
       Uri.parse('$baseUrl/v1/user/me'),
       headers: {
-        'Authorization': 'Bearer $jwtToken', // Используем JWT
+        'Authorization': 'Bearer $meJWTToken', // Используем JWT
       },
     );
 
