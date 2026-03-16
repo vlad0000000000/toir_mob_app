@@ -28,6 +28,7 @@ import '../model/periodic_task_request.dart';
 import '../update_manager.dart';
 import '../utils/any_controller.dart';
 import '../../src/widgets/select_usage_button.dart';
+import '../../src/onboarding/demo_equipment.dart';
 import '../../src/widgets/select_state_button.dart';
 
 class ResultControls extends StatefulWidget {
@@ -380,6 +381,22 @@ class _QRResultScreenState extends State<QRResultScreen> {
   void _onStateChanged() async {
     final newState = stateController.value;
     if (newState != null && newState.isNotEmpty && newState != _previousState) {
+      // Demo mode: skip API call, just update UI
+      if (widget.machine.uuid == DemoEquipment.demoUuid) {
+        _previousState = newState;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Состояние оборудования успешно изменено',
+                style: TextStyle(color: Colors.black),
+              ),
+              backgroundColor: Colors.greenAccent,
+            ),
+          );
+        }
+        return;
+      }
       try {
         await GlobalState.dataProvider.api
             .updateEquipmentState(widget.machine.uuid, newState);
@@ -522,21 +539,30 @@ class _QRResultScreenState extends State<QRResultScreen> {
         children: [
           // const Image(image: AssetImage('assets/images/lathe.jpg')),
           // Image.memory(base64Decode(widget.machine.imageData)),
-          ConstrainedBox(
-            constraints: BoxConstraints(
-                maxHeight: max(MediaQuery.of(context).size.shortestSide, 350)),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Container(
-                  color: Colors.black87,
-                ),
-                Image.network(
-                  widget.machine.imageData,
-                )
-              ],
+          if (widget.machine.imageData.isNotEmpty)
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                  maxHeight:
+                      max(MediaQuery.of(context).size.shortestSide, 350)),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Container(
+                    color: Colors.black87,
+                  ),
+                  Image.network(
+                    widget.machine.imageData,
+                    errorBuilder: (context, error, stackTrace) {
+                      return const Icon(
+                        Icons.broken_image,
+                        size: 64,
+                        color: Colors.white38,
+                      );
+                    },
+                  )
+                ],
+              ),
             ),
-          ),
           // YandexImage(imageUrl: widget.machine.imageData,),
           Row(
             children: [
@@ -761,6 +787,14 @@ ${widget.machine.descriptionText}
                 Expanded(
                     child: SquareButton(
                         onPressed: () {
+                          final isDemoMode = widget.machine.uuid ==
+                              DemoEquipment.demoUuid;
+                          if (isDemoMode) {
+                            Settings.onboardingStep = 4;
+                            GoRouter.of(context)
+                                .clearStackAndNavigate('/onboarding_video');
+                            return;
+                          }
                           var scans = createScans();
                           var usageScans = createUsageScans();
                           if (scans != null) {
@@ -770,13 +804,7 @@ ${widget.machine.descriptionText}
                             } else {
                               var rewriteMessage = null;
                               var desc = null;
-                              // if (scans.length == 0) {
-                              //   rewriteMessage =
-                              //       'Вы уверены, что хотите отправить только наработку?';
-                              // }
                               Dialogs.areYouSure(context, onOk: () async {
-                                // await dataProvider.syncScans();
-                                // dataProvider.syncInventory();
                                 await addScans(scans, usageScans);
                                 dataProvider.mainSync();
                                 for (var usageScan in usageScans) {
@@ -839,6 +867,10 @@ ${widget.machine.descriptionText}
     descController.addListener(_clearValidationHighlights);
     priorityController.valueNotifier.addListener(_clearValidationHighlights);
     problemController.valueNotifier.addListener(_onProblemChanged);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
 
     // Preload ad for the win screen.
     // final adsRemoved =

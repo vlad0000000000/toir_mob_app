@@ -6,8 +6,10 @@ import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 import '../../global_state.dart';
+import '../../settings.dart';
 import '../../src/app_bar/app_bar.dart';
 import '../../src/data/data_provider.dart';
+import '../../src/onboarding/scanner_demo_modal.dart';
 import '../../src/utils/go_router_ext.dart';
 
 import '../update_manager.dart';
@@ -28,12 +30,36 @@ class _BarcodeScannerWithControllerState
     autoStart: false,
     autoZoom: true,
   );
+  bool _demoModalShown = false;
+
+  bool get _isOnboardingScanner =>
+      Settings.onboardingInProgress && Settings.onboardingStep == 2;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     unawaited(controller.start());
+    if (_isOnboardingScanner) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _showDemoModal());
+    }
+  }
+
+  void _showDemoModal() {
+    if (_demoModalShown) return;
+    _demoModalShown = true;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black54,
+      builder: (_) => ScannerDemoModal(
+        onStart: () {
+          Navigator.of(context).pop();
+          Settings.onboardingStep = 3;
+          GoRouter.of(context).clearStackAndNavigate('/onboarding_video');
+        },
+      ),
+    );
   }
 
   @override
@@ -76,9 +102,7 @@ class _BarcodeScannerWithControllerState
                   Center(
                     child: MobileScanner(
                       onDetect: (barcodes) async {
-                        // if (!allowScan) {
-                        //   return;
-                        // }
+                        if (_isOnboardingScanner) return;
                         if (barcodes.barcodes.length > 0) {
                           for (var barcode in barcodes.barcodes) {
                             var barcodeUUID = "";

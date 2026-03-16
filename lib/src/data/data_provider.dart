@@ -9,6 +9,7 @@ import '../../src/model/periodicity_rule.dart';
 import '../../src/model/scan.dart';
 import '../../src/model/session.dart';
 import '../../src/model/task.dart';
+import '../../src/model/responsible_user.dart';
 import '../../src/model/typical_problem.dart';
 import '../../src/model/usage_unit.dart';
 import '../../src/model/user.dart';
@@ -476,6 +477,34 @@ class DataProvider {
 
   // Получение задач для машины
   List<Task> getTasksForMachine(String machineUUID) {
+    // Demo mode: return predefined tasks without real data access
+    if (machineUUID == 'demo-onboarding-conveyor') {
+      final userUuid = GlobalState.authUser?.uuid ?? 'demo-user';
+      return [
+        Task(
+          uuid: 'demo-task-inspection',
+          resultStatus: 'open',
+          targetType: 'check',
+          periodicTask: null,
+          equipmentUuid: machineUUID,
+          roles: [],
+          comment: 'Плановый технический осмотр конвейерной ленты',
+          responsibleUser: ResponsibleUser(id: 0, uuid: userUuid),
+          photos: [],
+        ),
+        Task(
+          uuid: 'demo-task-lubrication',
+          resultStatus: 'open',
+          targetType: 'check',
+          periodicTask: null,
+          equipmentUuid: machineUUID,
+          roles: [],
+          comment: 'Смазка подшипников и направляющих роликов',
+          responsibleUser: ResponsibleUser(id: 0, uuid: userUuid),
+          photos: [],
+        ),
+      ];
+    }
     final tasksInScans = {};
     for (var scan in scanBox.values.toList()) {
       tasksInScans[scan.taskUuid] = scan.taskUuid;

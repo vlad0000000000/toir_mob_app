@@ -68,7 +68,8 @@ class MyAppBar {
         child: Text(Strings.logout,
             style: TextStyle(color: Colors.white, fontSize: 14)));
 
-    if (GoRouter.of(context).location == '/qr_result') {
+    if (GoRouter.of(context).location == '/qr_result' ||
+        GoRouter.of(context).location == '/qr_result_demo') {
       return AppBar(
         leading: BackButton(
           onPressed: () {

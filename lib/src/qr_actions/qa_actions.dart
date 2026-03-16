@@ -193,6 +193,25 @@ class _QRActionsState extends State<QRActions> {
                                     thickness: 1,
                                     color: Colors.grey.shade300,
                                   ),
+                                  Padding(
+                                    padding:
+                                        const EdgeInsets.symmetric(vertical: 8),
+                                    child: SizedBox(
+                                      width: double.infinity,
+                                      child: ElevatedButton.icon(
+                                        onPressed: () {
+                                          Navigator.of(context).pop();
+                                          Settings.resetOnboarding();
+                                          GoRouter.of(context)
+                                              .clearStackAndNavigate(
+                                                  '/onboarding');
+                                        },
+                                        icon: const Icon(Icons.school),
+                                        label: const Text(
+                                            'Пройти обучение заново'),
+                                      ),
+                                    ),
+                                  ),
                                 ],
                               )),
                               Row(
@@ -274,6 +293,12 @@ class _QRActionsState extends State<QRActions> {
                       setState(() {
                         _showAdditionalButtons = value;
                       });
+                      if (value &&
+                          Settings.onboardingInProgress &&
+                          Settings.onboardingStep == 5) {
+                        GoRouter.of(context)
+                            .clearStackAndNavigate('/onboarding_video');
+                      }
                     },
                   ),
                 ],

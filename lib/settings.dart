@@ -32,4 +32,37 @@ class Settings {
     var v = dataProvider.stringBox.get('qrResultShowSimplifiedView');
     return v != null && v == "1";
   }
+
+  static set onboardingCompleted(bool value) {
+    dataProvider.stringBox.put('onboardingCompleted', value ? "1" : "0");
+  }
+
+  static bool get onboardingCompleted {
+    var v = dataProvider.stringBox.get('onboardingCompleted');
+    return v != null && v == "1";
+  }
+
+  static set onboardingInProgress(bool value) {
+    dataProvider.stringBox.put('onboardingInProgress', value ? "1" : "0");
+  }
+
+  static bool get onboardingInProgress {
+    var v = dataProvider.stringBox.get('onboardingInProgress');
+    return v != null && v == "1";
+  }
+
+  static set onboardingStep(int value) {
+    dataProvider.stringBox.put('onboardingStep', value.toString());
+  }
+
+  static int get onboardingStep {
+    var v = dataProvider.stringBox.get('onboardingStep');
+    return v != null ? int.tryParse(v) ?? 0 : 0;
+  }
+
+  static void resetOnboarding() {
+    onboardingCompleted = false;
+    onboardingInProgress = false;
+    onboardingStep = 0;
+  }
 }

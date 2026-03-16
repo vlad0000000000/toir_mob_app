@@ -32,6 +32,8 @@ import '../../src/qr/qr_screen.dart';
 import '../../src/knowledge_base/knowledge_base_screen.dart';
 import '../../src/qr_actions/qa_actions.dart';
 import '../../src/qr_result/qr_result_screen.dart';
+import '../../src/onboarding/onboarding_video_player.dart';
+import '../../src/onboarding/onboarding_welcome_screen.dart';
 import '../../src/splash/splash_screen.dart';
 import '../../src/style/snack_bar.dart';
 import '../../src/tasks/tasks.dart';
@@ -188,6 +190,9 @@ class MyApp extends StatelessWidget {
       }
 
       if (isAuthenticated && state.matchedLocation == '/login') {
+        if (!Settings.onboardingCompleted) {
+          return '/onboarding';
+        }
         return '/actions';
       }
 
@@ -207,6 +212,18 @@ class MyApp extends StatelessWidget {
           // return QRResultScreen(GlobalState.dataProvider.machines[0],
           //     key: Key('main'));
           return LoginScreen(key: Key('main'));
+        },
+      ),
+      GoRoute(
+        path: '/onboarding',
+        builder: (context, state) {
+          return const OnboardingWelcomeScreen(key: Key('onboarding'));
+        },
+      ),
+      GoRoute(
+        path: '/onboarding_video',
+        builder: (context, state) {
+          return const OnboardingVideoPlayer(key: Key('onboarding_video'));
         },
       ),
       GoRoute(
@@ -286,6 +303,17 @@ class MyApp extends StatelessWidget {
               openDateTime: GlobalState.nowUTCDate,
             ),
             color: context.watch<Palette>().backgroundMain,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/qr_result_demo',
+        builder: (context, state) {
+          final machine = state.extra! as InventoryRecord;
+          return QRResultScreen(
+            machine,
+            key: const Key('qr_result_demo'),
+            openDateTime: GlobalState.nowUTCDate,
           );
         },
       ),

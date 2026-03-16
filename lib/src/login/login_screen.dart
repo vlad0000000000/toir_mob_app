@@ -8,6 +8,7 @@ import '../../src/data/data_provider.dart';
 import '../../src/model/user.dart';
 import '../../src/utils/dialogs.dart';
 import '../../src/utils/go_router_ext.dart';
+import '../../settings.dart';
 import '../../strings.dart';
 import 'package:themed/themed.dart';
 import '../../src/exceptions/login_exceptions.dart';
@@ -114,7 +115,11 @@ class _LoginScreenState extends State<LoginScreen> {
                         await dataProvider.mainSync();
                         await dataProvider.syncCompany();
                         await GlobalState.updateDebug();
-                        GoRouter.of(context).clearStackAndNavigate("/actions");
+                        if (!Settings.onboardingCompleted) {
+                          GoRouter.of(context).clearStackAndNavigate("/onboarding");
+                        } else {
+                          GoRouter.of(context).clearStackAndNavigate("/actions");
+                        }
                         return;
                       }
                     } on WalkerOnlyException {
