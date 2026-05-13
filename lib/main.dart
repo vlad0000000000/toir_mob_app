@@ -32,6 +32,8 @@ import '../../src/qr/qr_screen.dart';
 import '../../src/knowledge_base/knowledge_base_screen.dart';
 import '../../src/qr_actions/qa_actions.dart';
 import '../../src/qr_result/qr_result_screen.dart';
+import '../../src/notifications/notifications_screen.dart';
+import '../../src/notifications/notifications_settings_screen.dart';
 import '../../src/onboarding/onboarding_video_player.dart';
 import '../../src/onboarding/onboarding_welcome_screen.dart';
 import '../../src/splash/splash_screen.dart';
@@ -288,6 +290,25 @@ class MyApp extends StatelessWidget {
           return buildMyTransition<void>(
             child: const QRScreen(key: Key('qr_scanner')),
             // child: const QRTabsScreen(key: Key('qr_scanner')),
+            color: context.watch<Palette>().backgroundMain,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/notifications',
+        pageBuilder: (context, state) {
+          return buildMyTransition<void>(
+            child: const NotificationsScreen(key: Key('notifications')),
+            color: context.watch<Palette>().backgroundMain,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/notifications_settings',
+        pageBuilder: (context, state) {
+          return buildMyTransition<void>(
+            child: const NotificationsSettingsScreen(
+                key: Key('notifications_settings')),
             color: context.watch<Palette>().backgroundMain,
           );
         },

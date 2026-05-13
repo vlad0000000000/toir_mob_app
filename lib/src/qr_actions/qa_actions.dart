@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:my_app/src/update_manager.dart';
 import '../../global_state.dart';
 import '../../src/app_bar/app_bar.dart';
+import '../../src/notifications/notifications_service.dart';
 import '../../src/utils/dialogs.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../strings.dart';
@@ -19,6 +20,16 @@ class QRActions extends StatefulWidget {
 
 class _QRActionsState extends State<QRActions> {
   bool _showAdditionalButtons = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (GlobalState.isAuthorized) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        NotificationsService.instance.bootstrap();
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -57,6 +68,7 @@ class _QRActionsState extends State<QRActions> {
           GoRouter.of(context).clearStackAndNavigate('/tasks');
         },
       ),
+      _NotificationsButton(),
     ];
 
     // Второй массив - остальные кнопки (видимы только если switch включен)
@@ -306,6 +318,52 @@ class _QRActionsState extends State<QRActions> {
             ),
           ],
         ));
+  }
+}
+
+class _NotificationsButton extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: NotificationsService.instance.unreadCount,
+      builder: (context, count, _) {
+        return Stack(
+          children: [
+            SquareButton(
+              icon: Icons.notifications,
+              label: 'Уведомления',
+              onPressed: () {
+                GoRouter.of(context).clearStackAndNavigate('/notifications');
+              },
+            ),
+            if (count > 0)
+              Positioned(
+                right: 8,
+                top: 8,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  constraints:
+                      const BoxConstraints(minWidth: 22, minHeight: 22),
+                  alignment: Alignment.center,
+                  child: Text(
+                    count > 99 ? '99+' : count.toString(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
   }
 }
 

@@ -3,6 +3,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import '../../global_state.dart';
 import '../../src/knowledge_base/knowledge_base_utils.dart';
+import '../../src/notifications/notifications_service.dart';
 import '../../src/utils/dialogs.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../strings.dart';
@@ -51,6 +52,7 @@ class MyAppBar {
           Dialogs.areYouSure(context, onOk: () async {
             GlobalState.authUser = null;
             GlobalState.updateDebug();
+            NotificationsService.instance.onLogout();
             GoRouter.of(context).clearStackAndNavigate('/login');
           });
         },
@@ -62,6 +64,7 @@ class MyAppBar {
           Dialogs.areYouSure(context, onOk: () async {
             GlobalState.authUser = null;
             GlobalState.updateDebug();
+            NotificationsService.instance.onLogout();
             GoRouter.of(context).clearStackAndNavigate('/login');
           });
         },

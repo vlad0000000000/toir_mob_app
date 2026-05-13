@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../global_state.dart';
 import '../../src/data/data_provider.dart';
 import '../../src/model/user.dart';
+import '../../src/notifications/notifications_service.dart';
 import '../../src/utils/dialogs.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../settings.dart';
@@ -115,6 +116,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         await dataProvider.mainSync();
                         await dataProvider.syncCompany();
                         await GlobalState.updateDebug();
+                        NotificationsService.instance.bootstrap();
                         if (!Settings.onboardingCompleted) {
                           GoRouter.of(context).clearStackAndNavigate("/onboarding");
                         } else {
