@@ -232,16 +232,16 @@ class _QRActionsState extends State<QRActions> {
                   )));
         },
       ),
-      SquareButton(
-        icon: Icons.update,
-        label: "Обновить приложение",
-        onPressed: () async {
-          final updateInfo = await UpdateManager.getUpdateInfo();
-          if (updateInfo != null) {
-            await UpdateManager.downloadAndInstall(context, updateInfo);
-          }
-        },
-      ),
+      // SquareButton(
+      //   icon: Icons.update,
+      //   label: "Обновить приложение",
+      //   onPressed: () async {
+      //     final updateInfo = await UpdateManager.getUpdateInfo();
+      //     if (updateInfo != null) {
+      //       await UpdateManager.downloadAndInstall(context, updateInfo);
+      //     }
+      //   },
+      // ),
     ];
 
     // Объединяем кнопки в зависимости от состояния switch

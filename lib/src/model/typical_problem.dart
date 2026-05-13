@@ -29,6 +29,14 @@ class TypicalProblem {
     required this.equipmentUUID,
   });
 
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TypicalProblem && runtimeType == other.runtimeType && id == other.id && uuid == other.uuid;
+
+  @override
+  int get hashCode => id.hashCode ^ uuid.hashCode;
+
   factory TypicalProblem.fromJson(Map<String, dynamic> json) {
     return TypicalProblem(
       id: json['id'] as int,

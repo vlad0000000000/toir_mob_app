@@ -852,10 +852,98 @@ ${widget.machine.descriptionText}
     }
   }
 
-  void _onProblemChanged() {
-    if (problemController.value != TypicalProblem.other &&
+  bool _isProcessingConflict = false;
+
+  void _onProblemChanged() async {
+    if (_isProcessingConflict) return;
+
+    final problem = problemController.value;
+
+    if (problem != null && problem != TypicalProblem.empty) {
+      if (equipmentController.selectedTasks.isNotEmpty) {
+        if (!mounted) return;
+
+        final cancelTask = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Задача и проблема'),
+            content: const Text(
+              'Нельзя одновременно выбрать задачу и проблему.\n\nОтменить задачу?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Нет'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Да'),
+              ),
+            ],
+          ),
+        );
+
+        if (!mounted) return;
+
+        if (cancelTask == true) {
+          equipmentController.clearSelection();
+        } else {
+          _isProcessingConflict = true;
+          problemController.value = null;
+          _isProcessingConflict = false;
+          return;
+        }
+      }
+    }
+
+    final currentProblem = problemController.value;
+    if (currentProblem != TypicalProblem.other &&
         priorityController.value != null) {
       priorityController.value = null;
+    }
+  }
+
+  void _onTaskChanged() async {
+    if (_isProcessingConflict) return;
+
+    if (equipmentController.selectedTasks.isNotEmpty) {
+      if (problemController.value != null) {
+        if (!mounted) return;
+
+        final cancelProblem = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Задача и проблема'),
+            content: const Text(
+              'Нельзя одновременно выбрать задачу и проблему.\n\nОтменить проблему?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Нет'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Да'),
+              ),
+            ],
+          ),
+        );
+
+        if (!mounted) return;
+
+        if (cancelProblem == true) {
+          _isProcessingConflict = true;
+          problemController.value = null;
+          _isProcessingConflict = false;
+        } else {
+          _isProcessingConflict = true;
+          equipmentController.clearSelection();
+          _isProcessingConflict = false;
+        }
+      }
     }
   }
 
@@ -867,6 +955,7 @@ ${widget.machine.descriptionText}
     descController.addListener(_clearValidationHighlights);
     priorityController.valueNotifier.addListener(_clearValidationHighlights);
     problemController.valueNotifier.addListener(_onProblemChanged);
+    equipmentController.valueNotifier.addListener(_onTaskChanged);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) setState(() {});
@@ -887,6 +976,7 @@ ${widget.machine.descriptionText}
     descController.removeListener(_clearValidationHighlights);
     priorityController.valueNotifier.removeListener(_clearValidationHighlights);
     problemController.valueNotifier.removeListener(_onProblemChanged);
+    equipmentController.valueNotifier.removeListener(_onTaskChanged);
     stateController.dispose();
     descController.dispose();
     imageData1Controller.dispose();

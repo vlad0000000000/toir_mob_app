@@ -420,6 +420,7 @@ class API {
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
       final decodedBytes = utf8Decoder.convert(response.bodyBytes);
       final List<dynamic> data = jsonDecode(decodedBytes);
+      print(data.length);
       var scheduled = data
           .where((json) {
             return (json['result_status'] as String) == 'scheduled' &&
@@ -428,16 +429,28 @@ class API {
                 json['periodic_task']['last_run_at'] != null;
           })
           .where((json) {
+            // print(json['periodic_task'])
             var a = (DateTime.parse(json['periodic_task']['last_run_at']));
             var b = (DateTime.parse(json['periodic_task']['next_due_at']));
             var len = b.difference(a);
             var c = (DateTime.parse(json['created_at']));
             var filteredA = now.compareTo(c);
             var filteredB = now.compareTo(c.add(len));
+            // if (json['periodic_task']['custom_roles'][0]['name'] == "Механик") {
+            if (json['periodic_task']['title'].toString().startsWith('Осмотр 50')) {
+              print(json);
+              print(a);
+              print(b);
+              print(c);
+              print(json['created_at']);
+              print([now, c, c.add(len), filteredA, filteredB]);
+              print('--------------');
+            }
             return filteredA == 1 && filteredB == -1;
           })
           .map((json) => Task.fromJson(json))
           .toList();
+      print(scheduled.length);
 
       var once = data
           .where((json) {

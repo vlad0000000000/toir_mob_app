@@ -57,6 +57,7 @@ class _SelectProblemButton extends State<SelectProblemButton> {
 
     return Expanded(
         child: DropdownMenu(
+      key: ValueKey(typicalProblem?.uuid ?? 'empty'),
       requestFocusOnTap: false,
       enableSearch: false,
       onSelected: (value) {
@@ -68,8 +69,7 @@ class _SelectProblemButton extends State<SelectProblemButton> {
       },
       expandedInsets: EdgeInsets.zero,
       label: Text("Проблема"),
-      initialSelection:
-          widget.controller.value == null ? "" : widget.controller.value!.title,
+      initialSelection: typicalProblem,
       dropdownMenuEntries: problems,
     ));
   }
