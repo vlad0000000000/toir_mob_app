@@ -34,6 +34,9 @@ import '../../src/qr_actions/qa_actions.dart';
 import '../../src/qr_result/qr_result_screen.dart';
 import '../../src/notifications/notifications_screen.dart';
 import '../../src/notifications/notifications_settings_screen.dart';
+import '../../src/notifications/push/notification_router.dart';
+import '../../src/notifications/push/push_notifications_controller.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import '../../src/onboarding/onboarding_video_player.dart';
 import '../../src/onboarding/onboarding_welcome_screen.dart';
 import '../../src/splash/splash_screen.dart';
@@ -61,6 +64,12 @@ Future<void> main() async {
         '${record.message}');
   });
   WidgetsFlutterBinding.ensureInitialized();
+  // Push/foreground-service использует dart:isolate и недоступен в Web.
+  if (!kIsWeb) {
+    FlutterForegroundTask.initCommunicationPort();
+    PushNotificationsController.instance.init();
+    await PushNotificationRouter.init();
+  }
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
   ]);
@@ -179,6 +188,7 @@ Future<void> main() async {
 
 class MyApp extends StatelessWidget {
   static final _router = GoRouter(
+    navigatorKey: PushNotificationRouter.navigatorKey,
     routerNeglect: true,
     redirect: (BuildContext context, GoRouterState state) async {
       final bool isAuthenticated = GlobalState.isAuthorized;
@@ -196,6 +206,16 @@ class MyApp extends StatelessWidget {
           return '/onboarding';
         }
         return '/actions';
+      }
+
+      // Если приложение было запущено тапом по push-уведомлению — после
+      // прохождения авторизационных редиректов перебрасываем сразу на
+      // экран уведомлений (один раз).
+      if (isAuthenticated &&
+          PushNotificationRouter.hasPendingOpen &&
+          state.matchedLocation != '/notifications') {
+        PushNotificationRouter.consumePendingOpen();
+        return '/notifications';
       }
 
       return null;

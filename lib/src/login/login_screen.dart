@@ -7,6 +7,7 @@ import '../../global_state.dart';
 import '../../src/data/data_provider.dart';
 import '../../src/model/user.dart';
 import '../../src/notifications/notifications_service.dart';
+import '../../src/notifications/push/push_notifications_controller.dart';
 import '../../src/utils/dialogs.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../settings.dart';
@@ -117,6 +118,11 @@ class _LoginScreenState extends State<LoginScreen> {
                         await dataProvider.syncCompany();
                         await GlobalState.updateDebug();
                         NotificationsService.instance.bootstrap();
+                        // Ждём `start()`: иначе диалог запроса разрешения на
+                        // уведомления (Android 13+) гонится с навигацией и
+                        // на свежей установке часто схлопывается до того, как
+                        // юзер успеет ответить — сервис в итоге не стартует.
+                        await PushNotificationsController.instance.start();
                         if (!Settings.onboardingCompleted) {
                           GoRouter.of(context).clearStackAndNavigate("/onboarding");
                         } else {

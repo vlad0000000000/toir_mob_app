@@ -4,6 +4,7 @@ import 'package:my_app/src/update_manager.dart';
 import '../../global_state.dart';
 import '../../src/app_bar/app_bar.dart';
 import '../../src/notifications/notifications_service.dart';
+import '../../src/notifications/push/push_notifications_controller.dart';
 import '../../src/utils/dialogs.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../strings.dart';
@@ -27,6 +28,11 @@ class _QRActionsState extends State<QRActions> {
     if (GlobalState.isAuthorized) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         NotificationsService.instance.bootstrap();
+        // Страховка: после свежей установки логин мог не дотянуть до
+        // запуска foreground-сервиса (диалог разрешения, race с навигацией
+        // и т. п.). На /actions точно есть стабильный UI — поднимаем
+        // сервис, если он не запущен.
+        PushNotificationsController.instance.ensureRunning();
       });
     }
   }

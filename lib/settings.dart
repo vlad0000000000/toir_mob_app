@@ -33,6 +33,15 @@ class Settings {
     return v != null && v == "1";
   }
 
+  static set notificationsHideRead(bool value) {
+    dataProvider.stringBox.put('notificationsHideRead', value ? "1" : "0");
+  }
+
+  static bool get notificationsHideRead {
+    var v = dataProvider.stringBox.get('notificationsHideRead');
+    return v != null && v == "1";
+  }
+
   static set onboardingCompleted(bool value) {
     dataProvider.stringBox.put('onboardingCompleted', value ? "1" : "0");
   }

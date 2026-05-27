@@ -3,6 +3,7 @@ import 'package:logging/logging.dart';
 import '../data/data_provider.dart';
 import 'package:provider/provider.dart';
 import '../../global_state.dart';
+import '../notifications/push/push_notifications_controller.dart';
 import '../update_manager.dart';
 
 class AppLifecycleObserver extends StatefulWidget {
@@ -50,6 +51,9 @@ class _AppLifecycleObserverState extends State<AppLifecycleObserver>
     // GlobalState.dataProvider.syncScans();
     GlobalState.updateDebug();
     DataProvider.closedTasks = {};
+    if (state == AppLifecycleState.resumed) {
+      PushNotificationsController.instance.ensureRunning();
+    }
   }
 
   @override

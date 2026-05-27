@@ -55,6 +55,12 @@ class _MyRevealState extends State<_MyReveal> {
   void initState() {
     super.initState();
 
+    // Если страница открывается как initial route (cold-start / redirect),
+    // анимация уже находится в статусе completed к моменту initState и
+    // StatusListener больше не сработает — без этой инициализации child
+    // остаётся opacity:0 и экран выглядит пустым.
+    _finished = widget.animation.status == AnimationStatus.completed ||
+        widget.animation.value >= 1.0;
     widget.animation.addStatusListener(_statusListener);
   }
 

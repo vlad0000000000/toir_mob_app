@@ -8,6 +8,12 @@ import '../../src/model/inventory_record.dart';
 import '../../src/model/task.dart';
 import '../../src/widgets/square_button.dart';
 import '../widgets/modal.dart';
+import 'tasks_filter.dart';
+
+/// Перенесённый с экрана уведомлений фильтр. Сейчас спрятан,
+/// при необходимости включить — поставить `_kShowTasksFilter = true`.
+// ignore: prefer_const_declarations
+final bool _kShowTasksFilter = false;
 
 // models.dart
 class Equipment {
@@ -80,7 +86,7 @@ class EquipmentDetailController {
   }
 }
 
-class EquipmentListScreen extends StatelessWidget {
+class EquipmentListScreen extends StatefulWidget {
   final bool isModal;
   final bool isProblems;
 
@@ -88,7 +94,29 @@ class EquipmentListScreen extends StatelessWidget {
       {super.key, this.isModal = false, this.isProblems = false});
 
   @override
+  State<EquipmentListScreen> createState() => _EquipmentListScreenState();
+}
+
+class _EquipmentListScreenState extends State<EquipmentListScreen> {
+  TasksFilterState _filter = TasksFilterState();
+
+  Future<void> _openFilter() async {
+    final result = await showTasksFilterSheet(context, _filter);
+    if (result != null) {
+      setState(() => _filter = result);
+    }
+  }
+
+  List<Task> _filteredTasksFor(InventoryRecord equipment) {
+    final all = GlobalState.dataProvider.getTasksForMachine(equipment.uuid);
+    if (_filter.isEmpty) return all;
+    return _filter.apply(all);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final isProblems = widget.isProblems;
+    final isModal = widget.isModal;
     Widget body = FutureBuilder<void>(
         future: GlobalState.syncMainOnce(),
         builder: (BuildContext context, AsyncSnapshot<void> snapshot) {
@@ -96,22 +124,11 @@ class EquipmentListScreen extends StatelessWidget {
             var equipmentList = GlobalState.dataProvider.inventoryRecords;
             equipmentList = equipmentList
                 .where((element) =>
-                    GlobalState.dataProvider
-                        .getTasksForMachine(element.uuid)
-                        .length >
-                    0)
+                    _filteredTasksFor(element).length > 0)
                 .toList();
             equipmentList.sort((a, b) {
-              var ac =
-                  GlobalState.dataProvider.getTasksForMachine(a.uuid).length ==
-                          0
-                      ? 0
-                      : 1;
-              var bc =
-                  GlobalState.dataProvider.getTasksForMachine(b.uuid).length ==
-                          0
-                      ? 0
-                      : 1;
+              var ac = _filteredTasksFor(a).length == 0 ? 0 : 1;
+              var bc = _filteredTasksFor(b).length == 0 ? 0 : 1;
               return bc.compareTo(ac);
             });
             if (equipmentList.length == 0) {
@@ -142,9 +159,7 @@ class EquipmentListScreen extends StatelessWidget {
               itemCount: equipmentList.length,
               itemBuilder: (context, index) {
                 final equipment = equipmentList[index];
-                var taskCount = GlobalState.dataProvider
-                    .getTasksForMachine(equipment.uuid)
-                    .length;
+                var taskCount = _filteredTasksFor(equipment).length;
                 if (isProblems) {
                   return Card(
                       margin: const EdgeInsets.symmetric(
@@ -235,7 +250,23 @@ class EquipmentListScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: MyAppBar.build(context) as AppBar,
-      body: body,
+      body: Column(
+        children: [
+          if (_kShowTasksFilter)
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 12, vertical: 10),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: TasksFilterButton(
+                  activeCount: _filter.activeCount,
+                  onTap: _openFilter,
+                ),
+              ),
+            ),
+          Expanded(child: body),
+        ],
+      ),
     );
   }
 }

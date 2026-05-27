@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../global_state.dart';
 import '../../src/knowledge_base/knowledge_base_utils.dart';
 import '../../src/notifications/notifications_service.dart';
+import '../../src/notifications/push/push_notifications_controller.dart';
 import '../../src/utils/dialogs.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../strings.dart';
@@ -53,6 +54,7 @@ class MyAppBar {
             GlobalState.authUser = null;
             GlobalState.updateDebug();
             NotificationsService.instance.onLogout();
+            await PushNotificationsController.instance.stop();
             GoRouter.of(context).clearStackAndNavigate('/login');
           });
         },
@@ -65,6 +67,7 @@ class MyAppBar {
             GlobalState.authUser = null;
             GlobalState.updateDebug();
             NotificationsService.instance.onLogout();
+            await PushNotificationsController.instance.stop();
             GoRouter.of(context).clearStackAndNavigate('/login');
           });
         },

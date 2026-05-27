@@ -98,6 +98,8 @@ class NotificationTypes {
   static const String assignedInspection = 'assigned_inspection';
   static const String newTask = 'new_task';
   static const String overdueTask = 'overdue_task';
+  static const String inspectionHighPriority = 'inspection_high_priority';
+  static const String summaryTask = 'summary_task';
 
   static String displayName(String type) {
     switch (type) {
@@ -107,6 +109,10 @@ class NotificationTypes {
         return 'Новая задача';
       case overdueTask:
         return 'Просрочка задачи';
+      case inspectionHighPriority:
+        return 'Осмотр (высокий приоритет)';
+      case summaryTask:
+        return 'Сводка по задачам';
       default:
         return type;
     }

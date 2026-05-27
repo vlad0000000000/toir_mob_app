@@ -1,17 +1,22 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import '../../global_state.dart';
 import '../http/api.dart';
 import '../model/notification.dart';
 import '../model/notification_settings.dart';
+import 'push/push_notifications_controller.dart';
 
 class NotificationsService {
   NotificationsService._();
 
   static final NotificationsService instance = NotificationsService._();
+
+  static const int pageSize = 30;
 
   final ValueNotifier<List<AppNotification>> notifications =
       ValueNotifier<List<AppNotification>>(const []);
@@ -19,6 +24,8 @@ class NotificationsService {
   final ValueNotifier<NotificationSettings> settings =
       ValueNotifier<NotificationSettings>(NotificationSettings.defaults());
   final ValueNotifier<bool> isLoading = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> isLoadingMore = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> hasMore = ValueNotifier<bool>(true);
 
   final API _api = API();
 
@@ -29,6 +36,7 @@ class NotificationsService {
 
   Future<void> bootstrap() async {
     _disposed = false;
+    _attachForegroundListener();
     try {
       final s = await _api.getNotificationSettings();
       settings.value = s;
@@ -41,30 +49,44 @@ class NotificationsService {
     }
   }
 
-  Future<void> refreshList({
-    List<String>? types,
-    List<String>? statuses,
-    String? equipmentUuid,
-    String? priority,
-    DateTime? createdFrom,
-    DateTime? createdTo,
-    int limit = 100,
-  }) async {
+  void _attachForegroundListener() {
+    if (kIsWeb || !Platform.isAndroid) return;
+    if (_foregroundAttached) return;
+    _foregroundAttached = true;
+    FlutterForegroundTask.addTaskDataCallback(_onForegroundData);
+  }
+
+  void _detachForegroundListener() {
+    if (!_foregroundAttached) return;
+    _foregroundAttached = false;
+    try {
+      FlutterForegroundTask.removeTaskDataCallback(_onForegroundData);
+    } catch (_) {}
+  }
+
+  bool _foregroundAttached = false;
+
+  void _onForegroundData(Object data) {
+    if (data is Map && data['type'] == 'sse_event') {
+      refreshList();
+    }
+    // Тап по пушу (`type == 'push_tap'`) обрабатывается отдельной
+    // подпиской в PushNotificationRouter — независимо от того, был ли
+    // позван bootstrap.
+  }
+
+  Future<void> refreshList() async {
     if (!GlobalState.isAuthorized) return;
     isLoading.value = true;
     try {
       final result = await _api.getNotifications(
-        limit: limit,
-        notificationTypes: types,
-        statuses: statuses,
-        equipmentUuid: equipmentUuid,
-        priority: priority,
-        createdFrom: createdFrom,
-        createdTo: createdTo,
+        skip: 0,
+        limit: pageSize,
       );
       final sorted = _sortNotifications(result.items);
       notifications.value = sorted;
       unreadCount.value = result.unreadCount;
+      hasMore.value = result.items.length >= pageSize;
     } catch (e) {
       debugPrint('Failed to load notifications: $e');
     } finally {
@@ -72,20 +94,40 @@ class NotificationsService {
     }
   }
 
-  List<AppNotification> _sortNotifications(List<AppNotification> items) {
-    final overdue = <AppNotification>[];
-    final rest = <AppNotification>[];
-    for (final n in items) {
-      if (n.status == NotificationStatuses.overdue ||
-          n.notificationType == NotificationTypes.overdueTask) {
-        overdue.add(n);
+  Future<void> loadMore() async {
+    if (!GlobalState.isAuthorized) return;
+    if (isLoadingMore.value || isLoading.value) return;
+    if (!hasMore.value) return;
+    isLoadingMore.value = true;
+    try {
+      final result = await _api.getNotifications(
+        skip: notifications.value.length,
+        limit: pageSize,
+      );
+      if (result.items.isEmpty) {
+        hasMore.value = false;
       } else {
-        rest.add(n);
+        final existing = notifications.value;
+        final existingUuids = existing.map((e) => e.uuid).toSet();
+        final newOnes = result.items
+            .where((e) => !existingUuids.contains(e.uuid))
+            .toList();
+        final merged = [...existing, ...newOnes];
+        notifications.value = _sortNotifications(merged);
+        unreadCount.value = result.unreadCount;
+        hasMore.value = result.items.length >= pageSize;
       }
+    } catch (e) {
+      debugPrint('Failed to load more notifications: $e');
+    } finally {
+      isLoadingMore.value = false;
     }
-    overdue.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    rest.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return [...overdue, ...rest];
+  }
+
+  List<AppNotification> _sortNotifications(List<AppNotification> items) {
+    final sorted = [...items];
+    sorted.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return sorted;
   }
 
   Future<bool> markRead(String uuid) async {
@@ -120,7 +162,7 @@ class NotificationsService {
         }
         return n;
       }).toList();
-      notifications.value = updated;
+      notifications.value = _sortNotifications(updated);
       return true;
     } catch (e) {
       debugPrint('Failed to mark read: $e');
@@ -201,7 +243,6 @@ class NotificationsService {
     try {
       data = jsonDecode(dataStr) as Map<String, dynamic>;
     } catch (_) {}
-    // По контракту - просто перечитать список
     refreshList();
     _onForegroundNotification(data);
   }
@@ -238,12 +279,15 @@ class NotificationsService {
     _disposed = true;
     _reconnectTimer?.cancel();
     _disconnectStream();
+    _detachForegroundListener();
   }
 
   void onLogout() {
     dispose();
     notifications.value = const [];
     unreadCount.value = 0;
+    hasMore.value = true;
     settings.value = NotificationSettings.defaults();
+    PushNotificationsController.instance.stop();
   }
 }
