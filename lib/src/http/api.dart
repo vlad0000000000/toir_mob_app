@@ -38,7 +38,30 @@ class API {
 
   static Session? currentSession;
 
+  // Таймауты сетевых запросов
+  static const Duration _readTimeout =
+      Duration(seconds: 15); // GET и мелкие записи + login
+  static const Duration _uploadTimeout =
+      Duration(seconds: 60); // multipart с фото
+  static const Duration _aliveTimeout =
+      Duration(seconds: 5); // ping живости isAlive
+
+  /// Отладочный параметр: при `true` все сетевые запросы имитируют
+  /// отсутствие интернета — `isAlive()` возвращает `false`, а остальные
+  /// методы бросают [SocketException], как при реальном обрыве связи.
+  /// Включается из кода/дебаггера: `API.simulateOffline = true;`.
+  static bool simulateOffline = false;
+
+  /// Бросает [SocketException], если включена имитация офлайна.
+  void _guardOffline() {
+    if (simulateOffline) {
+      throw const SocketException(
+          'Имитация отсутствия интернета (API.simulateOffline)');
+    }
+  }
+
   Future<User> me(String meJWTToken) async {
+    _guardOffline();
     // // Проверяем наличие токена
     // if (meJWTToken == null) {
     //   throw Exception('Not authenticated');
@@ -49,7 +72,7 @@ class API {
       headers: {
         'Authorization': 'Bearer $meJWTToken', // Используем JWT
       },
-    );
+    ).timeout(_readTimeout);
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       // final Map<String, dynamic> responseData = jsonDecode(response.body);
@@ -68,6 +91,7 @@ class API {
 
   // Получить информацию о компании
   Future<Company> getCompany() async {
+    _guardOffline();
     // Проверяем наличие токена
     if (jwtToken == null) {
       throw Exception('Not authenticated');
@@ -78,7 +102,7 @@ class API {
       headers: {
         'Authorization': 'Bearer $jwtToken', // Используем JWT
       },
-    );
+    ).timeout(_readTimeout);
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
@@ -92,6 +116,7 @@ class API {
 
   // Получить список пользователей (с использованием JWT)
   Future<List<User>> getUsers() async {
+    _guardOffline();
     // Проверяем наличие токена
     if (jwtToken == null) {
       throw Exception('Not authenticated');
@@ -102,7 +127,7 @@ class API {
       headers: {
         'Authorization': 'Bearer $jwtToken', // Используем JWT
       },
-    );
+    ).timeout(_readTimeout);
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       final List<dynamic> data = jsonDecode(response.body);
@@ -115,6 +140,7 @@ class API {
   // Метод для авторизации и получения JWT токена
   Future<User> login(String username, String password) async {
     try {
+      _guardOffline();
       final response = await http
           .post(
             Uri.parse('$baseUrl/v1/auth/login'),
@@ -128,7 +154,7 @@ class API {
               'password': password,
             }),
           )
-          .timeout(Duration(seconds: 10));
+          .timeout(_readTimeout);
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> responseData = jsonDecode(response.body);
@@ -177,11 +203,12 @@ class API {
   }
 
   Future<bool> isAlive() async {
+    if (simulateOffline) return false;
     try {
       final response = await http.get(
         Uri.parse('$baseUrl/docs'),
         headers: {'Authorization': basicAuth},
-      ).timeout(Duration(seconds: 5));
+      ).timeout(_aliveTimeout);
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         return true;
@@ -195,6 +222,7 @@ class API {
 
   // Получить текущую сессию
   Future<Session> getCurrentSession() async {
+    _guardOffline();
     // Проверяем наличие токена
     if (jwtToken == null) {
       throw Exception('Not authenticated');
@@ -205,7 +233,7 @@ class API {
       headers: {
         'Authorization': 'Bearer $jwtToken', // Используем JWT
       },
-    );
+    ).timeout(_readTimeout);
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       // throw Exception(response.body);
@@ -225,6 +253,7 @@ class API {
 
   // Получить список машин
   Future<List<InventoryRecord>> getEquipment({limit = 10, offset = 0}) async {
+    _guardOffline();
     // Проверяем наличие токена
     if (jwtToken == null) {
       throw Exception('Not authenticated');
@@ -235,7 +264,7 @@ class API {
       headers: {
         'Authorization': 'Bearer $jwtToken', // Используем JWT
       },
-    );
+    ).timeout(_readTimeout);
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
@@ -250,6 +279,7 @@ class API {
   // Получить список машин
   Future<List<InventoryRecord>> getInventoryRecords(
       {limit = 10, offset = 0}) async {
+    _guardOffline();
     // Проверяем наличие токена
     if (jwtToken == null) {
       throw Exception('Not authenticated');
@@ -261,7 +291,7 @@ class API {
       headers: {
         'Authorization': 'Bearer $jwtToken', // Используем JWT
       },
-    );
+    ).timeout(_readTimeout);
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
@@ -276,6 +306,7 @@ class API {
 
 // Отправить данные о количестве актива с изображениями
   Future<bool> sendScan(Scan scan) async {
+    _guardOffline();
     if (jwtToken == null) {
       throw Exception('Not authenticated');
     }
@@ -341,10 +372,12 @@ class API {
       // await GlobalState.dataProvider.scanBox.delete(scan.key());
       // await GlobalState.dataProvider.scanPendingBox.put(scan.key(), scan);
 
-      final response = await request.send().timeout(Duration(seconds: 10));
+      final response = await request.send().timeout(_uploadTimeout);
 
       // Получаем и проверяем ответ
-      final responseBody = await response.stream.bytesToString();
+      final responseBody = await response.stream
+          .bytesToString()
+          .timeout(_uploadTimeout);
       final Map<String, dynamic> responseData = jsonDecode(responseBody);
 
       if (response.statusCode != 200 && response.statusCode != 201) {
@@ -368,6 +401,7 @@ class API {
   }
 
   Future<List<Task>> getCurrentOpenTasks({limit = 50, offset = 0}) async {
+    _guardOffline();
     // Проверяем наличие токена
     if (jwtToken == null) {
       throw Exception('Not authenticated');
@@ -381,7 +415,7 @@ class API {
       headers: {
         'Authorization': 'Bearer $jwtToken',
       },
-    );
+    ).timeout(_readTimeout);
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
@@ -402,6 +436,7 @@ class API {
   }
 
   Future<List<Task>> getCurrentTasks({limit = 50, offset = 0}) async {
+    _guardOffline();
     // Проверяем наличие токена
     if (jwtToken == null) {
       throw Exception('Not authenticated');
@@ -415,14 +450,13 @@ class API {
       headers: {
         'Authorization': 'Bearer $jwtToken',
       },
-    );
+    ).timeout(_readTimeout);
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       var now = DateTime.now().toUtc();
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
       final decodedBytes = utf8Decoder.convert(response.bodyBytes);
       final List<dynamic> data = jsonDecode(decodedBytes);
-      print(data.length);
       var scheduled = data
           .where((json) {
             return (json['result_status'] as String) == 'scheduled' &&
@@ -438,16 +472,6 @@ class API {
             var c = (DateTime.parse(json['created_at']));
             var filteredA = now.compareTo(c);
             var filteredB = now.compareTo(c.add(len));
-            // if (json['periodic_task']['custom_roles'][0]['name'] == "Механик") {
-            if (json['periodic_task']['title'].toString().startsWith('Осмотр 50')) {
-              print(json);
-              print(a);
-              print(b);
-              print(c);
-              print(json['created_at']);
-              print([now, c, c.add(len), filteredA, filteredB]);
-              print('--------------');
-            }
             return filteredA == 1 && filteredB == -1;
           })
           .map((json) => Task.fromJson(json))
@@ -494,6 +518,7 @@ class API {
 
   Future<List<TypicalProblem>> getTypicalProblems(
       {limit = 50, offset = 0}) async {
+    _guardOffline();
     // Проверяем наличие токена
     if (jwtToken == null) {
       throw Exception('Not authenticated');
@@ -507,7 +532,7 @@ class API {
       headers: {
         'Authorization': 'Bearer $jwtToken',
       },
-    );
+    ).timeout(_readTimeout);
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
@@ -521,6 +546,7 @@ class API {
   }
 
   Future<List<PeriodicityRule>> getPeriodicityRules() async {
+    _guardOffline();
     if (jwtToken == null) {
       throw Exception('Not authenticated');
     }
@@ -533,7 +559,7 @@ class API {
       headers: {
         'Authorization': 'Bearer $jwtToken',
       },
-    );
+    ).timeout(_readTimeout);
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
@@ -548,6 +574,7 @@ class API {
   }
 
   Future<List<UsageUnit>> getUsageUnitTypes() async {
+    _guardOffline();
     if (jwtToken == null) {
       throw Exception('Not authenticated');
     }
@@ -559,7 +586,7 @@ class API {
       headers: {
         'Authorization': 'Bearer $jwtToken',
       },
-    );
+    ).timeout(_readTimeout);
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
@@ -574,6 +601,7 @@ class API {
   }
 
   Future<EquipmentState> getEquipmentStates() async {
+    _guardOffline();
     if (jwtToken == null) {
       throw Exception('Not authenticated');
     }
@@ -585,7 +613,7 @@ class API {
       headers: {
         'Authorization': 'Bearer $jwtToken',
       },
-    );
+    ).timeout(_readTimeout);
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
@@ -599,6 +627,7 @@ class API {
   }
 
   Future<bool> updateUsageParameter(UsageUpdate usageUpdate) async {
+    _guardOffline();
     if (jwtToken == null) {
       throw Exception('Not authenticated');
     }
@@ -613,7 +642,7 @@ class API {
         'Content-Type': 'application/json',
       },
       body: jsonEncode({'current_value': usageUpdate.usageParameterValue}),
-    );
+    ).timeout(_readTimeout);
 
     final responseBody = response.body;
     final Map<String, dynamic> responseData = jsonDecode(responseBody);
@@ -632,6 +661,7 @@ class API {
 
   // Обновить статус оборудования
   Future<bool> updateEquipmentState(String equipmentUuid, String state) async {
+    _guardOffline();
     if (jwtToken == null) {
       throw Exception('Not authenticated');
     }
@@ -650,10 +680,12 @@ class API {
     request.fields['state'] = state;
 
     try {
-      final response = await request.send().timeout(Duration(seconds: 10));
+      final response = await request.send().timeout(_readTimeout);
 
       // Получаем и проверяем ответ
-      final responseBody = await response.stream.bytesToString();
+      final responseBody = await response.stream
+          .bytesToString()
+          .timeout(_readTimeout);
 
       if (response.statusCode != 200 && response.statusCode != 201) {
         throw Exception(
@@ -668,6 +700,7 @@ class API {
 
   // Создать периодическую задачу
   Future<bool> createPeriodicTask(PeriodicTaskRequest taskRequest) async {
+    _guardOffline();
     if (jwtToken == null) {
       throw Exception('Not authenticated');
     }
@@ -683,7 +716,7 @@ class API {
           },
           body: jsonEncode(taskRequest.toJson()),
         )
-        .timeout(Duration(seconds: 10));
+        .timeout(_readTimeout);
 
     final responseBody = response.body;
     final Map<String, dynamic> responseData = jsonDecode(responseBody);
@@ -734,8 +767,10 @@ class API {
         }
       }
 
-      final response = await request.send().timeout(Duration(seconds: 10));
-      final responseBody = await response.stream.bytesToString();
+      final response = await request.send().timeout(_uploadTimeout);
+      final responseBody = await response.stream
+          .bytesToString()
+          .timeout(_uploadTimeout);
 
       if (response.statusCode != 200 && response.statusCode != 201) {
         // throw Exception(
@@ -748,6 +783,7 @@ class API {
   }
 
   Future<NotificationSettings> getNotificationSettings() async {
+    _guardOffline();
     if (jwtToken == null) {
       throw Exception('Not authenticated');
     }
@@ -757,7 +793,7 @@ class API {
       headers: {
         'Authorization': 'Bearer $jwtToken',
       },
-    );
+    ).timeout(_readTimeout);
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
@@ -772,6 +808,7 @@ class API {
 
   Future<NotificationSettings> patchNotificationSettings(
       Map<String, dynamic> partial) async {
+    _guardOffline();
     if (jwtToken == null) {
       throw Exception('Not authenticated');
     }
@@ -783,7 +820,7 @@ class API {
         'Content-Type': 'application/json',
       },
       body: jsonEncode(partial),
-    );
+    ).timeout(_readTimeout);
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
@@ -806,6 +843,7 @@ class API {
     DateTime? createdFrom,
     DateTime? createdTo,
   }) async {
+    _guardOffline();
     if (jwtToken == null) {
       throw Exception('Not authenticated');
     }
@@ -841,7 +879,7 @@ class API {
       headers: {
         'Authorization': 'Bearer $jwtToken',
       },
-    );
+    ).timeout(_readTimeout);
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
@@ -854,6 +892,7 @@ class API {
   }
 
   Future<int> markNotificationRead(String notificationUuid) async {
+    _guardOffline();
     if (jwtToken == null) {
       throw Exception('Not authenticated');
     }
@@ -864,7 +903,7 @@ class API {
       headers: {
         'Authorization': 'Bearer $jwtToken',
       },
-    );
+    ).timeout(_readTimeout);
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
@@ -878,6 +917,7 @@ class API {
   }
 
   Future<StreamedResponseHandle> openNotificationStream() async {
+    _guardOffline();
     if (jwtToken == null) {
       throw Exception('Not authenticated');
     }

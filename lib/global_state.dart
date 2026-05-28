@@ -109,7 +109,9 @@ class GlobalState {
     if (!(await GlobalState.hasConnectionToServer)) {
       serverAccess = "не доступен";
     }
-    String pendingScans = dataProvider.scanBox.length.toString();
+    String pendingScans =
+        (dataProvider.scanBox.length + dataProvider.scanPendingBox.length)
+            .toString();
     String pendingUsageUpdates = dataProvider.scanUsageBox.length.toString();
     // String problems = dataProvider.typicalProblemBox.length.toString();
     String inventory = dataProvider.inventoryRecords.length.toString();
@@ -151,7 +153,9 @@ class GlobalState {
     if (!(await GlobalState.hasConnectionToServer)) {
       serverAccess = "не доступен";
     }
-    String pendingChecks = dataProvider.scanBox.length.toString();
+    String pendingChecks =
+        (dataProvider.scanBox.length + dataProvider.scanPendingBox.length)
+            .toString();
     String problems = dataProvider.typicalProblemBox.length.toString();
     String inventory = dataProvider.inventoryRecords.length.toString();
     // String db =
@@ -172,6 +176,10 @@ class GlobalState {
   static const Duration _cacheDuration = Duration(seconds: 10);
 
   static Future<bool> get hasConnectionToServer async {
+    // Имитация офлайна — отвечаем мгновенно, минуя кэш
+    if (API.simulateOffline) {
+      return false;
+    }
     // Проверяем, есть ли актуальный кэш
     if (_cachedResult != null && _cacheTime != null) {
       if (DateTime.now().difference(_cacheTime!) < _cacheDuration) {

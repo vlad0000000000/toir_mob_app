@@ -73,6 +73,7 @@ class DataProvider {
   Company? _company;
   EquipmentState? _equipmentState;
   bool _isLoading = false;
+  bool _isSyncingScans = false;
 
   List<User> get users => _users;
 
@@ -579,6 +580,19 @@ class DataProvider {
   }
 
   Future<void> syncScans() async {
+    // Защита от параллельного запуска: 5-секундный цикл (startScanSyncing) и
+    // ручная синхронизация ("Синхронизировать данные") могут вызвать syncScans
+    // одновременно — оба прочитают scanBox и отправят один осмотр дважды.
+    if (_isSyncingScans) return;
+    _isSyncingScans = true;
+    try {
+      await _syncScansImpl();
+    } finally {
+      _isSyncingScans = false;
+    }
+  }
+
+  Future<void> _syncScansImpl() async {
     // Проверяем pending сканы - возвращаем в scanBox те, что прождали 60 секунд
     final pendingScans = scanPendingBox.values.toList();
     final now = DateTime.now().millisecondsSinceEpoch;
