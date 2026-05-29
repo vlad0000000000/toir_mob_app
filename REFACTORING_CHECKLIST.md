@@ -43,7 +43,7 @@
 - [ ] Вынести `theme/example/` из `lib/` (демо-приложения в бандле)
 - [ ] Завести design-токены (spacing/radius/color/text), подключить `colorScheme`/`textTheme`
 - [ ] Заменить inline `Color(0xFF…)` (~111) и `TextStyle(...)` (~105) на токены/тему
-- [ ] Убрать 3 inline ButtonStyle из `main.dart:390-442` (в т.ч. хардкод `Colors.red`)
+- [~] Inline ButtonStyle в `main.dart`: удалены мёртвые `flatButtonStyle` + `outlineButtonStyle` (хардкод `Colors.red`). Осталось вынести используемый `raisedButtonStyle` в тему
 
 ## Phase 6 — Слой данных (наибольший эффект, средний риск)
 
@@ -57,7 +57,8 @@
 - [x] Убрать конфликт Hive `typeId` — `inventory_scan` удалён (Phase 1) + снята мёртвая `@HiveType(12)` с `Company` (реальный adapter `typeId=15` не тронут)
 - [x] Снять нерабочие `@HiveType`/`@HiveField` со всех моделей (company, equipment_state, periodic_task_models). **Решение: оставляем ручной `read`/`write`** (без кодогена) — формат Hive не меняется, данные пользователей в безопасности
 - [ ] Enum-статусы вместо magic strings — **отложено**: при ручном read/write смена типа поля `String→enum` меняет сериализацию. Делать только как additive-слой (геттеры) + регресс-проверки
-- [ ] `==`/`hashCode`/`copyWith` в моделях — отложено (чистый Dart, безопасно, но большой объём boilerplate)
+- [~] `copyWith` добавлен в `InventoryRecord` + задействован в `qr_result_screen` (убрана ручная копия 13 полей). `==`/`hashCode` — отложено (меняет семантику `Set<Task>` в контроллере = поведение)
+- [x] Чистка предсуществующих warning'ов: неиспользуемые импорты (`settings.dart` −9, `modal`, `inventory_record`) и локалы (`global_state`, `main` ButtonStyles). flutter analyze 30→15
 
 ## Phase 8 — Структура папок (большой git mv)
 

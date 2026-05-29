@@ -387,15 +387,6 @@ class MyApp extends StatelessWidget {
     // return NestedTabNavigationExampleApp();
     // return MyTabApp();
 
-    final ButtonStyle flatButtonStyle = TextButton.styleFrom(
-      foregroundColor: Colors.black87,
-      minimumSize: Size(88, 36),
-      padding: EdgeInsets.symmetric(horizontal: 16),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(2)),
-      ),
-    );
-
     final ButtonStyle raisedButtonStyle = ElevatedButton.styleFrom(
       foregroundColor: Colors.black87,
       // backgroundColor: Colors.blue,
@@ -415,31 +406,6 @@ class MyApp extends StatelessWidget {
         //   // return states.first.
         // },))
         ;
-    final ButtonStyle outlineButtonStyle = OutlinedButton.styleFrom(
-      foregroundColor: Colors.black87,
-      minimumSize: Size(88, 36),
-      padding: EdgeInsets.symmetric(horizontal: 16),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(2)),
-      ),
-    ).copyWith(
-      backgroundColor: WidgetStateProperty.resolveWith<Color>(
-        (states) {
-          return Colors.red;
-        },
-      ),
-      side: WidgetStateProperty.resolveWith<BorderSide?>(
-        (Set<WidgetState> states) {
-          if (states.contains(WidgetState.pressed)) {
-            return BorderSide(
-              color: Theme.of(context).colorScheme.primary,
-              width: 1,
-            );
-          }
-          return null;
-        },
-      ),
-    );
     return ScreenUtilInit(
       designSize: const Size(750, 1067),
       minTextAdapt: true,

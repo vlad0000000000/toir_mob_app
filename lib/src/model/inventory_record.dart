@@ -1,5 +1,4 @@
 import 'package:hive_ce/hive.dart';
-import '../../global_state.dart';
 
 class InventoryRecord {
   final int id;
@@ -65,6 +64,38 @@ class InventoryRecord {
     this.usageParameters = const [],
     this.state,
   });
+
+  InventoryRecord copyWith({
+    int? id,
+    String? uuid,
+    String? name,
+    String? typeModel,
+    String? serialNumber,
+    String? location,
+    String? manufacturer,
+    String? quantity,
+    String? dateOfEntry,
+    String? description,
+    String? imageData,
+    List<UsageParameter>? usageParameters,
+    String? state,
+  }) {
+    return InventoryRecord(
+      id: id ?? this.id,
+      uuid: uuid ?? this.uuid,
+      name: name ?? this.name,
+      typeModel: typeModel ?? this.typeModel,
+      serialNumber: serialNumber ?? this.serialNumber,
+      location: location ?? this.location,
+      manufacturer: manufacturer ?? this.manufacturer,
+      quantity: quantity ?? this.quantity,
+      dateOfEntry: dateOfEntry ?? this.dateOfEntry,
+      description: description ?? this.description,
+      imageData: imageData ?? this.imageData,
+      usageParameters: usageParameters ?? this.usageParameters,
+      state: state ?? this.state,
+    );
+  }
 
   String getQRValue() {
     return '{"uuid": "$uuid", "name": "$name"}';

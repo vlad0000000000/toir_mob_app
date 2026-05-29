@@ -82,21 +82,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
           final record = inventoryBox.get(key);
           if (record != null && record.uuid == widget.machine.uuid) {
             // Создаем новую запись с обновленным состоянием
-            final updatedRecord = InventoryRecord(
-              id: record.id,
-              uuid: record.uuid,
-              name: record.name,
-              typeModel: record.typeModel,
-              serialNumber: record.serialNumber,
-              location: record.location,
-              manufacturer: record.manufacturer,
-              quantity: record.quantity,
-              dateOfEntry: record.dateOfEntry,
-              description: record.description,
-              imageData: record.imageData,
-              usageParameters: record.usageParameters,
-              state: newState,
-            );
+            final updatedRecord = record.copyWith(state: newState);
             await inventoryBox.put(key, updatedRecord);
             GlobalState.dataProvider.updateInventoryRecords();
             break;

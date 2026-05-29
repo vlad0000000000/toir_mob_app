@@ -156,8 +156,6 @@ class GlobalState {
     String pendingChecks =
         (dataProvider.scanBox.length + dataProvider.scanPendingBox.length)
             .toString();
-    String problems = dataProvider.typicalProblemBox.length.toString();
-    String inventory = dataProvider.inventoryRecords.length.toString();
     // String db =
     //     "Локальные данные: (оборудование: ${dataProvider.inventoryBox.length.toString()}, пользователи: ${dataProvider.users.length.toString()}, осмотры: ${pendingChecks}, проблемы: ${problems})";
     String db = "Осмотров не отправлено: ${pendingChecks}";
