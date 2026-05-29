@@ -1,14 +1,9 @@
 import 'package:hive_ce/hive.dart';
 
-@HiveType(typeId: 8)
 class Equipment {
-  @HiveField(0)
   final int id;
-  @HiveField(1)
   final String uuid;
-  @HiveField(2)
   final String name;
-  @HiveField(3)
   final String? typeModel;
 
   Equipment({
@@ -51,15 +46,10 @@ class EquipmentAdapter extends TypeAdapter<Equipment> {
   }
 }
 
-@HiveType(typeId: 9)
 class CustomRole {
-  @HiveField(0)
   final int id;
-  @HiveField(1)
   final String name;
-  @HiveField(2)
   final String? description;
-  @HiveField(3)
   final bool isActive;
 
   CustomRole({
@@ -102,13 +92,9 @@ class CustomRoleAdapter extends TypeAdapter<CustomRole> {
   }
 }
 
-@HiveType(typeId: 10)
 class Location {
-  @HiveField(0)
   final int id;
-  @HiveField(1)
   final String uuid;
-  @HiveField(2)
   final String name;
 
   Location({
@@ -193,37 +179,21 @@ class PeriodicTaskPhotoAdapter extends TypeAdapter<PeriodicTaskPhoto> {
   }
 }
 
-@HiveType(typeId: 11)
 class PeriodicTask {
-  @HiveField(0)
   final int id;
-  @HiveField(1)
   final String uuid;
-  @HiveField(2)
   final Equipment equipment;
-  @HiveField(3)
   final String? node;
-  @HiveField(4)
   final String title;
-  @HiveField(5)
   final String? description;
-  @HiveField(6)
   final String periodicityRule;
-  @HiveField(7)
   final String periodicityRuleDisplay;
-  @HiveField(8)
   final List<CustomRole> customRoles;
-  @HiveField(9)
   final DateTime? nextDueAt;
-  @HiveField(10)
   final DateTime? lastRunAt;
-  @HiveField(11)
   final bool isActive;
-  @HiveField(12)
   final DateTime? createdAt;
-  @HiveField(13)
   final DateTime? updatedAt;
-  @HiveField(14)
   final List<PeriodicTaskPhoto> photos;
 
   PeriodicTask({

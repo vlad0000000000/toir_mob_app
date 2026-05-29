@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../src/model/priority.dart';
 import '../../src/utils/any_controller.dart';
 import '../../strings.dart';
+import 'controller_listener_mixin.dart';
 
 class SelectPriorityButton extends StatefulWidget {
   late final AnyController<Priority> controller;
@@ -19,22 +20,15 @@ class SelectPriorityButton extends StatefulWidget {
   State<SelectPriorityButton> createState() => _SelectPriorityButton();
 }
 
-class _SelectPriorityButton extends State<SelectPriorityButton> {
+class _SelectPriorityButton extends State<SelectPriorityButton>
+    with ControllerListenerMixin {
   Priority? value = null;
 
   @override
-  void dispose() {
-    widget.controller.valueNotifier.removeListener(_onValueChanged);
-    super.dispose();
-  }
+  Listenable get controllerListenable => widget.controller.valueNotifier;
 
   @override
-  void initState() {
-    super.initState();
-    widget.controller.valueNotifier.addListener(_onValueChanged);
-  }
-
-  void _onValueChanged() {
+  void onControllerChanged() {
     setState(() {
       value = widget.controller.value;
     });

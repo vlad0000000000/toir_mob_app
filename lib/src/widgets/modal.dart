@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:my_app/src/widgets/square_button.dart';
+import 'package:qr_scan_industry/src/widgets/square_button.dart';
 
 class Modal extends StatelessWidget {
   final Widget child;

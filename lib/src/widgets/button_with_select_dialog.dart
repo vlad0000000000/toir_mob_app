@@ -2,6 +2,7 @@ import 'package:awesome_dialog/awesome_dialog.dart';
 import 'package:flutter/material.dart';
 import '../../src/widgets/square_button.dart';
 import '../../strings.dart';
+import 'controller_listener_mixin.dart';
 
 class ButtonWithSelectDialogController {
   final ValueNotifier<String> _valueNotifier = ValueNotifier('');
@@ -43,7 +44,11 @@ class ButtonWithSelectDialog extends StatefulWidget {
   State<ButtonWithSelectDialog> createState() => _ButtonWithSelectDialog();
 }
 
-class _ButtonWithSelectDialog extends State<ButtonWithSelectDialog> {
+class _ButtonWithSelectDialog extends State<ButtonWithSelectDialog>
+    with ControllerListenerMixin {
+  @override
+  Listenable get controllerListenable => widget.controller.valueNotifier;
+
   void _showAwesomeDialog(BuildContext context) {
 
     AwesomeDialog(
@@ -86,22 +91,6 @@ class _ButtonWithSelectDialog extends State<ButtonWithSelectDialog> {
     // ScaffoldMessenger.of(context).showSnackBar(
     //   SnackBar(content: Text('Вы выбрали: $selectedItem')),
     // );
-  }
-
-  @override
-  void dispose() {
-    widget.controller.valueNotifier.removeListener(_onValueChanged);
-    super.dispose();
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    widget.controller.valueNotifier.addListener(_onValueChanged);
-  }
-
-  void _onValueChanged() {
-    setState(() {});
   }
 
   @override

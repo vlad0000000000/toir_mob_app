@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../src/utils/any_controller.dart';
 import '../../global_state.dart';
+import 'controller_listener_mixin.dart';
 
 class SelectStateButton extends StatefulWidget {
   late final AnyController<String> controller;
@@ -18,26 +19,24 @@ class SelectStateButton extends StatefulWidget {
   State<SelectStateButton> createState() => _SelectStateButton();
 }
 
-class _SelectStateButton extends State<SelectStateButton> {
+class _SelectStateButton extends State<SelectStateButton>
+    with ControllerListenerMixin {
   String? value = null;
 
   @override
-  void dispose() {
-    widget.controller.valueNotifier.removeListener(_onValueChanged);
-    super.dispose();
-  }
+  Listenable get controllerListenable => widget.controller.valueNotifier;
 
   @override
   void initState() {
     super.initState();
-    widget.controller.valueNotifier.addListener(_onValueChanged);
     if (widget.initialValue != null && widget.initialValue!.isNotEmpty) {
       widget.controller.value = widget.initialValue;
       value = widget.initialValue;
     }
   }
 
-  void _onValueChanged() {
+  @override
+  void onControllerChanged() {
     setState(() {
       value = widget.controller.value;
     });

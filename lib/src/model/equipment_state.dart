@@ -1,8 +1,6 @@
 import 'package:hive_ce/hive.dart';
 
-@HiveType(typeId: 18)
 class EquipmentState {
-  @HiveField(0)
   final Map<String, String> states;
 
   EquipmentState({required this.states});

@@ -1,18 +1,11 @@
 import 'package:hive_ce/hive.dart';
 
-@HiveType(typeId: 12)
 class Company {
-  @HiveField(0)
   final int id;
-  @HiveField(1)
   final String name;
-  @HiveField(2)
   final String? logoUrl;
-  @HiveField(3)
   final String? currentTariff;
-  @HiveField(4)
   final DateTime? tariffValidUntil;
-  @HiveField(5)
   final bool allowRequestsWithoutQr;
 
   Company({

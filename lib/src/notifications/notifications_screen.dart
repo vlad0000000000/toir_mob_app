@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 
 import '../../global_state.dart';
 import '../../settings.dart';
@@ -11,6 +10,8 @@ import '../model/notification.dart';
 import '../model/task.dart';
 import '../utils/go_router_ext.dart';
 import 'notifications_service.dart';
+import 'notification_card.dart';
+import 'notification_formatters.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -112,63 +113,65 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       return const Center(child: CircularProgressIndicator());
                     }
                     if (items.isEmpty) {
-                return RefreshIndicator(
-                  onRefresh: _refresh,
-                  child: ListView(
-                    children: [
-                      const SizedBox(height: 80),
-                      Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            children: [
-                              Icon(Icons.notifications_off_outlined,
-                                  size: 56, color: Colors.grey.shade400),
-                              const SizedBox(height: 12),
-                              Text(
-                                'Уведомлений нет',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  color: Colors.grey.shade700,
+                      return RefreshIndicator(
+                        onRefresh: _refresh,
+                        child: ListView(
+                          children: [
+                            const SizedBox(height: 80),
+                            Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Column(
+                                  children: [
+                                    Icon(Icons.notifications_off_outlined,
+                                        size: 56, color: Colors.grey.shade400),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      'Уведомлений нет',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        color: Colors.grey.shade700,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
-                      ),
-                    ],
-                  ),
-                );
-              }
-              return RefreshIndicator(
-                onRefresh: _refresh,
-                child: ValueListenableBuilder<bool>(
-                  valueListenable: _service.isLoadingMore,
-                  builder: (context, loadingMore, ___) {
-                    return ListView.separated(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 12),
-                      itemCount: items.length + (loadingMore ? 1 : 0),
-                      separatorBuilder: (_, __) => const SizedBox(height: 10),
-                      itemBuilder: (context, i) {
-                        if (i >= items.length) {
-                          return const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 16),
-                            child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    return RefreshIndicator(
+                      onRefresh: _refresh,
+                      child: ValueListenableBuilder<bool>(
+                        valueListenable: _service.isLoadingMore,
+                        builder: (context, loadingMore, ___) {
+                          return ListView.separated(
+                            controller: _scrollController,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 12),
+                            itemCount: items.length + (loadingMore ? 1 : 0),
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (context, i) {
+                              if (i >= items.length) {
+                                return const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 16),
+                                  child: Center(
+                                      child: CircularProgressIndicator()),
+                                );
+                              }
+                              final n = items[i];
+                              return NotificationCard(
+                                notification: n,
+                                onTap: () => _onTap(n),
+                              );
+                            },
                           );
-                        }
-                        final n = items[i];
-                        return NotificationCard(
-                          notification: n,
-                          onTap: () => _onTap(n),
-                        );
-                      },
+                        },
+                      ),
                     );
-                  },
-                ),
-              );
                   },
                 );
               },
@@ -244,8 +247,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
-                  if (_summaryDescription(n) != null) ...[
-                    Text(_summaryDescription(n)!),
+                  if (NotificationFormatters.summaryDescription(n) != null) ...[
+                    Text(NotificationFormatters.summaryDescription(n)!),
                     const SizedBox(height: 8),
                   ] else if (n.description.isNotEmpty) ...[
                     Text(n.description),
@@ -259,9 +262,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       n.priorityDisplay!.isNotEmpty)
                     Text('Приоритет: ${n.priorityDisplay}'),
                   const SizedBox(height: 4),
-                  Text(_executorLabel(n)),
+                  Text(NotificationFormatters.executorLabel(n)),
                   const SizedBox(height: 4),
-                  Text('Создано: ${_formatDateTime(n.createdAt)}'),
+                  Text(
+                      'Создано: ${NotificationFormatters.formatDateTime(n.createdAt)}'),
                   if (task != null) ...[
                     const SizedBox(height: 16),
                     const Divider(),
@@ -306,7 +310,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         widgets.add(_kv('Периодичность', pt.periodicityRuleDisplay));
       }
       if (pt.nextDueAt != null) {
-        widgets.add(_kv('Срок', _formatDateTime(pt.nextDueAt!)));
+        widgets.add(
+            _kv('Срок', NotificationFormatters.formatDateTime(pt.nextDueAt!)));
       }
       if (pt.node != null && pt.node!.isNotEmpty) {
         widgets.add(_kv('Узел', pt.node!));
@@ -361,7 +366,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Widget _statusChip(AppNotification n) {
-    final color = _statusColor(n.status);
+    final color = NotificationFormatters.statusColor(n.status);
     final label = NotificationStatuses.displayName(n.status);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -371,58 +376,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       ),
       child: Text(label, style: TextStyle(color: color)),
     );
-  }
-
-  static Color _statusColor(String status) {
-    switch (status) {
-      case NotificationStatuses.newStatus:
-        return Colors.red;
-      case NotificationStatuses.viewed:
-        return Colors.blue;
-      case NotificationStatuses.completed:
-        return Colors.green;
-      case NotificationStatuses.overdue:
-        return Colors.red.shade700;
-    }
-    return Colors.grey;
-  }
-
-  static String _formatDateTime(DateTime utc) {
-    final local = utc.toLocal();
-    return DateFormat('dd.MM.yyyy HH:mm').format(local);
-  }
-
-  static String? _summaryDescription(AppNotification n) {
-    if (n.notificationType != NotificationTypes.summaryTask) return null;
-    final s = n.payload['summary'];
-    if (s is! Map) return null;
-    final newTasks = (s['new_tasks'] ?? 0) as int;
-    final assigned = (s['assigned_inspections'] ?? 0) as int;
-    final overdue = (s['overdue_tasks'] ?? 0) as int;
-    return 'Новых: $newTasks, Назначенных: $assigned, Просроченных: $overdue';
-  }
-
-  static String _executorLabel(AppNotification n) {
-    if (n.status == NotificationStatuses.completed) {
-      if (n.responsibleUserFullname != null &&
-          n.responsibleUserFullname!.isNotEmpty) {
-        return 'Исполнитель: ${n.responsibleUserFullname}';
-      }
-    }
-    if (n.notificationType == NotificationTypes.assignedInspection ||
-        n.notificationType == NotificationTypes.inspectionHighPriority) {
-      if (n.responsibleUserFullname != null &&
-          n.responsibleUserFullname!.isNotEmpty) {
-        return 'Исполнитель: ${n.responsibleUserFullname}';
-      }
-    }
-    final role = (n.payload['role'] is Map)
-        ? (n.payload['role'] as Map)['name'] as String?
-        : null;
-    if (role != null && role.isNotEmpty) {
-      return 'Исполнитель: $role';
-    }
-    return 'Исполнитель: —';
   }
 }
 
@@ -457,223 +410,5 @@ class _HideReadToggle extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class NotificationCard extends StatelessWidget {
-  final AppNotification notification;
-  final VoidCallback onTap;
-
-  const NotificationCard({
-    super.key,
-    required this.notification,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isOverdueType =
-        notification.notificationType == NotificationTypes.overdueTask ||
-            notification.status == NotificationStatuses.overdue;
-    final isSummary =
-        notification.notificationType == NotificationTypes.summaryTask;
-    final isHighPriority = notification.notificationType ==
-        NotificationTypes.inspectionHighPriority;
-    final summaryDesc =
-        _NotificationsScreenState._summaryDescription(notification);
-    return Material(
-      color: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: isOverdueType || isHighPriority
-              ? Colors.red.shade300
-              : Colors.grey.shade300,
-          width: 1,
-        ),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Text(
-                    NotificationTypes.displayName(notification.notificationType),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade700,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const Spacer(),
-                  if (!notification.isRead)
-                    Container(
-                      width: 10,
-                      height: 10,
-                      decoration: const BoxDecoration(
-                        color: Colors.red,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                notification.title.isEmpty ? '—' : notification.title,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: _NotificationsScreenState._statusColor(
-                      notification.status),
-                ),
-              ),
-              if (summaryDesc != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  summaryDesc,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 14),
-                ),
-              ] else if (notification.description.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text(
-                  notification.description,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 14),
-                ),
-              ],
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  if (!isSummary) _StatusBadge(status: notification.status),
-                  if (!isSummary) const SizedBox(width: 8),
-                  if ((notification.notificationType ==
-                              NotificationTypes.assignedInspection ||
-                          notification.notificationType ==
-                              NotificationTypes.inspectionHighPriority) &&
-                      notification.priorityDisplay != null &&
-                      notification.priorityDisplay!.isNotEmpty)
-                    _PriorityBadge(
-                      priority: notification.priority,
-                      label: notification.priorityDisplay!,
-                    ),
-                  const Spacer(),
-                  _DeadlineLabel(notification: notification),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                _executorOrCreated(notification),
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  String _executorOrCreated(AppNotification n) {
-    final created = DateFormat('dd.MM.yyyy HH:mm').format(n.createdAt.toLocal());
-    if (n.notificationType == NotificationTypes.summaryTask) {
-      return 'Создано: $created';
-    }
-    final executor = _NotificationsScreenState._executorLabel(n);
-    if (n.notificationType == NotificationTypes.assignedInspection ||
-        n.notificationType == NotificationTypes.inspectionHighPriority) {
-      return '$executor  •  $created';
-    }
-    return '$executor  •  Создано: $created';
-  }
-}
-
-class _StatusBadge extends StatelessWidget {
-  final String status;
-  const _StatusBadge({required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = _NotificationsScreenState._statusColor(status);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        NotificationStatuses.displayName(status),
-        style: TextStyle(color: color, fontSize: 12),
-      ),
-    );
-  }
-}
-
-class _PriorityBadge extends StatelessWidget {
-  final String? priority;
-  final String label;
-  const _PriorityBadge({required this.priority, required this.label});
-
-  Color get _color {
-    switch (priority) {
-      case 'high':
-        return Colors.red;
-      case 'medium':
-        return Colors.orange;
-      case 'low':
-        return Colors.green;
-    }
-    return Colors.grey;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: _color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text('Приоритет: $label',
-          style: TextStyle(color: _color, fontSize: 12)),
-    );
-  }
-}
-
-class _DeadlineLabel extends StatelessWidget {
-  final AppNotification notification;
-  const _DeadlineLabel({required this.notification});
-
-  DateTime? get _dueAt {
-    final raw = notification.payload['due_at'] as String?;
-    if (raw == null) return null;
-    return DateTime.tryParse(raw);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final due = _dueAt;
-    if (due == null) return const SizedBox.shrink();
-    final now = DateTime.now().toUtc();
-    final diff = due.difference(now);
-    final isOverdue = diff.isNegative ||
-        notification.notificationType == NotificationTypes.overdueTask;
-    final color = isOverdue ? Colors.red : Colors.grey.shade800;
-    final absDiff = diff.abs();
-    final h = absDiff.inHours;
-    final m = absDiff.inMinutes.remainder(60);
-    String text;
-    if (isOverdue) {
-      text = 'Просрочено: ${h}ч ${m}м';
-    } else {
-      text = 'Осталось: ${h}ч ${m}м';
-    }
-    return Text(text, style: TextStyle(fontSize: 12, color: color));
   }
 }

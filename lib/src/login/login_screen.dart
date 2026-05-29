@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../global_state.dart';
 import '../../src/data/data_provider.dart';
+import '../../src/widgets/help_link.dart';
 import '../../src/model/user.dart';
 import '../../src/notifications/notifications_service.dart';
 import '../../src/notifications/push/push_notifications_controller.dart';
@@ -13,7 +13,7 @@ import '../../src/utils/go_router_ext.dart';
 import '../../settings.dart';
 import '../../strings.dart';
 import 'package:themed/themed.dart';
-import '../../src/exceptions/login_exceptions.dart';
+import '../../src/exceptions/app_exceptions.dart';
 
 import '../update_manager.dart';
 
@@ -167,34 +167,7 @@ class _LoginScreenState extends State<LoginScreen> {
           Positioned(
             top: MediaQuery.of(context).padding.top + 8,
             left: 16,
-            child: GestureDetector(
-              onTap: () {
-                context.push('/knowledge_base');
-              },
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SvgPicture.asset(
-                    'assets/images/ix_user-manual.svg',
-                    width: 20,
-                    height: 20,
-                    colorFilter: ColorFilter.mode(
-                      Colors.grey.shade700,
-                      BlendMode.srcIn,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Помощь',
-                    style: TextStyle(
-                      color: Colors.grey.shade700,
-                      fontSize: 16,
-                      decoration: TextDecoration.underline,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            child: const HelpLink(),
           ),
         ],
       ),

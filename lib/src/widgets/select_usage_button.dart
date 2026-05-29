@@ -7,7 +7,8 @@ import '../../src/model/usage_unit.dart';
 import '../../src/widgets/square_button.dart';
 import 'package:flutter/services.dart';
 
-import 'modal.dart';
+import 'app_bottom_sheet.dart';
+import 'controller_listener_mixin.dart';
 
 // class UsageController {
 //   final ValueNotifier<List<UsageUpdate>> _valueNotifier = ValueNotifier([]);
@@ -70,22 +71,10 @@ class SelectUsageButton extends StatefulWidget {
   State<SelectUsageButton> createState() => _SelectUsageButtonState();
 }
 
-class _SelectUsageButtonState extends State<SelectUsageButton> {
+class _SelectUsageButtonState extends State<SelectUsageButton>
+    with ControllerListenerMixin {
   @override
-  void initState() {
-    super.initState();
-    widget.controller.valueNotifier.addListener(_onValueChanged);
-  }
-
-  @override
-  void dispose() {
-    widget.controller.valueNotifier.removeListener(_onValueChanged);
-    super.dispose();
-  }
-
-  void _onValueChanged() {
-    if (mounted) setState(() {});
-  }
+  Listenable get controllerListenable => widget.controller.valueNotifier;
 
   @override
   Widget build(BuildContext context) {
@@ -112,20 +101,11 @@ class _SelectUsageButtonState extends State<SelectUsageButton> {
               )
             : const Text('Выбрать наработку'),
         onPressed: () {
-          showModalBottomSheet(
-            barrierColor: Colors.black54,
-            context: context,
-            shape: const RoundedRectangleBorder(
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-            isScrollControlled: true,
-            enableDrag: false,
-            isDismissible: false,
-            backgroundColor: Colors.transparent,
-            builder: (context) => Modal(
-              child: UsageSelectionModal(
-                machine: widget.machine,
-                controller: widget.controller,
-              ),
+          showAppModalSheet(
+            context,
+            child: UsageSelectionModal(
+              machine: widget.machine,
+              controller: widget.controller,
             ),
           );
         },

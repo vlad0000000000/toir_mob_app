@@ -239,20 +239,7 @@ class NotificationsService {
   void _dispatchSseEvent(String event, String dataStr) {
     if (event == 'ping') return;
     if (event != 'notification') return;
-    Map<String, dynamic> data = const {};
-    try {
-      data = jsonDecode(dataStr) as Map<String, dynamic>;
-    } catch (_) {}
     refreshList();
-    _onForegroundNotification(data);
-  }
-
-  final ValueNotifier<AppNotification?> lastIncoming =
-      ValueNotifier<AppNotification?>(null);
-
-  void _onForegroundNotification(Map<String, dynamic> data) {
-    final action = data['action'] as String?;
-    if (action != 'upsert') return;
   }
 
   void _scheduleReconnect() {

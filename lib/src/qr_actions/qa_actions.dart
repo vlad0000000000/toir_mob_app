@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:my_app/src/update_manager.dart';
+import 'package:qr_scan_industry/src/update_manager.dart';
 import '../../global_state.dart';
+import '../../src/data/data_provider.dart';
 import '../../src/app_bar/app_bar.dart';
 import '../../src/notifications/notifications_service.dart';
 import '../../src/notifications/push/push_notifications_controller.dart';
@@ -10,7 +11,7 @@ import '../../src/utils/go_router_ext.dart';
 import '../../strings.dart';
 import '../../settings.dart';
 import '../../src/widgets/square_button.dart' as sq;
-import '../widgets/modal.dart';
+import '../widgets/app_bottom_sheet.dart';
 
 class QRActions extends StatefulWidget {
   const QRActions({super.key});
@@ -127,18 +128,9 @@ class _QRActionsState extends State<QRActions> {
         icon: Icons.settings,
         label: "Настройки",
         onPressed: () async {
-          showModalBottomSheet(
-              barrierColor: Colors.black54,
-              context: context,
-              shape: const RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.vertical(top: Radius.circular(20))),
-              isScrollControlled: true,
-              enableDrag: false,
-              isDismissible: false,
-              backgroundColor: Colors.transparent,
-              builder: (context) => Modal(
-                      child: SafeArea(
+          showAppModalSheet(
+              context,
+              child: SafeArea(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 16, vertical: 8),
@@ -247,7 +239,7 @@ class _QRActionsState extends State<QRActions> {
                         },
                       ),
                     ),
-                  )));
+                  ));
         },
       ),
       // SquareButton(

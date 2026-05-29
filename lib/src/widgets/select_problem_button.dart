@@ -3,6 +3,7 @@ import '../../src/utils/any_controller.dart';
 import '../../global_state.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/typical_problem.dart';
+import 'controller_listener_mixin.dart';
 
 class SelectProblemButton extends StatefulWidget {
   late final AnyController<TypicalProblem> controller;
@@ -20,22 +21,15 @@ class SelectProblemButton extends StatefulWidget {
   State<SelectProblemButton> createState() => _SelectProblemButton();
 }
 
-class _SelectProblemButton extends State<SelectProblemButton> {
+class _SelectProblemButton extends State<SelectProblemButton>
+    with ControllerListenerMixin {
   TypicalProblem? typicalProblem = null;
 
   @override
-  void dispose() {
-    widget.controller.valueNotifier.removeListener(_onValueChanged);
-    super.dispose();
-  }
+  Listenable get controllerListenable => widget.controller.valueNotifier;
 
   @override
-  void initState() {
-    super.initState();
-    widget.controller.valueNotifier.addListener(_onValueChanged);
-  }
-
-  void _onValueChanged() {
+  void onControllerChanged() {
     setState(() {
       typicalProblem = widget.controller.value;
     });

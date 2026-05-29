@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../src/widgets/square_button.dart';
 import '../../strings.dart';
 import 'package:themed/themed.dart';
+import 'controller_listener_mixin.dart';
 
 class SelectImageButtonController {
   final ValueNotifier<String> _valueNotifier = ValueNotifier('');
@@ -37,22 +38,15 @@ class SelectImageButton extends StatefulWidget {
   State<SelectImageButton> createState() => _SelectImageButton();
 }
 
-class _SelectImageButton extends State<SelectImageButton> {
+class _SelectImageButton extends State<SelectImageButton>
+    with ControllerListenerMixin {
   String imageData = '';
 
   @override
-  void dispose() {
-    widget.controller.valueNotifier.removeListener(_onValueChanged);
-    super.dispose();
-  }
+  Listenable get controllerListenable => widget.controller.valueNotifier;
 
   @override
-  void initState() {
-    super.initState();
-    widget.controller.valueNotifier.addListener(_onValueChanged);
-  }
-
-  void _onValueChanged() {
+  void onControllerChanged() {
     setState(() {
       imageData = widget.controller.value;
     });
@@ -80,16 +74,6 @@ class _SelectImageButton extends State<SelectImageButton> {
                 widget.controller.value = '';
               },
               child: stack));
-      return Expanded(
-          child: GestureDetector(
-        onTap: () {
-          widget.controller.value = '';
-        },
-        child: Container(
-          color: Colors.white,
-          child: stack,
-        ),
-      ));
     } else {
       return Expanded(
           child: SquareButton(

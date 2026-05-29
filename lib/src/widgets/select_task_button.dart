@@ -3,7 +3,8 @@ import '../../src/model/inventory_record.dart';
 import '../../src/model/task.dart';
 import '../../src/tasks/tasks.dart';
 import '../../src/widgets/square_button.dart';
-import 'modal.dart';
+import 'app_bottom_sheet.dart';
+import 'controller_listener_mixin.dart';
 
 class SelectTaskButton extends StatefulWidget {
   final EquipmentDetailController equipmentDetailController;
@@ -17,46 +18,26 @@ class SelectTaskButton extends StatefulWidget {
   @override
   State<SelectTaskButton> createState() => _SelectImageButton();
 
-  static showModal(context, machine, equipmentDetailController){
-    showModalBottomSheet(
-        barrierColor: Colors.black54,
-        context: context,
-        shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-        isScrollControlled: true,
-        enableDrag: false,
-        isDismissible: false,
-        // Ключевой параметр для полного экрана
-        backgroundColor: Colors.transparent,
-        builder: (context) => Modal(
-            child: EquipmentDetailScreen(
-              isModal: true,
-              controller: equipmentDetailController,
-              onTaskTap: (Task task) {
-                Navigator.pop(context);
-              },
-              machine: machine,
-            )));
+  static showModal(context, machine, equipmentDetailController) {
+    showAppModalSheet(
+      context,
+      child: EquipmentDetailScreen(
+        isModal: true,
+        controller: equipmentDetailController,
+        onTaskTap: (Task task) {
+          Navigator.pop(context);
+        },
+        machine: machine,
+      ),
+    );
   }
 }
 
-class _SelectImageButton extends State<SelectTaskButton> {
+class _SelectImageButton extends State<SelectTaskButton>
+    with ControllerListenerMixin {
   @override
-  void dispose() {
-    widget.equipmentDetailController.valueNotifier
-        .removeListener(_onValueChanged);
-    super.dispose();
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    widget.equipmentDetailController.valueNotifier.addListener(_onValueChanged);
-  }
-
-  void _onValueChanged() {
-    if (mounted) setState(() {});
-  }
+  Listenable get controllerListenable =>
+      widget.equipmentDetailController.valueNotifier;
 
   @override
   Widget build(BuildContext context) {

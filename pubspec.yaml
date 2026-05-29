@@ -1,5 +1,5 @@
-name: my_app
-description: my_app
+name: qr_scan_industry
+description: qr_scan_industry
 
 # Prevent accidental publishing to pub.dev.
 publish_to: 'none'
