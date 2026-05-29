@@ -48,7 +48,7 @@
 ## Phase 6 — Слой данных (наибольший эффект, средний риск)
 
 - [ ] `ScanRepository` — вынести scan/sync-путь (Hive + API + очередь) из виджетов; добьёт остаток багов очереди
-- [ ] `EquipmentRepository` — убрать сырые `inventoryBox.put` и `api.updateEquipmentState` из `qr_result_screen.dart:381-502`
+- [x] Вынос `updateEquipmentState` (API + `inventoryBox.put`) из `qr_result_screen._onStateChanged` в `DataProvider.updateEquipmentState`; виджет оставляет только UI/снекбары. **Требует прогона на устройстве** (смена состояния на экране результата)
 - [ ] Вынести sync-логику из `qa_actions.dart:84-107` в метод репозитория
 - [ ] Развести двойную подачу зависимостей (`GlobalState.dataProvider` static vs `Provider`)
 

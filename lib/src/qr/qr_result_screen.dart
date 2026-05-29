@@ -9,7 +9,6 @@ import 'package:provider/provider.dart';
 import '../../global_state.dart';
 import '../../src/app_bar/app_bar.dart';
 import '../../src/data/data_provider.dart';
-import '../../src/http/api.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/priority.dart';
 import '../../src/model/scan.dart';
@@ -71,23 +70,9 @@ class _QRResultScreenState extends State<QRResultScreen> {
         return;
       }
       try {
-        await GlobalState.dataProvider.api
+        await GlobalState.dataProvider
             .updateEquipmentState(widget.machine.uuid, newState);
-        // Состояние будет обновлено при следующей синхронизации
         _previousState = newState;
-
-        // Обновляем состояние оборудования в Hive боксе
-        final inventoryBox = GlobalState.dataProvider.inventoryBox;
-        for (var key in inventoryBox.keys) {
-          final record = inventoryBox.get(key);
-          if (record != null && record.uuid == widget.machine.uuid) {
-            // Создаем новую запись с обновленным состоянием
-            final updatedRecord = record.copyWith(state: newState);
-            await inventoryBox.put(key, updatedRecord);
-            GlobalState.dataProvider.updateInventoryRecords();
-            break;
-          }
-        }
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

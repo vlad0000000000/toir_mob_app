@@ -154,6 +154,21 @@ class DataProvider {
     _inventoryRecords = inventoryBox.values.toList();
   }
 
+  /// Отправляет смену состояния оборудования на сервер и обновляет
+  /// локальную запись в Hive. Обработку ошибок (UI/снекбары) оставляем
+  /// вызывающему — он ловит исключения этого метода.
+  Future<void> updateEquipmentState(String equipmentUuid, String state) async {
+    await api.updateEquipmentState(equipmentUuid, state);
+    for (var key in inventoryBox.keys) {
+      final record = inventoryBox.get(key);
+      if (record != null && record.uuid == equipmentUuid) {
+        await inventoryBox.put(key, record.copyWith(state: state));
+        updateInventoryRecords();
+        break;
+      }
+    }
+  }
+
   String periodRealName(String periodName) {
     return periodicityRuleBox.values
         .where((x) => x.value == periodName)
