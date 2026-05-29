@@ -49,7 +49,7 @@
 
 - [ ] `ScanRepository` — вынести scan/sync-путь (Hive + API + очередь) из виджетов; добьёт остаток багов очереди
 - [x] Вынос `updateEquipmentState` (API + `inventoryBox.put`) из `qr_result_screen._onStateChanged` в `DataProvider.updateEquipmentState`; виджет оставляет только UI/снекбары. **Требует прогона на устройстве** (смена состояния на экране результата)
-- [ ] Вынести sync-логику из `qa_actions.dart:84-107` в метод репозитория
+- [x] Sync-логика кнопки вынесена из `qa_actions` в `DataProvider.syncDataAndScans()` (+ enum `SyncResult`); виджет только показывает диалоги по результату. Требует прогона на устройстве (кнопка «Синхронизировать данные»)
 - [ ] Развести двойную подачу зависимостей (`GlobalState.dataProvider` static vs `Provider`)
 
 ## Phase 7 — Модели

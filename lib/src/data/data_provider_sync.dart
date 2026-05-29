@@ -1,5 +1,8 @@
 part of 'data_provider.dart';
 
+/// Результат ручной синхронизации (кнопка «Синхронизировать данные»).
+enum SyncResult { noConnection, allSynced, scansSynced, scansFailed }
+
 /// Фоновая синхронизация справочников/задач с сервером.
 extension DataProviderSync on DataProvider {
   Future<void> syncCurrentSession() async {
@@ -155,5 +158,24 @@ extension DataProviderSync on DataProvider {
         }
       }
     });
+  }
+
+  /// Ручная синхронизация (кнопка «Синхронизировать данные»): справочники +
+  /// осмотры. Возвращает результат; UI-диалоги — на стороне вызывающего.
+  Future<SyncResult> syncDataAndScans() async {
+    if (!await GlobalState.hasConnectionToServer) {
+      return SyncResult.noConnection;
+    }
+    await mainSync();
+    final scansWas = scanBox.length;
+    if (scansWas == 0) {
+      return SyncResult.allSynced;
+    }
+    await syncScans();
+    final scansNow = scanBox.length;
+    if (scansNow == 0 && scansWas > 0) {
+      return SyncResult.scansSynced;
+    }
+    return SyncResult.scansFailed;
   }
 }

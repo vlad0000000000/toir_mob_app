@@ -84,26 +84,18 @@ class _QRActionsState extends State<QRActions> {
         icon: Icons.sync,
         label: Strings.syncData,
         onPressed: () async {
-          if (!await GlobalState.hasConnectionToServer) {
-            Dialogs.notify(context, "Отсутствует соединение с сервером", "");
-            return;
-          }
-          await GlobalState.dataProvider.mainSync();
-          var scansWas = GlobalState.dataProvider.scanBox.length;
-          if (scansWas == 0) {
-            Dialogs.notify(context, "Все данные успешно синхронизированы", "");
-            return;
-          }
-          await GlobalState.dataProvider.syncScans();
-          var scansNow = GlobalState.dataProvider.scanBox.length;
-          if (scansNow == 0 && scansWas > 0) {
-            Dialogs.notify(
-                context, "Все данные и осмотры успешно синхронизированы", "");
-            return;
-          } else {
-            Dialogs.notify(
-                context, "Не получилось синхронизировать осмотры", "");
-            return;
+          final result = await GlobalState.dataProvider.syncDataAndScans();
+          switch (result) {
+            case SyncResult.noConnection:
+              Dialogs.notify(context, "Отсутствует соединение с сервером", "");
+            case SyncResult.allSynced:
+              Dialogs.notify(context, "Все данные успешно синхронизированы", "");
+            case SyncResult.scansSynced:
+              Dialogs.notify(context,
+                  "Все данные и осмотры успешно синхронизированы", "");
+            case SyncResult.scansFailed:
+              Dialogs.notify(
+                  context, "Не получилось синхронизировать осмотры", "");
           }
         },
       ),
