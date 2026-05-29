@@ -58,7 +58,7 @@
 - [x] Снять нерабочие `@HiveType`/`@HiveField` со всех моделей (company, equipment_state, periodic_task_models). **Решение: оставляем ручной `read`/`write`** (без кодогена) — формат Hive не меняется, данные пользователей в безопасности
 - [ ] Enum-статусы вместо magic strings — **отложено**: при ручном read/write смена типа поля `String→enum` меняет сериализацию. Делать только как additive-слой (геттеры) + регресс-проверки
 - [~] `copyWith` добавлен в `InventoryRecord` + задействован в `qr_result_screen` (убрана ручная копия 13 полей). `==`/`hashCode` — отложено (меняет семантику `Set<Task>` в контроллере = поведение)
-- [x] Чистка предсуществующих warning'ов: неиспользуемые импорты (`settings.dart` −9, `modal`, `inventory_record`) и локалы (`global_state`, `main` ButtonStyles). flutter analyze 30→15
+- [x] Чистка предсуществующих warning'ов: неиспользуемые импорты/локалы по всему lib + `withOpacity`→`withValues` + `machine` final. **flutter analyze 33 → 2** (остаток: конфиг `analysis_options` + намеренный dead_code в `update_manager`)
 
 ## Phase 8 — Структура папок (большой git mv)
 

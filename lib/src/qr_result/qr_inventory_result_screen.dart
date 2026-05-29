@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:provider/provider.dart';
 import '../../src/app_bar/app_bar.dart';
-import '../../src/data/data_provider.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/widgets/select_image_button.dart';
 import '../../src/widgets/square_button.dart';
@@ -198,8 +196,6 @@ class _QRResultScreenState extends State<QRResultScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final dataProvider = context.watch<DataProvider>();
-
     return Scaffold(
       appBar: MyAppBar.build(context) as AppBar,
       body: Padding(

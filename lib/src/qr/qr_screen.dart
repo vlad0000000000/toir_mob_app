@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
-import '../../global_state.dart';
 import '../../settings.dart';
 import '../../src/app_bar/app_bar.dart';
 import '../../src/data/data_provider.dart';

@@ -95,10 +95,6 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
   }
 
   Widget buildBody(Equipment equipment) {
-    // Собираем все задачи для "Выбрать все"
-    final allTasks =
-        equipment.checklists.expand((checklist) => checklist.tasks).toList();
-
     Widget list = ListView.builder(
       itemCount: equipment.checklists.length + (widget.isModal ? 1 : 0),
       itemBuilder: (context, index) {
@@ -402,10 +398,6 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         ),
       ),
     );
-  }
-
-  String _formatDate(DateTime dt) {
-    return '${dt.day.toString().padLeft(2, '0')}.${dt.month.toString().padLeft(2, '0')}.${dt.year}';
   }
 
   @override

@@ -5,7 +5,6 @@ import '../../global_state.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/usage_unit.dart';
 import '../../src/widgets/square_button.dart';
-import 'package:flutter/services.dart';
 
 import 'app_bottom_sheet.dart';
 import 'controller_listener_mixin.dart';

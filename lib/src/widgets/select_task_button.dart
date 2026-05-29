@@ -8,7 +8,7 @@ import 'controller_listener_mixin.dart';
 
 class SelectTaskButton extends StatefulWidget {
   final EquipmentDetailController equipmentDetailController;
-  InventoryRecord machine;
+  final InventoryRecord machine;
 
   SelectTaskButton(
       {required this.machine,

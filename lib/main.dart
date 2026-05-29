@@ -12,7 +12,6 @@ import 'package:logging/logging.dart';
 import 'package:qr_scan_industry/settings.dart';
 import 'package:qr_scan_industry/src/model/equipment_fault.dart';
 import 'package:qr_scan_industry/src/model/responsible_user.dart';
-import 'package:qr_scan_industry/src/update_manager.dart';
 import '../../src/model/company.dart';
 import '../../src/model/usage_unit.dart';
 import '../../src/model/usage_update.dart';

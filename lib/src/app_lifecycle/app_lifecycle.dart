@@ -4,7 +4,6 @@ import '../data/data_provider.dart';
 import 'package:provider/provider.dart';
 import '../../global_state.dart';
 import '../notifications/push/push_notifications_controller.dart';
-import '../update_manager.dart';
 
 class AppLifecycleObserver extends StatefulWidget {
   final Widget child;
