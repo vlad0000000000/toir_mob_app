@@ -65,7 +65,7 @@
 - [ ] feature-first: `features/{auth,home,scan,tasks,notifications,onboarding}/{ui,data,model}`
 - [ ] `core/{http,storage,state,routing,utils}` (перенести `global_state`, `settings`, `strings`, `http`, `data`)
 - [~] `design/{theme,tokens,components}` — создан `lib/src/design/`, orphaned `lib/theme/` перенесён туда (нулевой каскад). tokens/components — позже
-- [ ] Схлопнуть 4 «qr»-папки и single-file папки
+- [~] Схлопнуть «qr»-папки: `qr_actions/` + `qr_result/` влиты в `src/qr/` (перемещения на той же глубине, поправлен только `main.dart`). single-file папки — позже
 
 ## Прочее (точечно)
 
