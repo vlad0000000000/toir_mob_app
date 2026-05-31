@@ -39,7 +39,7 @@
 
 ## Phase 5 — Тема и дизайн-система
 
-- [ ] Решить судьбу `theme/app_theme.dart` (orphaned, 466 строк): подключить в `MaterialApp` ИЛИ удалить
+- [x] `AppTheme` подключён в `MaterialApp` (light + dark из `src/design/app_theme.dart`), убран мёртвый `raisedButtonStyle` и неиспользуемая `palette`-локалка. **Требует визуального прогона** — цвета поменяются (primary indigo вместо чёрного)
 - [ ] Вынести `theme/example/` из `lib/` (демо-приложения в бандле)
 - [ ] Завести design-токены (spacing/radius/color/text), подключить `colorScheme`/`textTheme`
 - [ ] Заменить inline `Color(0xFF…)` (~111) и `TextStyle(...)` (~105) на токены/тему
@@ -57,7 +57,7 @@
 - [x] Убрать конфликт Hive `typeId` — `inventory_scan` удалён (Phase 1) + снята мёртвая `@HiveType(12)` с `Company` (реальный adapter `typeId=15` не тронут)
 - [x] Снять нерабочие `@HiveType`/`@HiveField` со всех моделей (company, equipment_state, periodic_task_models). **Решение: оставляем ручной `read`/`write`** (без кодогена) — формат Hive не меняется, данные пользователей в безопасности
 - [ ] Enum-статусы вместо magic strings — **отложено**: при ручном read/write смена типа поля `String→enum` меняет сериализацию. Делать только как additive-слой (геттеры) + регресс-проверки
-- [~] `copyWith` добавлен в `InventoryRecord` + задействован в `qr_result_screen` (убрана ручная копия 13 полей). `==`/`hashCode` — отложено (меняет семантику `Set<Task>` в контроллере = поведение)
+- [x] `copyWith` для `InventoryRecord` + `==`/`hashCode` по uuid для `Task` и `InventoryRecord` (фиксит `Set<Task>` в `EquipmentDetailController`: теперь сравнение по uuid вместо identity)
 - [x] Чистка предсуществующих warning'ов: неиспользуемые импорты/локалы по всему lib + `withOpacity`→`withValues` + `machine` final. **flutter analyze 33 → 2** (остаток: конфиг `analysis_options` + намеренный dead_code в `update_manager`)
 
 ## Phase 8 — Структура папок (большой git mv)

@@ -60,6 +60,16 @@ class Task {
           : null,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Task &&
+          runtimeType == other.runtimeType &&
+          uuid == other.uuid;
+
+  @override
+  int get hashCode => uuid.hashCode;
 }
 
 class TaskAdapter extends TypeAdapter<Task> {

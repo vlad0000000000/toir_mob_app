@@ -97,6 +97,16 @@ class InventoryRecord {
     );
   }
 
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is InventoryRecord &&
+          runtimeType == other.runtimeType &&
+          uuid == other.uuid;
+
+  @override
+  int get hashCode => uuid.hashCode;
+
   String getQRValue() {
     return '{"uuid": "$uuid", "name": "$name"}';
   }

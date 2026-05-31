@@ -46,6 +46,7 @@ import '../../src/utils/dependent.dart';
 import 'global_state.dart';
 import 'src/app_lifecycle/app_lifecycle.dart';
 import 'src/data/data_provider.dart';
+import 'src/design/app_theme.dart';
 import 'src/http/api.dart';
 import 'src/model/session.dart';
 import 'src/model/user.dart';
@@ -386,25 +387,6 @@ class MyApp extends StatelessWidget {
     // return NestedTabNavigationExampleApp();
     // return MyTabApp();
 
-    final ButtonStyle raisedButtonStyle = ElevatedButton.styleFrom(
-      foregroundColor: Colors.black87,
-      // backgroundColor: Colors.blue,
-      minimumSize: Size(88, 36),
-      // elevation: 0,
-      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      shape: const RoundedRectangleBorder(
-        // side: BorderSide(width: 3),
-        borderRadius: BorderRadius.all(Radius.circular(8)),
-      ),
-    )
-        //   .copyWith(backgroundColor: WidgetStateProperty.resolveWith<Color>(
-        // (states) {
-        //   // return Colors.white.withAlpha(200);
-        //   return Colors.yellow.lighter(0.2);
-        //   // return Colors.black.lighter(0.9);
-        //   // return states.first.
-        // },))
-        ;
     return ScreenUtilInit(
       designSize: const Size(750, 1067),
       minTextAdapt: true,
@@ -421,31 +403,11 @@ class MyApp extends StatelessWidget {
               ),
             ],
             child: Builder(builder: (context) {
-              final palette = context.watch<Palette>();
-
               var app = MaterialApp.router(
                 builder: EasyLoading.init(),
                 title: dotenv.env["APP_TITLE"]!,
-                theme: ThemeData.from(
-                  colorScheme: ColorScheme.fromSeed(
-                      seedColor: Colors.blue,
-                      contrastLevel: -0.5,
-                      secondary: Colors.black,
-                      primary: Colors.black),
-                  textTheme: TextTheme(
-                    bodyMedium: TextStyle(
-                      color: palette.textColor,
-                    ),
-                  ),
-                  useMaterial3: true,
-                ).copyWith(
-                  textButtonTheme:
-                      TextButtonThemeData(style: raisedButtonStyle),
-                  elevatedButtonTheme:
-                      ElevatedButtonThemeData(style: raisedButtonStyle),
-                  outlinedButtonTheme:
-                      OutlinedButtonThemeData(style: raisedButtonStyle),
-                ),
+                theme: AppTheme.lightTheme,
+                darkTheme: AppTheme.darkTheme,
                 routeInformationProvider: _router.routeInformationProvider,
                 routeInformationParser: _router.routeInformationParser,
                 routerDelegate: _router.routerDelegate,
