@@ -3,7 +3,6 @@ import '../../global_state.dart';
 import '../../src/app_bar/app_bar.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/task.dart';
-import '../../src/widgets/square_button.dart';
 import '../widgets/app_bottom_sheet.dart';
 import '../design/app_constants.dart';
 import 'task_models.dart';
@@ -100,67 +99,86 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       itemCount: equipment.checklists.length + (widget.isModal ? 1 : 0),
       itemBuilder: (context, index) {
         if (index == equipment.checklists.length) {
-          return Row(
-            children: [
-              Expanded(
-                  child: SquareButton(
-                      onPressed: () {
-                        Navigator.of(context).pop();
-                      },
-                      child: Text("Выбрать")))
-            ],
+          return Padding(
+            padding: const EdgeInsets.all(AppConstants.spacingMD),
+            child: SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: FilledButton.icon(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.check_rounded),
+                label: const Text('Выбрать'),
+              ),
+            ),
           );
         }
         final checklist = equipment.checklists[index];
 
+        final tt = Theme.of(context).textTheme;
         return Card(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          elevation: 2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppConstants.radiusMD),
-          ),
-          child: Stack(
+          margin: const EdgeInsets.symmetric(
+              horizontal: AppConstants.spacingMD,
+              vertical: AppConstants.spacingSM / 2 + 2),
+          clipBehavior: Clip.antiAlias,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Positioned(
-                left: 0,
-                top: 0,
-                bottom: 0,
-                child: Container(
-                  width: 12,
-                  decoration: BoxDecoration(
-                    color: periodColors[checklist.period],
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(16),
-                      bottomLeft: Radius.circular(16),
-                    ),
-                  ),
-                ),
+              Container(
+                width: 4,
+                color: periodColors[checklist.period],
               ),
-              ExpansionTile(
-                shape: const Border(),
-                title: Text(
-                  " " + checklist.period + ' (${checklist.tasks.length})',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
+              Expanded(
+                child: ExpansionTile(
+                  shape: const Border(),
+                  collapsedShape: const Border(),
+                  tilePadding: const EdgeInsets.symmetric(
+                      horizontal: AppConstants.spacingMD),
+                  title: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          checklist.period,
+                          style: tt.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(
+                              AppConstants.radiusFull),
+                        ),
+                        child: Text(
+                          '${checklist.tasks.length}',
+                          style: tt.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
+                  trailing: AnimatedRotation(
+                    turns: checklist.isExpanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 180),
+                    child: const Icon(Icons.expand_more_rounded),
+                  ),
+                  childrenPadding: const EdgeInsets.only(
+                    left: AppConstants.spacingMD,
+                    right: AppConstants.spacingMD,
+                    bottom: AppConstants.spacingMD,
+                  ),
+                  children: checklist.tasks.map(_buildTaskItem).toList(),
+                  onExpansionChanged: (expanded) {
+                    setState(() {
+                      checklist.isExpanded = expanded;
+                    });
+                  },
                 ),
-                trailing: Icon(
-                  checklist.isExpanded ? Icons.remove : Icons.add,
-                  size: 28,
-                ),
-                childrenPadding:
-                    const EdgeInsets.only(left: 16, right: 16, bottom: 16),
-                children: checklist.tasks.map((task) {
-                  return Padding(
-                    padding: EdgeInsets.only(left: 8),
-                    child: _buildTaskItem(task),
-                  );
-                }).toList(),
-                onExpansionChanged: (expanded) {
-                  setState(() {
-                    checklist.isExpanded = expanded;
-                  });
-                },
               ),
             ],
           ),
@@ -168,33 +186,52 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       },
     );
 
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
     return Column(
-      spacing: 8,
       children: [
         Padding(
-          padding: EdgeInsets.symmetric(horizontal: 30),
+          padding: const EdgeInsets.fromLTRB(
+              AppConstants.spacingLG,
+              AppConstants.spacingMD,
+              AppConstants.spacingLG,
+              AppConstants.spacingSM),
           child: Text(
             widget.machine.name,
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24),
+            style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+            textAlign: TextAlign.center,
           ),
         ),
-        SizedBox(
-          height: 4,
-        ),
-        // Панель действий при множественном выборе
         if (_isSelectionMode && widget.isModal)
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: Theme.of(context).colorScheme.primaryContainer,
+            margin: const EdgeInsets.symmetric(
+                horizontal: AppConstants.spacingMD,
+                vertical: AppConstants.spacingSM),
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppConstants.spacingMD,
+                vertical: AppConstants.spacingSM),
+            decoration: BoxDecoration(
+              color: cs.primaryContainer,
+              borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+            ),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'Выберите только одну задачу',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+                Icon(Icons.info_outline_rounded,
+                    size: 18, color: cs.onPrimaryContainer),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Выберите только одну задачу',
+                    style: tt.bodyMedium?.copyWith(
+                      color: cs.onPrimaryContainer,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.cleaning_services),
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.clear_rounded),
+                  color: cs.onPrimaryContainer,
                   onPressed: _selectionController.clearSelection,
                   tooltip: 'Снять выделение',
                 ),
@@ -207,74 +244,85 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
   }
 
   Widget _buildTaskItem(Task task) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
     final isSelected =
         _isSelectionMode && _selectionController.selectedTasks.contains(task);
 
     final title = Text(
       task.periodicTask?.title ?? 'Назначенная задача',
-      style: TextStyle(
-        fontWeight: FontWeight.bold,
-        fontSize: 16,
-        color: Theme.of(context).colorScheme.primary,
+      style: tt.bodyLarge?.copyWith(
+        fontWeight: FontWeight.w600,
+        color: cs.onSurface,
       ),
     );
 
     final eyeIcon = task.periodicTask != null
         ? IconButton(
-            icon: const Icon(Icons.visibility),
+            icon: const Icon(Icons.info_outline_rounded),
+            visualDensity: VisualDensity.compact,
+            color: cs.onSurfaceVariant,
             onPressed: () => _showPeriodicTaskCard(context, task),
             tooltip: 'Карточка периодической задачи',
           )
         : const SizedBox.shrink();
 
-    if (widget.isModal && _isSelectionMode) {
-      return InkWell(
-        onTap: () => _selectionController.toggleTaskSelection(task),
-        child: Container(
-          margin: const EdgeInsets.only(top: 10),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: isSelected ? Theme.of(context).colorScheme.primaryContainer : Theme.of(context).colorScheme.surfaceContainerLow,
-            borderRadius: BorderRadius.circular(AppConstants.radiusSM),
-            border: Border.all(
-              color: isSelected ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outlineVariant,
-              width: isSelected ? 2 : 1,
-            ),
-          ),
-          child: Row(
-            children: [
-              Expanded(child: title),
-              eyeIcon,
-            ],
+    final selectable = widget.isModal && _isSelectionMode;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: AppConstants.spacingSM),
+      child: Material(
+        color: isSelected ? cs.primaryContainer : cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+          side: BorderSide(
+            color: isSelected
+                ? cs.primary
+                : cs.outlineVariant.withValues(alpha: 0.6),
+            width: isSelected ? 1.5 : 0.5,
           ),
         ),
-      );
-    }
-
-    return Container(
-      margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(AppConstants.radiusSM),
-      ),
-      child: Row(
-        children: [
-          Expanded(child: title),
-          eyeIcon,
-        ],
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: selectable
+              ? () => _selectionController.toggleTaskSelection(task)
+              : null,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+                AppConstants.spacingMD,
+                AppConstants.spacingMD - 2,
+                AppConstants.spacingSM,
+                AppConstants.spacingMD - 2),
+            child: Row(
+              children: [
+                if (selectable) ...[
+                  Icon(
+                    isSelected
+                        ? Icons.check_circle_rounded
+                        : Icons.radio_button_unchecked_rounded,
+                    color: isSelected ? cs.primary : cs.onSurfaceVariant,
+                    size: 22,
+                  ),
+                  const SizedBox(width: AppConstants.spacingMD),
+                ],
+                Expanded(child: title),
+                eyeIcon,
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
 
   void _showPeriodicTaskCard(BuildContext context, Task task) {
     final pt = task.periodicTask!;
+    final tt = Theme.of(context).textTheme;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      showDragHandle: true,
       builder: (context) => DraggableScrollableSheet(
         initialChildSize: 0.6,
         minChildSize: 0.3,
@@ -282,17 +330,18 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         expand: false,
         builder: (context, scrollController) => SingleChildScrollView(
           controller: scrollController,
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(
+              AppConstants.spacingMD,
+              0,
+              AppConstants.spacingMD,
+              AppConstants.spacingMD),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 pt.title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                ),
+                style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700),
               ),
               if (pt.node != null && pt.node!.isNotEmpty) ...[
                 const SizedBox(height: 8),
@@ -306,11 +355,11 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
               if (pt.photos.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 Text(
-                  'Фото',
-                  style: TextStyle(
-                    fontSize: 13,
+                  'ФОТО',
+                  style: tt.labelSmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w500,
+                    letterSpacing: 0.6,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -328,8 +377,8 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                               child: SafeArea(
                                   child: Padding(
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 8,
+                                      horizontal: AppConstants.spacingMD,
+                                      vertical: AppConstants.spacingSM,
                                     ),
                                     child: Column(
                                       mainAxisSize: MainAxisSize.min,
@@ -344,21 +393,15 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                                             ),
                                           ),
                                         ),
-                                        Padding(
-                                          padding: const EdgeInsets.only(
-                                            top: 8,
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              Expanded(
-                                                child: SquareButton(
-                                                  onPressed: () =>
-                                                      Navigator.of(context)
-                                                          .pop(),
-                                                  child: const Text('Закрыть'),
-                                                ),
-                                              ),
-                                            ],
+                                        const SizedBox(
+                                            height: AppConstants.spacingSM),
+                                        SizedBox(
+                                          width: double.infinity,
+                                          height: 48,
+                                          child: FilledButton.tonal(
+                                            onPressed: () =>
+                                                Navigator.of(context).pop(),
+                                            child: const Text('Закрыть'),
                                           ),
                                         ),
                                       ],
@@ -383,16 +426,14 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                       .toList(),
                 ),
               ],
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: SquareButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Закрыть'),
-                    ),
-                  ),
-                ],
+              const SizedBox(height: AppConstants.spacingLG),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: FilledButton.tonal(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Закрыть'),
+                ),
               ),
             ],
           ),
@@ -416,28 +457,22 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
   }
 
   Widget _buildDetailRow(String label, String value) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            label.replaceAll(':', '').toUpperCase(),
+            style: tt.labelSmall?.copyWith(
+              color: cs.onSurfaceVariant,
+              letterSpacing: 0.4,
             ),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
+          const SizedBox(height: 2),
+          Text(value, style: tt.bodyMedium),
         ],
       ),
     );

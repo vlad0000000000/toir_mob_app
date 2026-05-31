@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../design/app_constants.dart';
+import '../design/app_theme.dart';
 import '../model/notification.dart';
 import '../model/notification_settings.dart';
 import 'notifications_service.dart';
@@ -124,86 +126,177 @@ class _NotificationsSettingsScreenState
   }
 
   List<Widget> _buildPushSection() {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
     final p = _push;
+    final notifGranted = p?.notificationPermission.contains('granted') ?? false;
+
+    Widget statusRow({
+      required bool ok,
+      required String title,
+      required String subtitle,
+      bool warning = false,
+      Widget? trailing,
+    }) {
+      final color = ok
+          ? cs.success
+          : warning
+              ? cs.warning
+              : cs.error;
+      return Container(
+        margin: const EdgeInsets.only(bottom: AppConstants.spacingSM),
+        padding: const EdgeInsets.all(AppConstants.spacingMD),
+        decoration: BoxDecoration(
+          color: cs.surfaceContainerLow,
+          border: Border.all(color: cs.outlineVariant, width: 0.5),
+          borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(AppConstants.radiusSM),
+              ),
+              child: Icon(
+                ok
+                    ? Icons.check_circle_rounded
+                    : (warning
+                        ? Icons.warning_amber_rounded
+                        : Icons.cancel_rounded),
+                color: color,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: AppConstants.spacingMD),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: tt.bodyLarge),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                  ),
+                ],
+              ),
+            ),
+            if (trailing != null) ...[
+              const SizedBox(width: 8),
+              trailing,
+            ],
+          ],
+        ),
+      );
+    }
+
     return [
-      const Divider(),
-      const Padding(
-        padding: EdgeInsets.symmetric(vertical: 8),
-        child: Text('Push в фоне (Android)',
-            style: TextStyle(fontWeight: FontWeight.bold)),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(
+            4, AppConstants.spacingMD, 4, AppConstants.spacingSM),
+        child: Text(
+          'PUSH В ФОНЕ (ANDROID)',
+          style: tt.labelSmall?.copyWith(
+            color: cs.onSurfaceVariant,
+            letterSpacing: 0.6,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ),
       if (p == null)
-        const ListTile(
-          dense: true,
-          title: Text('Проверяю статус…'),
+        Container(
+          padding: const EdgeInsets.all(AppConstants.spacingMD),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerLow,
+            border: Border.all(color: cs.outlineVariant, width: 0.5),
+            borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: cs.primary),
+              ),
+              const SizedBox(width: 12),
+              Text('Проверяю статус…', style: tt.bodyMedium),
+            ],
+          ),
         )
       else ...[
-        ListTile(
-          dense: true,
-          leading: Icon(
-            p.serviceRunning ? Icons.check_circle : Icons.cancel,
-            color: p.serviceRunning ? Colors.green : Colors.red,
-          ),
-          title: const Text('Фоновый сервис'),
-          subtitle: Text(p.serviceRunning ? 'Запущен' : 'Остановлен'),
+        statusRow(
+          ok: p.serviceRunning,
+          title: 'Фоновый сервис',
+          subtitle: p.serviceRunning ? 'Запущен' : 'Остановлен',
         ),
-        ListTile(
-          dense: true,
-          leading: Icon(
-            p.notificationPermission.contains('granted')
-                ? Icons.check_circle
-                : Icons.cancel,
-            color: p.notificationPermission.contains('granted')
-                ? Colors.green
-                : Colors.red,
-          ),
-          title: const Text('Разрешение на уведомления'),
-          subtitle: Text(p.notificationPermission),
+        statusRow(
+          ok: notifGranted,
+          title: 'Разрешение на уведомления',
+          subtitle: p.notificationPermission,
         ),
-        ListTile(
-          dense: true,
-          leading: Icon(
-            p.batteryOptIgnored ? Icons.check_circle : Icons.warning_amber,
-            color: p.batteryOptIgnored ? Colors.green : Colors.orange,
-          ),
-          title: const Text('Игнорировать оптимизацию батареи'),
-          subtitle: Text(p.batteryOptIgnored
+        statusRow(
+          ok: p.batteryOptIgnored,
+          warning: !p.batteryOptIgnored,
+          title: 'Игнорировать оптимизацию батареи',
+          subtitle: p.batteryOptIgnored
               ? 'Разрешено'
-              : 'Не разрешено — система может убивать сервис'),
+              : 'Система может убивать сервис',
           trailing: p.batteryOptIgnored
               ? null
-              : TextButton(
+              : FilledButton.tonal(
                   onPressed: _requestBattery,
                   child: const Text('Разрешить'),
                 ),
         ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: Wrap(
-            spacing: 8,
-            children: [
-              OutlinedButton.icon(
+        const SizedBox(height: AppConstants.spacingSM),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
                 onPressed: _restartPush,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Перезапустить сервис'),
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('Перезапустить'),
               ),
-              OutlinedButton.icon(
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
                 onPressed: _refreshPushStatus,
-                icon: const Icon(Icons.info_outline),
-                label: const Text('Обновить статус'),
+                icon: const Icon(Icons.info_outline, size: 18),
+                label: const Text('Обновить'),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-          child: Text(
-            'Подсказка: если кнопка «Разрешить» открывает выбор «Завершить '
-            'действие через…» — выберите «Настройки» или системный диалог '
-            'оптимизации батареи и снимите ограничение для приложения.',
-            style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.onSurfaceVariant),
+          padding: const EdgeInsets.symmetric(vertical: AppConstants.spacingMD),
+          child: Container(
+            padding: const EdgeInsets.all(AppConstants.spacingMD),
+            decoration: BoxDecoration(
+              color: cs.infoContainer.withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.lightbulb_outline_rounded,
+                    size: 18, color: cs.onInfoContainer),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Если «Разрешить» открывает выбор «Завершить действие '
+                    'через…» — выберите «Настройки» или системный диалог '
+                    'оптимизации батареи и снимите ограничение для приложения.',
+                    style: tt.bodySmall?.copyWith(color: cs.onInfoContainer),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ],

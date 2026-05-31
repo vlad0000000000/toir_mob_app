@@ -3,7 +3,6 @@ import 'package:intl/intl.dart';
 
 import '../../global_state.dart';
 import '../model/inventory_record.dart';
-import '../design/app_constants.dart';
 import 'tasks_filter_state.dart';
 
 const Map<TasksDateRange, String> _dateRangeLabels = {
