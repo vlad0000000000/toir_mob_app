@@ -203,18 +203,11 @@ class _ResultControlsState extends State<ResultControls> {
           maxLines: 8,
           controller: widget.descController,
           decoration: InputDecoration(
-              floatingLabelAlignment: FloatingLabelAlignment.start,
-              border: const OutlineInputBorder(),
-              fillColor: Theme.of(context).colorScheme.surface,
-              filled: true,
-              alignLabelWithHint: true,
-              hoverColor: Theme.of(context).colorScheme.surface,
-              labelText: Strings.checkDescription,
-              errorText:
-                  widget.highlightDescError ? 'Укажите комментарий' : null),
-          validator: (value) {
-            return null;
-          },
+            alignLabelWithHint: true,
+            labelText: Strings.checkDescription,
+            errorText:
+                widget.highlightDescError ? 'Укажите комментарий' : null,
+          ),
         ),
         SizedBox(
             height: 160,

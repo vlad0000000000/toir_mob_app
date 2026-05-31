@@ -241,16 +241,10 @@ class _UsageSelectionModalState extends State<UsageSelectionModal> {
                                     allowCurrentValue: true);
                               },
                               keyboardType: TextInputType.number,
-                              // inputFormatters: <TextInputFormatter>[
-                              //   FilteringTextInputFormatter.digitsOnly,
-                              //   FilteringTextInputFormatter.allow()
-                              // ],
                               decoration: InputDecoration(
-                                  labelText:
-                                      'Новое значение (${usageUnit.shortName})',
-                                  border: const OutlineInputBorder(),
-                                  hoverColor: Theme.of(context).colorScheme.surface,
-                                  fillColor: Theme.of(context).colorScheme.surface),
+                                labelText:
+                                    'Новое значение (${usageUnit.shortName})',
+                              ),
                             ),
                           ],
                         ),
