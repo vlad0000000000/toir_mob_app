@@ -8,55 +8,56 @@ class ScannerDemoModal extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
     return Center(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
+        padding: const EdgeInsets.symmetric(horizontal: 24),
         child: Material(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(24),
           color: cs.surface,
+          clipBehavior: Clip.antiAlias,
           child: Padding(
             padding: const EdgeInsets.all(28),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: cs.primaryContainer,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(Icons.qr_code_2_rounded,
+                      color: cs.onPrimaryContainer, size: 28),
+                ),
+                const SizedBox(height: 20),
                 Text(
                   'Первый осмотр',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
+                  style: tt.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
                     color: cs.onSurface,
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 8),
                 Text(
                   'Давайте посмотрим, как устроен интерфейс осмотра. '
-                  'Это безопасно \u2014 мы используем тестовые данные.',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: cs.onSurface,
+                  'Это безопасно — мы используем тестовые данные.',
+                  style: tt.bodyLarge?.copyWith(
+                    color: cs.onSurfaceVariant,
                     height: 1.4,
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 28),
                 SizedBox(
                   width: double.infinity,
                   height: 52,
-                  child: ElevatedButton(
+                  child: ElevatedButton.icon(
                     onPressed: onStart,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: cs.tertiary,
-                      foregroundColor: cs.onTertiary,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      elevation: 0,
-                    ),
-                    child: const Text(
-                      'Начать демо-осмотр',
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                    ),
+                    icon: const Icon(Icons.play_arrow_rounded),
+                    label: const Text('Начать демо-осмотр'),
                   ),
                 ),
               ],

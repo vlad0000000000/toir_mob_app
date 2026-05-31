@@ -35,6 +35,8 @@ class _KnowledgeBaseScreenState extends State<KnowledgeBaseScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
     if (_loadError) {
       return Scaffold(
         appBar: MyAppBar.build(context) as AppBar,
@@ -44,17 +46,33 @@ class _KnowledgeBaseScreenState extends State<KnowledgeBaseScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.error_outline, size: 64, color: Colors.grey),
+                Container(
+                  width: 96,
+                  height: 96,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: cs.errorContainer.withValues(alpha: 0.4),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.cloud_off_rounded,
+                      size: 48, color: cs.error),
+                ),
                 const SizedBox(height: 16),
-                const Text(
-                  'Не удалось загрузить страницу в приложении',
+                Text(
+                  'Не удалось загрузить страницу',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 16),
+                  style: tt.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Проверьте интернет-соединение или откройте справку в браузере.',
+                  textAlign: TextAlign.center,
+                  style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
                 ),
                 const SizedBox(height: 24),
                 FilledButton.icon(
                   onPressed: openKnowledgeBaseInBrowser,
-                  icon: const Icon(Icons.open_in_browser),
+                  icon: const Icon(Icons.open_in_browser_rounded),
                   label: const Text('Открыть в браузере'),
                 ),
               ],
@@ -71,7 +89,8 @@ class _KnowledgeBaseScreenState extends State<KnowledgeBaseScreen> {
           if (_progress < 1)
             LinearProgressIndicator(
               value: _progress,
-              backgroundColor: Colors.grey.shade200,
+              minHeight: 2,
+              backgroundColor: cs.surfaceContainerHigh,
             ),
           Expanded(
             child: InAppWebView(
