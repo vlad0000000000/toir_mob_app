@@ -83,7 +83,7 @@ class _BarcodeScannerWithControllerState
   Widget build(BuildContext context) {
     final dataProvider = context.watch<DataProvider>();
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Theme.of(context).colorScheme.inverseSurface,
       appBar: MyAppBar.build(context) as AppBar,
       body: Stack(
         fit: StackFit.expand,

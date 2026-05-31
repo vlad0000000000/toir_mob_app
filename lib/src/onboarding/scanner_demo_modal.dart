@@ -7,33 +7,34 @@ class ScannerDemoModal extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
         child: Material(
           borderRadius: BorderRadius.circular(20),
-          color: Colors.white,
+          color: cs.surface,
           child: Padding(
             padding: const EdgeInsets.all(28),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Первый осмотр',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
-                    color: Colors.black,
+                    color: cs.onSurface,
                   ),
                 ),
                 const SizedBox(height: 16),
-                const Text(
+                Text(
                   'Давайте посмотрим, как устроен интерфейс осмотра. '
                   'Это безопасно \u2014 мы используем тестовые данные.',
                   style: TextStyle(
                     fontSize: 16,
-                    color: Colors.black87,
+                    color: cs.onSurface,
                     height: 1.4,
                   ),
                 ),
@@ -44,8 +45,8 @@ class ScannerDemoModal extends StatelessWidget {
                   child: ElevatedButton(
                     onPressed: onStart,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF4CAF50),
-                      foregroundColor: Colors.white,
+                      backgroundColor: cs.tertiary,
+                      foregroundColor: cs.onTertiary,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),

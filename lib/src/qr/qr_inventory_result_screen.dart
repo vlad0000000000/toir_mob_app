@@ -93,7 +93,8 @@ class _ResultControlsState extends State<ResultControls> {
                     ),
                     labelWidget: Text(
                       x[0] as String,
-                      style: TextStyle(color: Colors.black),
+                      style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurface),
                     ));
               }).toList(),
             )),
@@ -111,10 +112,10 @@ class _ResultControlsState extends State<ResultControls> {
         decoration: InputDecoration(
             floatingLabelAlignment: FloatingLabelAlignment.start,
             border: const OutlineInputBorder(),
-            fillColor: Colors.white,
+            fillColor: Theme.of(context).colorScheme.surface,
             filled: true,
             alignLabelWithHint: true,
-            hoverColor: Colors.white,
+            hoverColor: Theme.of(context).colorScheme.surface,
             labelText: Strings.checkDescription),
         validator: (value) {
           // if (value == null || value.isEmpty) {
