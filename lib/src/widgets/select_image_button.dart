@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../src/widgets/square_button.dart';
 import '../../strings.dart';
-import 'package:themed/themed.dart';
 import 'controller_listener_mixin.dart';
 
 class SelectImageButtonController {

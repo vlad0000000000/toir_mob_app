@@ -202,94 +202,154 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       }
     }
 
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      showDragHandle: true,
       builder: (ctx) {
         final maxHeight = MediaQuery.of(ctx).size.height * 0.85;
         return SafeArea(
           child: ConstrainedBox(
             constraints: BoxConstraints(maxHeight: maxHeight),
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(
+                  AppConstants.spacingMD,
+                  0,
+                  AppConstants.spacingMD,
+                  AppConstants.spacingMD),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          NotificationTypes.displayName(n.notificationType),
-                          style: TextStyle(
-                              fontSize: 14,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant),
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.of(ctx).pop(),
-                      ),
-                    ],
+                  Text(
+                    NotificationTypes.displayName(n.notificationType)
+                        .toUpperCase(),
+                    style: tt.labelSmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                      letterSpacing: 0.8,
+                    ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: AppConstants.spacingSM),
                   Text(
                     n.title.isEmpty ? '—' : n.title,
-                    style: const TextStyle(
-                        fontSize: 20, fontWeight: FontWeight.bold),
+                    style: tt.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                  const SizedBox(height: 8),
-                  if (NotificationFormatters.summaryDescription(n) != null) ...[
-                    Text(NotificationFormatters.summaryDescription(n)!),
-                    const SizedBox(height: 8),
-                  ] else if (n.description.isNotEmpty) ...[
-                    Text(n.description),
-                    const SizedBox(height: 8),
-                  ],
-                  if (n.notificationType != NotificationTypes.summaryTask)
-                    _statusChip(n),
-                  if (n.notificationType != NotificationTypes.summaryTask)
-                    const SizedBox(height: 8),
-                  if (n.priorityDisplay != null &&
-                      n.priorityDisplay!.isNotEmpty)
-                    Text('Приоритет: ${n.priorityDisplay}'),
-                  const SizedBox(height: 4),
-                  Text(NotificationFormatters.executorLabel(n)),
-                  const SizedBox(height: 4),
-                  Text(
-                      'Создано: ${NotificationFormatters.formatDateTime(n.createdAt)}'),
+                  const SizedBox(height: AppConstants.spacingMD),
+                  if (NotificationFormatters.summaryDescription(n) != null)
+                    Text(
+                      NotificationFormatters.summaryDescription(n)!,
+                      style: tt.bodyMedium,
+                    )
+                  else if (n.description.isNotEmpty)
+                    Text(n.description, style: tt.bodyMedium),
+                  if (NotificationFormatters.summaryDescription(n) != null ||
+                      n.description.isNotEmpty)
+                    const SizedBox(height: AppConstants.spacingMD),
+                  Wrap(
+                    spacing: AppConstants.spacingSM,
+                    runSpacing: AppConstants.spacingSM,
+                    children: [
+                      if (n.notificationType !=
+                          NotificationTypes.summaryTask)
+                        _statusChip(n),
+                      if (n.priorityDisplay != null &&
+                          n.priorityDisplay!.isNotEmpty)
+                        _infoChip(
+                          icon: Icons.priority_high_rounded,
+                          label: n.priorityDisplay!,
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: AppConstants.spacingMD),
+                  _metaRow(Icons.person_outline,
+                      NotificationFormatters.executorLabel(n)),
+                  _metaRow(
+                    Icons.schedule_rounded,
+                    'Создано ${NotificationFormatters.formatDateTime(n.createdAt)}',
+                  ),
                   if (task != null) ...[
-                    const SizedBox(height: 16),
-                    const Divider(),
-                    const SizedBox(height: 8),
-                    const Text('Задача',
-                        style: TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: AppConstants.spacingLG),
+                    _sectionDivider('Задача'),
                     ..._buildTaskInfo(task),
                   ],
                   if (equipment != null) ...[
-                    const SizedBox(height: 16),
-                    const Divider(),
-                    const SizedBox(height: 8),
-                    const Text('Оборудование',
-                        style: TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: AppConstants.spacingLG),
+                    _sectionDivider('Оборудование'),
                     ..._buildEquipmentInfo(equipment),
                   ],
-                  const SizedBox(height: 16),
                 ],
               ),
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _metaRow(IconData icon, String text) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: cs.onSurfaceVariant),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionDivider(String label) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppConstants.spacingMD),
+      child: Row(
+        children: [
+          Text(
+            label.toUpperCase(),
+            style: tt.labelSmall?.copyWith(
+              color: cs.onSurfaceVariant,
+              letterSpacing: 0.8,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Divider(color: cs.outlineVariant, thickness: 0.5)),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoChip({required IconData icon, required String label}) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(AppConstants.radiusSM),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: cs.onSurfaceVariant),
+          const SizedBox(width: 4),
+          Text(label,
+              style: tt.labelSmall
+                  ?.copyWith(color: cs.onSurface)),
+        ],
+      ),
     );
   }
 
@@ -351,31 +411,57 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Widget _kv(String key, String value) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.only(bottom: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(key,
-              style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant)),
-          Text(value, style: const TextStyle(fontSize: 14)),
+          Text(
+            key,
+            style: tt.labelSmall?.copyWith(
+              color: cs.onSurfaceVariant,
+              letterSpacing: 0.4,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(value, style: tt.bodyMedium),
         ],
       ),
     );
   }
 
   Widget _statusChip(AppNotification n) {
+    final tt = Theme.of(context).textTheme;
     final color = NotificationFormatters.statusColor(n.status);
     final label = NotificationStatuses.displayName(n.status);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppConstants.radiusSM),
+        border: Border.all(color: color.withValues(alpha: 0.4), width: 0.5),
       ),
-      child: Text(label, style: TextStyle(color: color)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(label,
+              style: tt.labelSmall?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w600,
+              )),
+        ],
+      ),
     );
   }
 }
@@ -388,25 +474,42 @@ class _HideReadToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
     return Material(
-      color: Theme.of(context).colorScheme.surface,
-      child: InkWell(
-        onTap: () => onChanged(!value),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          child: Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Скрыть прочитанные',
-                  style: TextStyle(fontSize: 14),
+      color: cs.surface,
+      child: Container(
+        decoration: BoxDecoration(
+          border:
+              Border(bottom: BorderSide(color: cs.outlineVariant, width: 0.5)),
+        ),
+        child: InkWell(
+          onTap: () => onChanged(!value),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppConstants.spacingMD, vertical: 4),
+            child: Row(
+              children: [
+                Icon(
+                  value
+                      ? Icons.mark_email_read_outlined
+                      : Icons.email_outlined,
+                  size: 18,
+                  color: cs.onSurfaceVariant,
                 ),
-              ),
-              Switch(
-                value: value,
-                onChanged: onChanged,
-              ),
-            ],
+                const SizedBox(width: AppConstants.spacingSM),
+                Expanded(
+                  child: Text(
+                    'Скрыть прочитанные',
+                    style: tt.bodyMedium,
+                  ),
+                ),
+                Switch(
+                  value: value,
+                  onChanged: onChanged,
+                ),
+              ],
+            ),
           ),
         ),
       ),

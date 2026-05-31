@@ -107,6 +107,7 @@ class MyAppBar {
       );
     }
     if (location.startsWith('/actions')) {
+      final username = GlobalState.authUser?.username ?? '';
       return AppBar(
         automaticallyImplyLeading: false,
         leading: const HelpLink(
@@ -116,6 +117,16 @@ class MyAppBar {
           ),
         ),
         leadingWidth: 120,
+        title: username.isEmpty
+            ? null
+            : Text(
+                username,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: cs.onSurfaceVariant,
+                      fontWeight: FontWeight.w500,
+                    ),
+              ),
+        centerTitle: true,
         actions: [logoutOnSurface],
       );
     }

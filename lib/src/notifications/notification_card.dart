@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../design/app_constants.dart';
+import '../design/app_theme.dart';
 import '../model/notification.dart';
 import 'notification_formatters.dart';
 
+/// Карточка уведомления: тонкая вертикальная акцент-полоса слева (cтатус
+/// уведомления), компактный layout заголовок → описание → meta-чипы. Для
+/// непрочитанных — тонкая внешняя обводка primary.
 class NotificationCard extends StatelessWidget {
   final AppNotification notification;
   final VoidCallback onTap;
@@ -15,108 +19,140 @@ class NotificationCard extends StatelessWidget {
     required this.onTap,
   });
 
+  bool get _isOverdueType =>
+      notification.notificationType == NotificationTypes.overdueTask ||
+      notification.status == NotificationStatuses.overdue;
+  bool get _isHighPriority =>
+      notification.notificationType ==
+      NotificationTypes.inspectionHighPriority;
+  bool get _isSummary =>
+      notification.notificationType == NotificationTypes.summaryTask;
+
   @override
   Widget build(BuildContext context) {
-    final isOverdueType =
-        notification.notificationType == NotificationTypes.overdueTask ||
-            notification.status == NotificationStatuses.overdue;
-    final isSummary =
-        notification.notificationType == NotificationTypes.summaryTask;
-    final isHighPriority = notification.notificationType ==
-        NotificationTypes.inspectionHighPriority;
-    final summaryDesc =
-        NotificationFormatters.summaryDescription(notification);
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final unread = !notification.isRead;
+    final summaryDesc = NotificationFormatters.summaryDescription(notification);
+    final descText = summaryDesc ?? notification.description;
+    final accentColor = _accentColor(context);
+
     return Material(
-      color: Theme.of(context).colorScheme.surface,
+      color: unread ? cs.surface : cs.surfaceContainerLow,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+        borderRadius: BorderRadius.circular(AppConstants.radiusLG),
         side: BorderSide(
-          color: isOverdueType || isHighPriority
-              ? Theme.of(context).colorScheme.error
-              : Theme.of(context).colorScheme.outlineVariant,
-          width: 1,
+          color: unread
+              ? (_isOverdueType || _isHighPriority
+                  ? cs.error.withValues(alpha: 0.4)
+                  : cs.outlineVariant)
+              : cs.outlineVariant.withValues(alpha: 0.6),
+          width: 0.5,
         ),
       ),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
-        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
         onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  Text(
-                    NotificationTypes.displayName(notification.notificationType),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const Spacer(),
-                  if (!notification.isRead)
-                    Container(
-                      width: 10,
-                      height: 10,
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.error,
-                        shape: BoxShape.circle,
+              Container(width: 3, color: accentColor),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                      AppConstants.spacingMD,
+                      AppConstants.spacingMD - 2,
+                      AppConstants.spacingMD,
+                      AppConstants.spacingMD - 2),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              NotificationTypes.displayName(
+                                      notification.notificationType)
+                                  .toUpperCase(),
+                              style: tt.labelSmall?.copyWith(
+                                color: cs.onSurfaceVariant,
+                                letterSpacing: 0.6,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (unread)
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: cs.primary,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                        ],
                       ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                notification.title.isEmpty ? '—' : notification.title,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: NotificationFormatters.statusColor(
-                      notification.status),
+                      const SizedBox(height: 4),
+                      Text(
+                        notification.title.isEmpty
+                            ? '—'
+                            : notification.title,
+                        style: tt.titleMedium?.copyWith(
+                          color: cs.onSurface,
+                          fontWeight:
+                              unread ? FontWeight.w700 : FontWeight.w600,
+                          height: 1.25,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (descText.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          descText,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: tt.bodySmall?.copyWith(
+                            color: cs.onSurfaceVariant,
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: AppConstants.spacingSM),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          if (!_isSummary)
+                            _StatusPill(status: notification.status),
+                          if ((notification.notificationType ==
+                                      NotificationTypes.assignedInspection ||
+                                  notification.notificationType ==
+                                      NotificationTypes
+                                          .inspectionHighPriority) &&
+                              notification.priorityDisplay != null &&
+                              notification.priorityDisplay!.isNotEmpty)
+                            _PriorityPill(
+                              priority: notification.priority,
+                              label: notification.priorityDisplay!,
+                            ),
+                          _DeadlinePill(notification: notification),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        _executorOrCreated(notification),
+                        style: tt.labelSmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              if (summaryDesc != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  summaryDesc,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 14),
-                ),
-              ] else if (notification.description.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text(
-                  notification.description,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 14),
-                ),
-              ],
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  if (!isSummary) _StatusBadge(status: notification.status),
-                  if (!isSummary) const SizedBox(width: 8),
-                  if ((notification.notificationType ==
-                              NotificationTypes.assignedInspection ||
-                          notification.notificationType ==
-                              NotificationTypes.inspectionHighPriority) &&
-                      notification.priorityDisplay != null &&
-                      notification.priorityDisplay!.isNotEmpty)
-                    _PriorityBadge(
-                      priority: notification.priority,
-                      label: notification.priorityDisplay!,
-                    ),
-                  const Spacer(),
-                  _DeadlineLabel(notification: notification),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                _executorOrCreated(notification),
-                style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
             ],
           ),
@@ -125,75 +161,115 @@ class NotificationCard extends StatelessWidget {
     );
   }
 
+  Color _accentColor(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    if (_isOverdueType || _isHighPriority) return cs.error;
+    if (notification.status == NotificationStatuses.completed) {
+      return cs.success;
+    }
+    if (notification.status == NotificationStatuses.viewed) {
+      return cs.info;
+    }
+    if (notification.isRead) return cs.outlineVariant;
+    return cs.primary;
+  }
+
   String _executorOrCreated(AppNotification n) {
-    final created = DateFormat('dd.MM.yyyy HH:mm').format(n.createdAt.toLocal());
+    final created =
+        DateFormat('dd.MM.yyyy HH:mm').format(n.createdAt.toLocal());
     if (n.notificationType == NotificationTypes.summaryTask) {
-      return 'Создано: $created';
+      return created;
     }
     final executor = NotificationFormatters.executorLabel(n);
-    if (n.notificationType == NotificationTypes.assignedInspection ||
-        n.notificationType == NotificationTypes.inspectionHighPriority) {
-      return '$executor  •  $created';
-    }
-    return '$executor  •  Создано: $created';
+    return '$executor  •  $created';
   }
 }
 
-class _StatusBadge extends StatelessWidget {
+class _StatusPill extends StatelessWidget {
   final String status;
-  const _StatusBadge({required this.status});
+  const _StatusPill({required this.status});
 
   @override
   Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
     final color = NotificationFormatters.statusColor(status);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(AppConstants.radiusSM),
       ),
-      child: Text(
-        NotificationStatuses.displayName(status),
-        style: TextStyle(color: color, fontSize: 12),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 5,
+            height: 5,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            NotificationStatuses.displayName(status),
+            style: tt.labelSmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _PriorityBadge extends StatelessWidget {
+class _PriorityPill extends StatelessWidget {
   final String? priority;
   final String label;
-  const _PriorityBadge({required this.priority, required this.label});
+  const _PriorityPill({required this.priority, required this.label});
 
-  Color get _color {
+  Color _color(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     switch (priority) {
       case 'high':
-        return Colors.red;
+        return cs.priorityHigh;
       case 'medium':
-        return Colors.orange;
+        return cs.priorityMedium;
       case 'low':
-        return Colors.green;
+        return cs.priorityLow;
     }
-    return Colors.grey;
+    return cs.onSurfaceVariant;
   }
 
   @override
   Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+    final color = _color(context);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: _color.withValues(alpha: 0.15),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(AppConstants.radiusSM),
       ),
-      child: Text('Приоритет: $label',
-          style: TextStyle(color: _color, fontSize: 12)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.flag_rounded, size: 11, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: tt.labelSmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _DeadlineLabel extends StatelessWidget {
+class _DeadlinePill extends StatelessWidget {
   final AppNotification notification;
-  const _DeadlineLabel({required this.notification});
+  const _DeadlinePill({required this.notification});
 
   DateTime? get _dueAt {
     final raw = notification.payload['due_at'] as String?;
@@ -205,22 +281,47 @@ class _DeadlineLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     final due = _dueAt;
     if (due == null) return const SizedBox.shrink();
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
     final now = DateTime.now().toUtc();
     final diff = due.difference(now);
     final isOverdue = diff.isNegative ||
         notification.notificationType == NotificationTypes.overdueTask;
-    final color = isOverdue
-        ? Theme.of(context).colorScheme.error
-        : Theme.of(context).colorScheme.onSurface;
+    final color = isOverdue ? cs.error : cs.onSurfaceVariant;
     final absDiff = diff.abs();
     final h = absDiff.inHours;
     final m = absDiff.inMinutes.remainder(60);
-    String text;
-    if (isOverdue) {
-      text = 'Просрочено: ${h}ч ${m}м';
-    } else {
-      text = 'Осталось: ${h}ч ${m}м';
-    }
-    return Text(text, style: TextStyle(fontSize: 12, color: color));
+    final text =
+        isOverdue ? 'Просрочено ${h}ч ${m}м' : 'Осталось ${h}ч ${m}м';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: isOverdue
+            ? cs.error.withValues(alpha: 0.10)
+            : cs.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(AppConstants.radiusSM),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isOverdue
+                ? Icons.warning_amber_rounded
+                : Icons.schedule_rounded,
+            size: 11,
+            color: color,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: tt.labelSmall?.copyWith(
+              color: color,
+              fontWeight:
+                  isOverdue ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

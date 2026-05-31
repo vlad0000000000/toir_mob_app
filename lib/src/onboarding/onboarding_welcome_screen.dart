@@ -9,92 +9,106 @@ class OnboardingWelcomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
     return Scaffold(
       backgroundColor: cs.surface,
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ClipRRect(
-              borderRadius: const BorderRadius.only(
-                bottomLeft: Radius.circular(24),
-                bottomRight: Radius.circular(24),
-              ),
-              child: Image.asset(
-                'assets/onboarding/lisa.png',
-                width: double.infinity,
-                height: MediaQuery.of(context).size.height * 0.55,
-                fit: BoxFit.cover,
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '\u{1F44B} Привет, я \u2013 Лиза!',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: cs.onSurface,
+      body: SafeArea(
+        bottom: false,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(24),
+                  bottomRight: Radius.circular(24),
+                ),
+                child: Stack(
+                  children: [
+                    Image.asset(
+                      'assets/onboarding/lisa.png',
+                      width: double.infinity,
+                      height: MediaQuery.of(context).size.height * 0.55,
+                      fit: BoxFit.cover,
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Я помогу вам освоить приложение за пару минут. '
-                    'Потренируемся на тестовых данных, чтобы вы уверенно '
-                    'начали работу на реальных объектах.',
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: cs.onSurface,
-                      height: 1.4,
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton(
-                      onPressed: () => _startOnboarding(context),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: cs.tertiary,
-                        foregroundColor: cs.onTertiary,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                    Positioned(
+                      left: 16,
+                      bottom: 16,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: cs.surface.withValues(alpha: 0.85),
+                          borderRadius: BorderRadius.circular(20),
                         ),
-                        elevation: 0,
-                      ),
-                      child: const Text(
-                        'Начать обучение',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: OutlinedButton(
-                      onPressed: () => _skipOnboarding(context),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: cs.onSurface,
-                        side: BorderSide(color: cs.outline),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.auto_awesome_rounded,
+                                size: 14, color: cs.primary),
+                            const SizedBox(width: 6),
+                            Text(
+                              'ОБУЧЕНИЕ • 2 МИН',
+                              style: tt.labelSmall?.copyWith(
+                                color: cs.onSurface,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      child: const Text(
-                        'Пропустить обучение',
-                        style: TextStyle(fontSize: 16),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '\u{1F44B} Привет, я – Лиза',
+                      style: tt.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: cs.onSurface,
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
+                    const SizedBox(height: 12),
+                    Text(
+                      'Помогу вам освоить приложение за пару минут. '
+                      'Потренируемся на тестовых данных, чтобы вы уверенно '
+                      'начали работу на реальных объектах.',
+                      style: tt.bodyLarge?.copyWith(
+                        color: cs.onSurfaceVariant,
+                        height: 1.45,
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: ElevatedButton.icon(
+                        onPressed: () => _startOnboarding(context),
+                        icon: const Icon(Icons.play_arrow_rounded),
+                        label: const Text('Начать обучение'),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: TextButton(
+                        onPressed: () => _skipOnboarding(context),
+                        child: const Text('Пропустить'),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

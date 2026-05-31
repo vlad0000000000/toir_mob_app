@@ -17,7 +17,6 @@ import '../../src/utils/dialogs.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../src/widgets/select_image_button.dart';
 import '../../src/widgets/select_state_button.dart';
-import '../../src/widgets/square_button.dart';
 import '../model/typical_problem.dart';
 import '../model/usage_update.dart';
 import '../model/periodic_task_request.dart';
@@ -392,92 +391,67 @@ ${widget.machine.descriptionText}
 
     return Scaffold(
       appBar: MyAppBar.build(context) as AppBar,
-      body: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 8),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
         child: Column(
           spacing: 8,
           children: [
-            Expanded(
-                child: SingleChildScrollView(
-              child: Column(
-                spacing: 8,
-                children: [
-                  passport(),
-                  ResultControls(
-                    machine: widget.machine,
-                    descController: descController,
-                    imageData1Controller: imageData1Controller,
-                    imageData2Controller: imageData2Controller,
-                    imageData3Controller: imageData3Controller,
-                    priorityController: priorityController,
-                    problemController: problemController,
-                    equipmentDetailController: equipmentController,
-                    usageController: usageController,
-                    highlightDescError: _highlightDescError,
-                    highlightPriorityError: _highlightPriorityError,
-                  )
-                ],
-              ),
-            )),
-            Row(
-              spacing: 8,
-              children: [
-                Expanded(
-                    child: SquareButton(
-                        onPressed: () {
-                          final isDemoMode = widget.machine.uuid ==
-                              DemoEquipment.demoUuid;
-                          if (isDemoMode) {
-                            Settings.onboardingStep = 4;
-                            GoRouter.of(context)
-                                .clearStackAndNavigate('/onboarding_video');
-                            return;
-                          }
-                          var scans = createScans();
-                          var usageScans = createUsageScans();
-                          if (scans != null) {
-                            if (scans.length + usageScans.length == 0) {
-                              Dialogs.notify(context, 'Не отправлено',
-                                  'Укажите данные обхода (комментарий, проблему, задачу или наработку)');
-                            } else {
-                              var rewriteMessage = null;
-                              var desc = null;
-                              Dialogs.areYouSure(context, onOk: () async {
-                                await addScans(scans, usageScans);
-                                dataProvider.mainSync();
-                                for (var usageScan in usageScans) {
-                                  if (usageScan.usageParameterValue == null) {
-                                    continue;
-                                  }
-                                  for (var usageParam
-                                      in widget.machine.usageParameters) {
-                                    if (usageScan.usageParameterUuid ==
-                                        usageParam.uuid) {
-                                      usageParam.currentValue =
-                                          usageScan.usageParameterValue!;
-                                    }
-                                  }
-                                }
-                                if (GoRouter.of(context).location ==
-                                    '/qr_result_problems') {
-                                  GoRouter.of(context)
-                                      .clearStackAndNavigate("/problems");
-                                } else {
-                                  GoRouter.of(context)
-                                      .clearStackAndNavigate("/qr_scanner");
-                                }
-                              }, rewriteMessage: rewriteMessage, desc: desc);
-                            }
-                          }
-                        },
-                        child: Text("Отправить")))
-              ],
+            passport(),
+            ResultControls(
+              machine: widget.machine,
+              descController: descController,
+              imageData1Controller: imageData1Controller,
+              imageData2Controller: imageData2Controller,
+              imageData3Controller: imageData3Controller,
+              priorityController: priorityController,
+              problemController: problemController,
+              equipmentDetailController: equipmentController,
+              usageController: usageController,
+              highlightDescError: _highlightDescError,
+              highlightPriorityError: _highlightPriorityError,
             ),
-            SizedBox()
           ],
         ),
       ),
+      bottomNavigationBar: _SubmitBar(
+        onSubmit: () => _submit(dataProvider),
+      ),
     );
+  }
+
+  void _submit(DataProvider dataProvider) {
+    final isDemoMode = widget.machine.uuid == DemoEquipment.demoUuid;
+    if (isDemoMode) {
+      Settings.onboardingStep = 4;
+      GoRouter.of(context).clearStackAndNavigate('/onboarding_video');
+      return;
+    }
+    final scans = createScans();
+    final usageScans = createUsageScans();
+    if (scans == null) return;
+    if (scans.length + usageScans.length == 0) {
+      Dialogs.notify(context, 'Не отправлено',
+          'Укажите данные обхода (комментарий, проблему, задачу или наработку)');
+      return;
+    }
+    Dialogs.areYouSure(context, onOk: () async {
+      await addScans(scans, usageScans);
+      dataProvider.mainSync();
+      for (var usageScan in usageScans) {
+        if (usageScan.usageParameterValue == null) continue;
+        for (var usageParam in widget.machine.usageParameters) {
+          if (usageScan.usageParameterUuid == usageParam.uuid) {
+            usageParam.currentValue = usageScan.usageParameterValue!;
+          }
+        }
+      }
+      if (!mounted) return;
+      if (GoRouter.of(context).location == '/qr_result_problems') {
+        GoRouter.of(context).clearStackAndNavigate('/problems');
+      } else {
+        GoRouter.of(context).clearStackAndNavigate('/qr_scanner');
+      }
+    }, rewriteMessage: null, desc: null);
   }
 
   void _clearValidationHighlights() {
@@ -615,3 +589,39 @@ ${widget.machine.descriptionText}
     super.dispose();
   }
 }
+
+/// Sticky bottom CTA для отправки осмотра. Surface фон + тонкая верхняя
+/// граница из outlineVariant, primary FilledButton 56px высоты с иконкой.
+class _SubmitBar extends StatelessWidget {
+  final VoidCallback onSubmit;
+  const _SubmitBar({required this.onSubmit});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return SafeArea(
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        decoration: BoxDecoration(
+          color: cs.surface,
+          border: Border(
+            top: BorderSide(color: cs.outlineVariant, width: 0.5),
+          ),
+        ),
+        child: SizedBox(
+          height: 56,
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: onSubmit,
+            icon: const Icon(Icons.send_rounded, size: 20),
+            label: const Text('Отправить'),
+            style: ElevatedButton.styleFrom(
+              textStyle: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
