@@ -6,6 +6,7 @@ import '../../src/app_bar/app_bar.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/task.dart';
 import '../design/app_constants.dart';
+import '../widgets/empty_state.dart';
 import 'tasks_filter.dart';
 
 /// Перенесённый с экрана уведомлений фильтр. Сейчас спрятан,
@@ -58,104 +59,45 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
               return bc.compareTo(ac);
             });
             if (equipmentList.length == 0) {
-              Widget list = ListView.builder(
-                itemCount: 1,
-                itemBuilder: (context, index) {
-                  return Card(
-                      margin: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8),
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
-                      ),
-                      child: ListTile(
-                        title: Text(
-                          'Нет задач',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ));
-                },
+              return EmptyState(
+                icon: isProblems
+                    ? Icons.warehouse_outlined
+                    : Icons.checklist_rounded,
+                title: isProblems
+                    ? 'Нет оборудования'
+                    : 'Нет активных задач',
+                hint: isProblems
+                    ? 'Список оборудования пуст или ещё не загружен.'
+                    : 'Отсканируйте QR-код оборудования, чтобы начать осмотр или открыть задачи.',
               );
-              return list;
             }
-            Widget list = ListView.builder(
+            return ListView.separated(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppConstants.spacingMD,
+                vertical: AppConstants.spacingMD,
+              ),
               itemCount: equipmentList.length,
+              separatorBuilder: (_, __) =>
+                  const SizedBox(height: AppConstants.spacingSM),
               itemBuilder: (context, index) {
                 final equipment = equipmentList[index];
-                var taskCount = _filteredTasksFor(equipment).length;
-                if (isProblems) {
-                  return Card(
-                      margin: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8),
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
-                      ),
-                      child: ListTile(
-                          title: Text(
-                            '${equipment.name}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          trailing: const Icon(Icons.arrow_forward),
-                          onTap: () {
-                            if (isProblems) {
-                              GoRouter.of(context).clearStackAndNavigate(
-                                  '/qr_result_problems',
-                                  extra: equipment);
-                            } else {
-                              GoRouter.of(context)
-                                  .go('/details/${equipment.id}');
-                            }
-                          }));
-                }
-                if (taskCount == 0) {
-                  return Card(
-                      margin: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8),
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
-                      ),
-                      child: ListTile(
-                        title: Text(
-                          '${equipment.name} (нет задач)',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ));
-                }
-                return Card(
-                    margin:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    elevation: 2,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppConstants.radiusMD),
-                    ),
-                    child: ListTile(
-                        title: Text(
-                          '${equipment.name} (${taskCount})',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        trailing: const Icon(Icons.arrow_forward),
-                        onTap: () {
-                          if (isProblems) {
-                            GoRouter.of(context).clearStackAndNavigate(
-                                '/qr_result_problems',
-                                extra: equipment);
-                          } else {
-                            GoRouter.of(context).go('/details/${equipment.id}');
-                          }
-                        }));
+                final taskCount = _filteredTasksFor(equipment).length;
+                return _EquipmentTile(
+                  equipment: equipment,
+                  taskCount: taskCount,
+                  isProblems: isProblems,
+                  onTap: () {
+                    if (isProblems) {
+                      GoRouter.of(context).clearStackAndNavigate(
+                          '/qr_result_problems',
+                          extra: equipment);
+                    } else {
+                      GoRouter.of(context).go('/details/${equipment.id}');
+                    }
+                  },
+                );
               },
             );
-            return list;
           }
           return Center(
               child: CircularProgressIndicator(
@@ -187,6 +129,133 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
             ),
           Expanded(child: body),
         ],
+      ),
+    );
+  }
+}
+
+/// Карточка оборудования в списке: leading-иконка, имя, подзаголовок со
+/// счётчиком задач, badge справа (или chevron в режиме «problems»).
+class _EquipmentTile extends StatelessWidget {
+  final InventoryRecord equipment;
+  final int taskCount;
+  final bool isProblems;
+  final VoidCallback onTap;
+
+  const _EquipmentTile({
+    required this.equipment,
+    required this.taskCount,
+    required this.isProblems,
+    required this.onTap,
+  });
+
+  String _pluralizeTasks(int n) {
+    final mod10 = n % 10;
+    final mod100 = n % 100;
+    if (mod10 == 1 && mod100 != 11) return '$n активная задача';
+    if (mod10 >= 2 &&
+        mod10 <= 4 &&
+        (mod100 < 10 || mod100 >= 20)) {
+      return '$n активные задачи';
+    }
+    return '$n активных задач';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final hasTasks = !isProblems && taskCount > 0;
+
+    final subtitle = isProblems
+        ? null
+        : taskCount == 0
+            ? 'Нет активных задач'
+            : _pluralizeTasks(taskCount);
+
+    return Card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppConstants.radiusLG),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(AppConstants.spacingMD),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: hasTasks
+                      ? cs.primaryContainer
+                      : cs.surfaceContainerHigh,
+                  borderRadius:
+                      BorderRadius.circular(AppConstants.radiusMD),
+                ),
+                child: Icon(
+                  Icons.precision_manufacturing_outlined,
+                  color: hasTasks
+                      ? cs.onPrimaryContainer
+                      : cs.onSurfaceVariant,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: AppConstants.spacingMD),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      equipment.name,
+                      style: tt.titleMedium,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: tt.bodySmall?.copyWith(
+                          color: hasTasks
+                              ? cs.primary
+                              : cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppConstants.spacingSM),
+              if (hasTasks)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  constraints:
+                      const BoxConstraints(minWidth: 28, minHeight: 24),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: cs.primary,
+                    borderRadius:
+                        BorderRadius.circular(AppConstants.radiusFull),
+                  ),
+                  child: Text(
+                    '$taskCount',
+                    style: tt.labelMedium?.copyWith(
+                      color: cs.onPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                )
+              else
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: cs.onSurfaceVariant,
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }

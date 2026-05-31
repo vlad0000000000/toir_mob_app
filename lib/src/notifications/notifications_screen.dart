@@ -10,6 +10,7 @@ import '../model/notification.dart';
 import '../model/task.dart';
 import '../utils/go_router_ext.dart';
 import '../design/app_constants.dart';
+import '../widgets/empty_state.dart';
 import 'notifications_service.dart';
 import 'notification_card.dart';
 import 'notification_formatters.dart';
@@ -117,27 +118,19 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       return RefreshIndicator(
                         onRefresh: _refresh,
                         child: ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
                           children: [
-                            const SizedBox(height: 80),
-                            Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(24),
-                                child: Column(
-                                  children: [
-                                    Icon(Icons.notifications_off_outlined,
-                                        size: 56, color: Theme.of(context).colorScheme.outlineVariant),
-                                    const SizedBox(height: 12),
-                                    Text(
-                                      'Уведомлений нет',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
+                            SizedBox(height: MediaQuery.of(context).size.height * 0.1),
+                            EmptyState(
+                              icon: _hideRead
+                                  ? Icons.mark_email_read_outlined
+                                  : Icons.notifications_none_rounded,
+                              title: _hideRead
+                                  ? 'Всё прочитано'
+                                  : 'Уведомлений пока нет',
+                              hint: _hideRead
+                                  ? 'Здесь будут появляться новые уведомления о задачах и осмотрах.'
+                                  : 'Уведомления о задачах и осмотрах появятся здесь.',
                             ),
                           ],
                         ),
