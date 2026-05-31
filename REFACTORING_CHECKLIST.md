@@ -32,7 +32,7 @@
 ## Phase 4 — Дедупликация
 
 - [x] `ControllerListenerMixin` — вынесен дублирующийся initState/dispose/listener boilerplate из 6 `select_*`-виджетов. NB: полный generic `SelectButton<T>` (слияние dropdown'ов) + замена самописных `*Controller` на `AnyController` — отложено (бо́льший рефактор UI)
-- [ ] `SseConnection` — общий для `notifications_service` (main isolate) и `notifications_task_handler` (background)
+- [x] `SseLineParser` — извлечён общий парсер строк SSE для main isolate (`notifications_service`) и background isolate (`notifications_task_handler`). Требует прогона push/realtime на устройстве
 - [x] `showAppModalSheet()` (`widgets/app_bottom_sheet.dart`) — подключён ко всем 4 совпадающим точкам (`select_task_button`, `select_usage_button`, `qa_actions` settings, `equipment_detail` фото-вьюер). Прочие sheet'ы (DraggableScrollableSheet, ScannerDemoModal) — другой паттерн, не трогали
 - [x] `HelpLink` — общий виджет `widgets/help_link.dart` (подключён в `app_bar.dart` + `login_screen.dart`, убран дубль + лишний `flutter_svg`)
 - [x] Один `_buildTaskItem` вместо `_buildTaskItem`/`_buildOpenTaskItem` (null-safe title, `equipment_detail_screen.dart`)

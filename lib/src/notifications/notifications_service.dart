@@ -10,6 +10,7 @@ import '../http/api.dart';
 import '../model/notification.dart';
 import '../model/notification_settings.dart';
 import 'push/push_notifications_controller.dart';
+import 'sse_line_parser.dart';
 
 class NotificationsService {
   NotificationsService._();
@@ -198,7 +199,7 @@ class NotificationsService {
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen(
-        _handleStreamLine,
+        (line) => _sseParser.handleLine(line, _dispatchSseEvent),
         onError: (Object e) {
           debugPrint('SSE error: $e');
           _scheduleReconnect();
@@ -215,26 +216,7 @@ class NotificationsService {
     });
   }
 
-  String? _currentEvent;
-  final StringBuffer _currentData = StringBuffer();
-
-  void _handleStreamLine(String line) {
-    if (line.isEmpty) {
-      if (_currentEvent != null) {
-        _dispatchSseEvent(_currentEvent!, _currentData.toString());
-      }
-      _currentEvent = null;
-      _currentData.clear();
-      return;
-    }
-    if (line.startsWith(':')) return;
-    if (line.startsWith('event:')) {
-      _currentEvent = line.substring(6).trim();
-    } else if (line.startsWith('data:')) {
-      if (_currentData.isNotEmpty) _currentData.write('\n');
-      _currentData.write(line.substring(5).trim());
-    }
-  }
+  final SseLineParser _sseParser = SseLineParser();
 
   void _dispatchSseEvent(String event, String dataStr) {
     if (event == 'ping') return;

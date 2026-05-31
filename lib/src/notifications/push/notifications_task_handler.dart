@@ -7,6 +7,8 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 
+import '../sse_line_parser.dart';
+
 /// Точка входа для изолята foreground-сервиса.
 /// Должна быть top-level + `vm:entry-point`.
 @pragma('vm:entry-point')
@@ -54,8 +56,7 @@ class NotificationsTaskHandler extends TaskHandler {
   static const int _dedupeWindow = 200;
   final LinkedHashSet<String> _seenUuids = LinkedHashSet<String>();
 
-  String? _currentEvent;
-  final StringBuffer _currentData = StringBuffer();
+  final SseLineParser _sseParser = SseLineParser();
 
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
@@ -201,7 +202,7 @@ class NotificationsTaskHandler extends TaskHandler {
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen(
-        _handleSseLine,
+        (line) => _sseParser.handleLine(line, _dispatchEvent),
         onError: (Object e) {
           debugPrint('[NotifTask] SSE error: $e');
           _scheduleReconnect();
@@ -229,8 +230,7 @@ class NotificationsTaskHandler extends TaskHandler {
       _client?.close();
     } catch (_) {}
     _client = null;
-    _currentEvent = null;
-    _currentData.clear();
+    _sseParser.reset();
   }
 
   void _scheduleReconnect() {
@@ -241,24 +241,6 @@ class NotificationsTaskHandler extends TaskHandler {
       if (_stopped) return;
       _connectSse();
     });
-  }
-
-  void _handleSseLine(String line) {
-    if (line.isEmpty) {
-      if (_currentEvent != null) {
-        _dispatchEvent(_currentEvent!, _currentData.toString());
-      }
-      _currentEvent = null;
-      _currentData.clear();
-      return;
-    }
-    if (line.startsWith(':')) return;
-    if (line.startsWith('event:')) {
-      _currentEvent = line.substring(6).trim();
-    } else if (line.startsWith('data:')) {
-      if (_currentData.isNotEmpty) _currentData.write('\n');
-      _currentData.write(line.substring(5).trim());
-    }
   }
 
   Future<void> _dispatchEvent(String event, String dataStr) async {
