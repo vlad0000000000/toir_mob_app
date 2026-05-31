@@ -11,7 +11,10 @@ class HelpLink extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
       onTap: () => context.push('/knowledge_base'),
       child: Padding(
         padding: padding,
@@ -20,20 +23,16 @@ class HelpLink extends StatelessWidget {
           children: [
             SvgPicture.asset(
               'assets/images/ix_user-manual.svg',
-              width: 20,
-              height: 20,
-              colorFilter: ColorFilter.mode(
-                Theme.of(context).colorScheme.onSurfaceVariant,
-                BlendMode.srcIn,
-              ),
+              width: 18,
+              height: 18,
+              colorFilter: ColorFilter.mode(cs.primary, BlendMode.srcIn),
             ),
             const SizedBox(width: 6),
             Text(
               'Помощь',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                fontSize: 16,
-                decoration: TextDecoration.underline,
+              style: tt.labelLarge?.copyWith(
+                color: cs.primary,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],

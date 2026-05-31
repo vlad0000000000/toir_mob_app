@@ -62,37 +62,49 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
     return Scaffold(
-        body: Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        spacing: 8,
-        children: [
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              const Center(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                SizedBox(
+                  width: 128,
+                  height: 128,
                   child: CircularProgressIndicator(
-                color: Colors.black,
-                strokeWidth: 8,
-                constraints: BoxConstraints(minHeight: 128, minWidth: 128),
-              )),
-              Center(
-                  child: Container(
-                child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16.0),
-                    child: const Image(
-                        image: AssetImage('assets/images/icon.png'))),
-                width: 64,
-              ))
+                    color: cs.primary,
+                    strokeWidth: 4,
+                    backgroundColor:
+                        cs.surfaceContainerHighest.withValues(alpha: 0.5),
+                  ),
+                ),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16.0),
+                  child: const Image(
+                    image: AssetImage('assets/images/icon.png'),
+                    width: 64,
+                  ),
+                ),
+              ],
+            ),
+            if (showConnectionNotify) ...[
+              const SizedBox(height: 24),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Text(
+                  'Убедитесь, что телефон подключен к интернету',
+                  textAlign: TextAlign.center,
+                  style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+                ),
+              ),
             ],
-          ),
-          showConnectionNotify
-              ? Text('Убедитесь, что телефон подключен к интернету')
-              : SizedBox()
-        ],
+          ],
+        ),
       ),
-    ));
+    );
   }
 }

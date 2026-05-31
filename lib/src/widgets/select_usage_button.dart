@@ -170,17 +170,30 @@ class _UsageSelectionModalState extends State<UsageSelectionModal> {
       (param) => param.maintenanceRole?.name == currentUserRole,
     ).toList();
 
+    final tt = Theme.of(context).textTheme;
     return Form(
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text(
-              'Наработка для ${widget.machine.name}',
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
-              ),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'НАРАБОТКА',
+                  style: tt.labelSmall?.copyWith(
+                    color:
+                        Theme.of(context).colorScheme.onSurfaceVariant,
+                    letterSpacing: 0.6,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  widget.machine.name,
+                  style:
+                      tt.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ],
             ),
           ),
           Expanded(
@@ -198,12 +211,14 @@ class _UsageSelectionModalState extends State<UsageSelectionModal> {
                 return Card(
                   margin:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                  clipBehavior: Clip.antiAlias,
                   child: ExpansionTile(
-                    title: Text(usageUnit.displayName),
+                    shape: const Border(),
+                    collapsedShape: const Border(),
+                    title: Text(
+                      usageUnit.displayName,
+                      style: tt.titleMedium,
+                    ),
                     children: [
                       Padding(
                         padding: const EdgeInsets.symmetric(
@@ -248,40 +263,34 @@ class _UsageSelectionModalState extends State<UsageSelectionModal> {
           ),
           Padding(
             padding: const EdgeInsets.all(16.0),
-            child: Row(
-              children: [
-                Expanded(
-                    child: SquareButton(
-                  onPressed: () {
-                    if (!formKey.currentState!.validate()) {
-                      return;
+            child: SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: FilledButton.icon(
+                onPressed: () {
+                  if (!formKey.currentState!.validate()) return;
+                  final currentUserRole = GlobalState.authUser?.effectiveRole;
+                  final matchingParameters =
+                      widget.machine.usageParameters.where(
+                    (param) => param.maintenanceRole?.name == currentUserRole,
+                  );
+                  List<UsageUpdate> newValues = [];
+                  for (var element in matchingParameters) {
+                    var controller = usageControllers[element.unitType];
+                    if (controller != null &&
+                        element.validate(controller.text) == null) {
+                      newValues.add(UsageUpdate(
+                          equipmentUuid: widget.machine.uuid,
+                          usageParameterUuid: element.uuid,
+                          usageParameterValue: double.parse(controller.text)));
                     }
-                    final currentUserRole = GlobalState.authUser?.effectiveRole;
-                    // Фильтруем параметры по роли пользователя
-                    final matchingParameters = widget.machine.usageParameters.where(
-                      (param) => param.maintenanceRole?.name == currentUserRole,
-                    );
-                    
-                    List<UsageUpdate> newValues = [];
-                    matchingParameters.forEach(
-                      (element) {
-                        var controller = usageControllers[element.unitType];
-                        if (controller != null &&
-                            element.validate(controller.text) == null) {
-                          newValues.add(UsageUpdate(
-                              equipmentUuid: widget.machine.uuid,
-                              usageParameterUuid: element.uuid,
-                              usageParameterValue:
-                                  double.parse(controller.text)));
-                        }
-                      },
-                    );
-                    widget.controller.value = newValues;
-                    Navigator.pop(context);
-                  },
-                  child: const Text('Сохранить'),
-                ))
-              ],
+                  }
+                  widget.controller.value = newValues;
+                  Navigator.pop(context);
+                },
+                icon: const Icon(Icons.check_rounded),
+                label: const Text('Сохранить'),
+              ),
             ),
           ),
         ],
