@@ -1,28 +1,34 @@
 import 'package:flutter/material.dart';
+import '../design/app_constants.dart';
 
 class SquareButton extends StatelessWidget {
   final VoidCallback onPressed;
   final Color? color;
   final Widget child;
 
-  SquareButton(
-      {super.key, required this.onPressed, required this.child, this.color});
+  const SquareButton({
+    super.key,
+    required this.onPressed,
+    required this.child,
+    this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
-    ButtonStyle style = ElevatedButton.styleFrom(
-        backgroundColor: this.color,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(4.0),
-        ));
+    final style = ElevatedButton.styleFrom(
+      backgroundColor: color,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppConstants.radiusSM),
+      ),
+    );
 
     return ElevatedButton(
       onPressed: onPressed,
-      child: Padding(
-        child: child,
-        padding: EdgeInsets.symmetric(vertical: 16),
-      ),
       style: style,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppConstants.spacingMD),
+        child: child,
+      ),
     );
   }
 }

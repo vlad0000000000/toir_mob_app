@@ -62,7 +62,7 @@ class _SelectImageButton extends State<SelectImageButton>
           Center(
             child: Icon(
               Icons.close,
-              color: Colors.white.addOpacity(0.75),
+              color: Theme.of(context).colorScheme.onInverseSurface.withValues(alpha: 0.75),
               size: 64,
             ),
           )
@@ -83,13 +83,13 @@ class _SelectImageButton extends State<SelectImageButton>
                 children: [
                   Icon(
                     Icons.image,
-                    color: Colors.black.addOpacity(0.5),
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
                     size: 32,
                   ),
                   Text(
                     Strings.addImage,
                     style: TextStyle(
-                      color: Colors.black.addOpacity(0.5),
+                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
                     ),
                     textAlign: TextAlign.center,
                   )

@@ -23,7 +23,7 @@ class HelpLink extends StatelessWidget {
               width: 20,
               height: 20,
               colorFilter: ColorFilter.mode(
-                Colors.grey.shade700,
+                Theme.of(context).colorScheme.onSurfaceVariant,
                 BlendMode.srcIn,
               ),
             ),
@@ -31,7 +31,7 @@ class HelpLink extends StatelessWidget {
             Text(
               'Помощь',
               style: TextStyle(
-                color: Colors.grey.shade700,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
                 fontSize: 16,
                 decoration: TextDecoration.underline,
               ),

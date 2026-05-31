@@ -234,8 +234,8 @@ class _UsageSelectionModalState extends State<UsageSelectionModal> {
                                   labelText:
                                       'Новое значение (${usageUnit.shortName})',
                                   border: const OutlineInputBorder(),
-                                  hoverColor: Colors.white,
-                                  fillColor: Colors.white),
+                                  hoverColor: Theme.of(context).colorScheme.surface,
+                                  fillColor: Theme.of(context).colorScheme.surface),
                             ),
                           ],
                         ),

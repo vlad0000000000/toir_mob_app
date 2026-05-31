@@ -9,6 +9,7 @@ import '../model/inventory_record.dart';
 import '../model/notification.dart';
 import '../model/task.dart';
 import '../utils/go_router_ext.dart';
+import '../design/app_constants.dart';
 import 'notifications_service.dart';
 import 'notification_card.dart';
 import 'notification_formatters.dart';
@@ -124,14 +125,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                 child: Column(
                                   children: [
                                     Icon(Icons.notifications_off_outlined,
-                                        size: 56, color: Colors.grey.shade400),
+                                        size: 56, color: Theme.of(context).colorScheme.outlineVariant),
                                     const SizedBox(height: 12),
                                     Text(
                                       'Уведомлений нет',
                                       textAlign: TextAlign.center,
                                       style: TextStyle(
                                         fontSize: 16,
-                                        color: Colors.grey.shade700,
+                                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                                       ),
                                     ),
                                   ],
@@ -230,8 +231,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       Expanded(
                         child: Text(
                           NotificationTypes.displayName(n.notificationType),
-                          style: const TextStyle(
-                              fontSize: 14, color: Colors.grey),
+                          style: TextStyle(
+                              fontSize: 14,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant),
                         ),
                       ),
                       IconButton(
@@ -324,7 +328,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       widgets.add(_kv('Роли', task.roles.join(', ')));
     }
     if (widgets.isEmpty) {
-      widgets.add(const Text('—', style: TextStyle(color: Colors.grey)));
+      widgets.add(Text('—',
+          style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant)));
     }
     return widgets;
   }
@@ -358,7 +364,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(key,
-              style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant)),
           Text(value, style: const TextStyle(fontSize: 14)),
         ],
       ),
@@ -372,7 +380,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
       ),
       child: Text(label, style: TextStyle(color: color)),
     );
@@ -388,7 +396,7 @@ class _HideReadToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.white,
+      color: Theme.of(context).colorScheme.surface,
       child: InkWell(
         onTap: () => onChanged(!value),
         child: Padding(

@@ -5,6 +5,7 @@ import '../../global_state.dart';
 import '../../src/app_bar/app_bar.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/task.dart';
+import '../design/app_constants.dart';
 import 'tasks_filter.dart';
 
 /// Перенесённый с экрана уведомлений фильтр. Сейчас спрятан,
@@ -65,7 +66,7 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
                           horizontal: 16, vertical: 8),
                       elevation: 0,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
                       ),
                       child: ListTile(
                         title: Text(
@@ -90,7 +91,7 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
                           horizontal: 16, vertical: 8),
                       elevation: 2,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
                       ),
                       child: ListTile(
                           title: Text(
@@ -117,7 +118,7 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
                           horizontal: 16, vertical: 8),
                       elevation: 0,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
                       ),
                       child: ListTile(
                         title: Text(
@@ -133,7 +134,7 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
                         const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     elevation: 2,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(AppConstants.radiusMD),
                     ),
                     child: ListTile(
                         title: Text(
@@ -156,11 +157,11 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
             );
             return list;
           }
-          return const Center(
+          return Center(
               child: CircularProgressIndicator(
-            color: Colors.black,
+            color: Theme.of(context).colorScheme.primary,
             strokeWidth: 8,
-            constraints: BoxConstraints(minHeight: 128, minWidth: 128),
+            constraints: const BoxConstraints(minHeight: 128, minWidth: 128),
           ));
         });
 

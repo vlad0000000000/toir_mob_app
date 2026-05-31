@@ -46,6 +46,7 @@ import '../../src/utils/dependent.dart';
 import 'global_state.dart';
 import 'src/app_lifecycle/app_lifecycle.dart';
 import 'src/data/data_provider.dart';
+import 'src/design/app_constants.dart';
 import 'src/design/app_theme.dart';
 import 'src/http/api.dart';
 import 'src/model/session.dart';
@@ -419,8 +420,9 @@ class MyApp extends StatelessWidget {
                 children: [
                   Expanded(child: app),
                   Container(
-                    padding: EdgeInsets.symmetric(horizontal: 8),
-                    color: Colors.black,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: AppConstants.spacingSM),
+                    color: Theme.of(context).colorScheme.inverseSurface,
                     alignment: Alignment.centerLeft,
                     height: 36,
                     child: Dependent(
@@ -428,8 +430,11 @@ class MyApp extends StatelessWidget {
                         builder: (context, value, widget) {
                           return Text(
                             value,
-                            textScaler: TextScaler.linear(0.9),
-                            style: TextStyle(color: Colors.white),
+                            textScaler: const TextScaler.linear(0.9),
+                            style: TextStyle(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onInverseSurface),
                             textDirection: TextDirection.ltr,
                           );
                         }),

@@ -136,7 +136,7 @@ class _ResultControlsState extends State<ResultControls> {
                 padding: EdgeInsets.symmetric(vertical: 10),
                 child: Text(
                   'Нет активных задач',
-                  style: TextStyle(color: Colors.black26),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38)),
                 ),
               );
             }
@@ -147,16 +147,20 @@ class _ResultControlsState extends State<ResultControls> {
                 children: [
                   Text(
                     'Загрузка задач',
-                    style: TextStyle(color: Colors.black26),
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38)),
                   ),
                   SizedBox(
                     width: 8,
                   ),
-                  const Center(
+                  Center(
                       child: CircularProgressIndicator(
-                    color: Colors.black26,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.38),
                     strokeWidth: 2,
-                    constraints: BoxConstraints(minHeight: 8, minWidth: 8),
+                    constraints:
+                        const BoxConstraints(minHeight: 8, minWidth: 8),
                   ))
                 ],
               ));
@@ -201,10 +205,10 @@ class _ResultControlsState extends State<ResultControls> {
           decoration: InputDecoration(
               floatingLabelAlignment: FloatingLabelAlignment.start,
               border: const OutlineInputBorder(),
-              fillColor: Colors.white,
+              fillColor: Theme.of(context).colorScheme.surface,
               filled: true,
               alignLabelWithHint: true,
-              hoverColor: Colors.white,
+              hoverColor: Theme.of(context).colorScheme.surface,
               labelText: Strings.checkDescription,
               errorText:
                   widget.highlightDescError ? 'Укажите комментарий' : null),
@@ -241,7 +245,7 @@ class YandexImage extends StatelessWidget {
           Container(
             width: MediaQuery.of(context).size.shortestSide,
             height: MediaQuery.of(context).size.shortestSide,
-            color: Colors.black,
+            color: Theme.of(context).colorScheme.inverseSurface,
           ),
           Container(
             width: MediaQuery.of(context).size.shortestSide,

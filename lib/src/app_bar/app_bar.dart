@@ -8,91 +8,64 @@ import '../../src/utils/dialogs.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../src/widgets/help_link.dart';
 import '../../strings.dart';
+import '../design/app_constants.dart';
 
 class MyAppBar {
   static Widget build(BuildContext context) {
-    ButtonStyle style = ButtonStyle(
-      backgroundColor: WidgetStatePropertyAll(Colors.transparent)
+    final cs = Theme.of(context).colorScheme;
+    final labelStyle = Theme.of(context).textTheme.labelLarge;
+    final transparentStyle = const ButtonStyle(
+      backgroundColor: WidgetStatePropertyAll(Colors.transparent),
     );
-    Widget logoutBlackText = TextButton(
-      style: style,
-        onPressed: () async {
-          Dialogs.areYouSure(context, onOk: () async {
-            GlobalState.authUser = null;
-            GlobalState.updateDebug();
-            NotificationsService.instance.onLogout();
-            await PushNotificationsController.instance.stop();
-            GoRouter.of(context).clearStackAndNavigate('/login');
-          });
-        },
-        child: Text(Strings.logout,
-            style: TextStyle(color: Colors.black, fontSize: 14)));
-    Widget logoutWhiteText = TextButton(
-        style: style,
-        onPressed: () async {
-          Dialogs.areYouSure(context, onOk: () async {
-            GlobalState.authUser = null;
-            GlobalState.updateDebug();
-            NotificationsService.instance.onLogout();
-            await PushNotificationsController.instance.stop();
-            GoRouter.of(context).clearStackAndNavigate('/login');
-          });
-        },
-        child: Text(Strings.logout,
-            style: TextStyle(color: Colors.white, fontSize: 14)));
 
-    if (GoRouter.of(context).location == '/qr_result' ||
-        GoRouter.of(context).location == '/qr_result_demo') {
+    Widget _logout({required Color textColor}) => TextButton(
+          style: transparentStyle,
+          onPressed: () async {
+            Dialogs.areYouSure(context, onOk: () async {
+              GlobalState.authUser = null;
+              GlobalState.updateDebug();
+              NotificationsService.instance.onLogout();
+              await PushNotificationsController.instance.stop();
+              GoRouter.of(context).clearStackAndNavigate('/login');
+            });
+          },
+          child: Text(
+            Strings.logout,
+            style: labelStyle?.copyWith(color: textColor),
+          ),
+        );
+
+    final logoutOnSurface = _logout(textColor: cs.onSurface);
+    final logoutOnInverseSurface = _logout(textColor: cs.onInverseSurface);
+
+    final location = GoRouter.of(context).location;
+
+    if (location == '/qr_result' || location == '/qr_result_demo') {
       return AppBar(
         leading: BackButton(
-          onPressed: () {
-            GoRouter.of(context).clearStackAndNavigate('/qr_scanner');
-          },
+          onPressed: () =>
+              GoRouter.of(context).clearStackAndNavigate('/qr_scanner'),
         ),
-        actions: [
-          // logoutBlackText
-        ],
       );
     }
-    if (GoRouter.of(context).location == '/qr_result_problems') {
+    if (location == '/qr_result_problems') {
       return AppBar(
         leading: BackButton(
-          onPressed: () {
-            GoRouter.of(context).clearStackAndNavigate('/problems');
-          },
+          onPressed: () =>
+              GoRouter.of(context).clearStackAndNavigate('/problems'),
         ),
-        actions: [
-          // logoutBlackText
-        ],
       );
     }
-    if (GoRouter.of(context).location == '/tasks') {
+    if (location == '/tasks' || location == '/problems') {
       return AppBar(
         leading: BackButton(
-          onPressed: () {
-            GoRouter.of(context).clearStackAndNavigate('/actions');
-          },
+          onPressed: () =>
+              GoRouter.of(context).clearStackAndNavigate('/actions'),
         ),
-        title: Text('Оборудование'),
-        actions: [
-          // logoutBlackText
-        ],
+        title: const Text('Оборудование'),
       );
     }
-    if (GoRouter.of(context).location == '/problems') {
-      return AppBar(
-        leading: BackButton(
-          onPressed: () {
-            GoRouter.of(context).clearStackAndNavigate('/actions');
-          },
-        ),
-        title: Text('Оборудование'),
-        actions: [
-          // logoutBlackText
-        ],
-      );
-    }
-    if (GoRouter.of(context).location == '/knowledge_base') {
+    if (location == '/knowledge_base') {
       return AppBar(
         leading: BackButton(
           onPressed: () {
@@ -103,7 +76,7 @@ class MyAppBar {
             }
           },
         ),
-        title: Text('Помощь'),
+        title: const Text('Помощь'),
         actions: [
           IconButton(
             icon: const Icon(Icons.open_in_browser),
@@ -113,49 +86,43 @@ class MyAppBar {
         ],
       );
     }
-    if (GoRouter.of(context).location.startsWith('/details')) {
+    if (location.startsWith('/details')) {
       return AppBar(
         leading: BackButton(
-          onPressed: () {
-            GoRouter.of(context).clearStackAndNavigate('/tasks');
-          },
+          onPressed: () => GoRouter.of(context).clearStackAndNavigate('/tasks'),
         ),
-        title: Text('Задачи'),
-        actions: [
-          // logoutBlackText
-        ],
+        title: const Text('Задачи'),
       );
     }
-    if (GoRouter.of(context).location.startsWith('/qr_scanner')) {
+    if (location.startsWith('/qr_scanner')) {
+      // QR-сканер: тёмный AppBar нужен для камеры.
       return AppBar(
         leading: BackButton(
-          color: Colors.white,
-          onPressed: () {
-            GoRouter.of(context).clearStackAndNavigate('/actions');
-          },
+          color: cs.onInverseSurface,
+          onPressed: () =>
+              GoRouter.of(context).clearStackAndNavigate('/actions'),
         ),
         automaticallyImplyLeading: false,
-        backgroundColor: Colors.black,
-        actions: [
-          // logoutWhiteText
-        ],
+        backgroundColor: cs.inverseSurface,
       );
     }
-    if (GoRouter.of(context).location.startsWith('/actions')) {
+    if (location.startsWith('/actions')) {
       return AppBar(
         automaticallyImplyLeading: false,
         leading: const HelpLink(
-            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 12)),
+          padding: EdgeInsets.symmetric(
+            horizontal: AppConstants.spacingSM,
+            vertical: AppConstants.spacingSM + 4,
+          ),
+        ),
         leadingWidth: 120,
-        actions: [logoutBlackText],
+        actions: [logoutOnSurface],
       );
     }
     return AppBar(
       automaticallyImplyLeading: false,
-      backgroundColor: Colors.black,
-      actions: [
-        logoutWhiteText
-      ],
+      backgroundColor: cs.inverseSurface,
+      actions: [logoutOnInverseSurface],
     );
   }
 }

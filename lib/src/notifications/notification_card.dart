@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../design/app_constants.dart';
 import '../model/notification.dart';
 import 'notification_formatters.dart';
 
@@ -26,18 +27,18 @@ class NotificationCard extends StatelessWidget {
     final summaryDesc =
         NotificationFormatters.summaryDescription(notification);
     return Material(
-      color: Colors.white,
+      color: Theme.of(context).colorScheme.surface,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
         side: BorderSide(
           color: isOverdueType || isHighPriority
-              ? Colors.red.shade300
-              : Colors.grey.shade300,
+              ? Theme.of(context).colorScheme.error
+              : Theme.of(context).colorScheme.outlineVariant,
           width: 1,
         ),
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(12),
@@ -50,7 +51,7 @@ class NotificationCard extends StatelessWidget {
                     NotificationTypes.displayName(notification.notificationType),
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.grey.shade700,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -59,8 +60,8 @@ class NotificationCard extends StatelessWidget {
                     Container(
                       width: 10,
                       height: 10,
-                      decoration: const BoxDecoration(
-                        color: Colors.red,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.error,
                         shape: BoxShape.circle,
                       ),
                     ),
@@ -115,7 +116,7 @@ class NotificationCard extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 _executorOrCreated(notification),
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
             ],
           ),
@@ -149,7 +150,7 @@ class _StatusBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(AppConstants.radiusSM),
       ),
       child: Text(
         NotificationStatuses.displayName(status),
@@ -182,7 +183,7 @@ class _PriorityBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
         color: _color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(AppConstants.radiusSM),
       ),
       child: Text('Приоритет: $label',
           style: TextStyle(color: _color, fontSize: 12)),
@@ -208,7 +209,9 @@ class _DeadlineLabel extends StatelessWidget {
     final diff = due.difference(now);
     final isOverdue = diff.isNegative ||
         notification.notificationType == NotificationTypes.overdueTask;
-    final color = isOverdue ? Colors.red : Colors.grey.shade800;
+    final color = isOverdue
+        ? Theme.of(context).colorScheme.error
+        : Theme.of(context).colorScheme.onSurface;
     final absDiff = diff.abs();
     final h = absDiff.inHours;
     final m = absDiff.inMinutes.remainder(60);

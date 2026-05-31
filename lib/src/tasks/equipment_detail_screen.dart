@@ -5,6 +5,7 @@ import '../../src/model/inventory_record.dart';
 import '../../src/model/task.dart';
 import '../../src/widgets/square_button.dart';
 import '../widgets/app_bottom_sheet.dart';
+import '../design/app_constants.dart';
 import 'task_models.dart';
 import 'equipment_detail_controller.dart';
 
@@ -116,7 +117,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           elevation: 2,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(AppConstants.radiusMD),
           ),
           child: Stack(
             children: [
@@ -233,10 +234,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
           margin: const EdgeInsets.only(top: 10),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: isSelected ? Theme.of(context).colorScheme.primaryContainer : Colors.grey[50],
-            borderRadius: BorderRadius.circular(10),
+            color: isSelected ? Theme.of(context).colorScheme.primaryContainer : Theme.of(context).colorScheme.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(AppConstants.radiusSM),
             border: Border.all(
-              color: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey[200]!,
+              color: isSelected ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outlineVariant,
               width: isSelected ? 2 : 1,
             ),
           ),
@@ -254,8 +255,8 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       margin: const EdgeInsets.only(top: 10),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
-        borderRadius: BorderRadius.circular(10),
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppConstants.radiusSM),
       ),
       child: Row(
         children: [
@@ -304,11 +305,11 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
               const SizedBox(height: 8),
               if (pt.photos.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                const Text(
+                Text(
                   'Фото',
                   style: TextStyle(
                     fontSize: 13,
-                    color: Colors.grey,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -336,7 +337,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                                         Expanded(
                                           child: ClipRRect(
                                             borderRadius:
-                                                BorderRadius.circular(12),
+                                                BorderRadius.circular(AppConstants.radiusMD),
                                             child: Image.network(
                                               photo.url,
                                               fit: BoxFit.contain,
@@ -367,7 +368,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                             );
                           },
                           child: ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(AppConstants.radiusSM),
                             child: SizedBox(
                               width: 64,
                               height: 64,
@@ -422,9 +423,9 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         children: [
           Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13,
-              color: Colors.grey,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
           const SizedBox(width: 8),

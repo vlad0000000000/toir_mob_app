@@ -57,7 +57,7 @@ class _SelectPriorityButton extends State<SelectPriorityButton>
             ),
             labelWidget: Text(
               x.name as String,
-              style: TextStyle(color: Colors.black),
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
             ));
       }).toList(),
     ));

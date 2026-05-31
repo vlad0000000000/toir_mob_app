@@ -156,10 +156,10 @@ class _QRResultScreenState extends State<QRResultScreen> {
             children: [
               Text(
                 widget.machine.descriptionTextSimple,
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: Theme.of(context)
+                    .textTheme
+                    .headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
               Row(
@@ -190,15 +190,18 @@ class _QRResultScreenState extends State<QRResultScreen> {
                 alignment: Alignment.center,
                 children: [
                   Container(
-                    color: Colors.black87,
+                    color: Theme.of(context).colorScheme.inverseSurface,
                   ),
                   Image.network(
                     widget.machine.imageData,
                     errorBuilder: (context, error, stackTrace) {
-                      return const Icon(
+                      return Icon(
                         Icons.broken_image,
                         size: 64,
-                        color: Colors.white38,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onInverseSurface
+                            .withValues(alpha: 0.5),
                       );
                     },
                   )

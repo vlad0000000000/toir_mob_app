@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../design/app_constants.dart';
 
 class Modal extends StatelessWidget {
   final Widget child;
@@ -7,48 +8,38 @@ class Modal extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final mediaQuery = MediaQuery.of(context);
-    final height = mediaQuery.size.height * 0.9;
+    final cs = Theme.of(context).colorScheme;
+    final height = MediaQuery.of(context).size.height * 0.9;
     return Container(
-      padding: EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.symmetric(vertical: AppConstants.spacingSM),
       height: height,
+      margin: const EdgeInsets.all(AppConstants.spacingLG),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(AppConstants.radiusXL),
+        boxShadow: [
+          BoxShadow(
+            color: cs.shadow.withValues(alpha: 0.3),
+            blurRadius: 20,
+            spreadRadius: 5,
+          )
+        ],
+      ),
       child: Column(
         children: [
-          SizedBox(
-            height: 10,
-          ),
+          const SizedBox(height: AppConstants.spacingSM),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
               InkWell(
-                child: Icon(
-                  Icons.close,
-                  size: 32,
-                ),
                 onTap: () => Navigator.of(context).pop(),
+                child: const Icon(Icons.close, size: 32),
               ),
-              SizedBox(width: 20)
+              const SizedBox(width: AppConstants.spacingLG),
             ],
           ),
-          SizedBox(
-            height: 10,
-          ),
-          Expanded(child: child)
-        ],
-      ),
-      margin: EdgeInsets.symmetric(
-        horizontal: 20,
-        vertical: 20,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 20,
-            spreadRadius: 5,
-          )
+          const SizedBox(height: AppConstants.spacingSM),
+          Expanded(child: child),
         ],
       ),
     );

@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:qr_scan_industry/src/update_manager.dart';
 import '../../global_state.dart';
 import '../../src/data/data_provider.dart';
+import '../../src/design/app_constants.dart';
 import '../../src/app_bar/app_bar.dart';
 import '../../src/notifications/notifications_service.dart';
 import '../../src/notifications/push/push_notifications_controller.dart';
@@ -135,8 +136,10 @@ class _QRActionsState extends State<QRActions> {
                             children: [
                               Text(
                                 "Настройки",
-                                style: TextStyle(
-                                    fontSize: 24, fontWeight: FontWeight.bold),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .headlineSmall
+                                    ?.copyWith(fontWeight: FontWeight.bold),
                               ),
                               Expanded(
                                   child: ListView(
@@ -193,7 +196,9 @@ class _QRActionsState extends State<QRActions> {
                                   Divider(
                                     height: 1,
                                     thickness: 1,
-                                    color: Colors.grey.shade300,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .outlineVariant,
                                   ),
                                   Padding(
                                     padding:
@@ -286,7 +291,7 @@ class _QRActionsState extends State<QRActions> {
                 children: [
                   Text(
                     'Расширенные настройки',
-                    style: TextStyle(fontSize: 16),
+                    style: Theme.of(context).textTheme.bodyLarge,
                   ),
                   SizedBox(width: 12),
                   Switch(
@@ -334,19 +339,22 @@ class _NotificationsButton extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: Colors.red,
-                    borderRadius: BorderRadius.circular(12),
+                    color: Theme.of(context).colorScheme.error,
+                    borderRadius:
+                        BorderRadius.circular(AppConstants.radiusMD),
                   ),
                   constraints:
                       const BoxConstraints(minWidth: 22, minHeight: 22),
                   alignment: Alignment.center,
                   child: Text(
                     count > 99 ? '99+' : count.toString(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: Theme.of(context)
+                        .textTheme
+                        .labelSmall
+                        ?.copyWith(
+                          color: Theme.of(context).colorScheme.onError,
+                          fontWeight: FontWeight.bold,
+                        ),
                   ),
                 ),
               ),
@@ -377,22 +385,22 @@ class SquareButton extends StatelessWidget {
       child: ElevatedButton(
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(AppConstants.spacingMD),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(AppConstants.radiusMD),
           ),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              icon,
-              size: 96,
-            ),
+            Icon(icon, size: 96),
             Text(
               label,
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: fontSize),
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontSize: fontSize),
             )
           ],
         ),

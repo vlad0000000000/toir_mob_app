@@ -88,9 +88,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           _passwordVisible
                               ? Icons.visibility
                               : Icons.visibility_off,
-                          color: Colors.black.addOpacity(
-                              0.5) // Theme.of(context).primaryColorDark
-                          ),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.5)),
                       onPressed: () {
                         // Update the state i.e. toogle the state of passwordVisible variable
                         setState(() {
@@ -157,7 +158,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     padding: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
                     child: Text(
                       Strings.login,
-                      style: TextStyle(fontSize: 16),
+                      style: Theme.of(context).textTheme.bodyLarge,
                     ),
                   ))
             ],
