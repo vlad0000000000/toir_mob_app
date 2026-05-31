@@ -5,14 +5,12 @@ import 'package:provider/provider.dart';
 import '../../global_state.dart';
 import '../../src/data/data_provider.dart';
 import '../../src/widgets/help_link.dart';
-import '../../src/model/user.dart';
 import '../../src/notifications/notifications_service.dart';
 import '../../src/notifications/push/push_notifications_controller.dart';
 import '../../src/utils/dialogs.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../settings.dart';
 import '../../strings.dart';
-import 'package:themed/themed.dart';
 import '../../src/exceptions/app_exceptions.dart';
 
 import '../update_manager.dart';
@@ -27,10 +25,10 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  // final _formKey = GlobalKey<FormState>();
   final TextEditingController loginController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
   bool _passwordVisible = false;
+  bool _busy = false;
 
   @override
   void initState() {
@@ -46,125 +44,167 @@ class _LoginScreenState extends State<LoginScreen> {
       UpdateManager.checkForUpdate(context);
     },);
 
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
+    Future<void> doLogin() async {
+      if (_busy) return;
+      setState(() => _busy = true);
+      try {
+        final currentUser = await dataProvider.login(
+            loginController.text, passwordController.text);
+        if (currentUser != null) {
+          await dataProvider.mainSync();
+          await dataProvider.syncCompany();
+          await GlobalState.updateDebug();
+          NotificationsService.instance.bootstrap();
+          await PushNotificationsController.instance.start();
+          if (!mounted) return;
+          if (!Settings.onboardingCompleted) {
+            GoRouter.of(context).clearStackAndNavigate("/onboarding");
+          } else {
+            GoRouter.of(context).clearStackAndNavigate("/actions");
+          }
+          return;
+        }
+        if (!mounted) return;
+        Dialogs.notify(
+            context, Strings.loginFailTitle, Strings.loginFailDesc);
+      } on WalkerOnlyException {
+        if (mounted) {
+          Dialogs.notify(
+              context, Strings.walkerOnlyTitle, Strings.walkerOnlyDesc);
+        }
+      } on NoConnectionException {
+        if (mounted) {
+          Dialogs.notify(context, Strings.noConnectionTitle,
+              Strings.noConnectionDesc);
+        }
+      } on InvalidCredentialsException {
+        if (mounted) {
+          Dialogs.notify(context, Strings.invalidCredentialsTitle,
+              Strings.invalidCredentialsDesc);
+        }
+      } catch (e) {
+        if (mounted) {
+          Dialogs.notify(
+              context, Strings.loginFailTitle, Strings.loginFailDesc);
+        }
+      } finally {
+        if (mounted) setState(() => _busy = false);
+      }
+    }
+
     return Scaffold(
       body: Stack(
         children: [
-          Form(
-            child: Center(
-        child: Container(
-          width: 0.7.sw,
-          height: 1.sh,
-          alignment: Alignment.center,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            spacing: 16,
-            children: [
-              Container(
-                child: ClipRRect(
-                    borderRadius: BorderRadius.circular(32.0),
-                    child: const Image(
-                        image: AssetImage('assets/images/icon.png'))),
-                width: 0.3.sw,
-              ),
-              TextFormField(
-                controller: loginController,
-                decoration: InputDecoration(
-                    border: const OutlineInputBorder(),
-                    labelText: Strings.inputLogin),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return Strings.loginHelp;
-                  }
-                  return null;
-                },
-              ),
-              TextFormField(
-                controller: passwordController,
-                obscureText: !_passwordVisible,
-                decoration: InputDecoration(
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                          // Based on passwordVisible state choose the icon
-                          _passwordVisible
-                              ? Icons.visibility
-                              : Icons.visibility_off,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.5)),
-                      onPressed: () {
-                        // Update the state i.e. toogle the state of passwordVisible variable
-                        setState(() {
-                          _passwordVisible = !_passwordVisible;
-                        });
-                      },
+          SafeArea(
+            child: Form(
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 380),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Center(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(32.0),
+                            child: SizedBox(
+                              width: 0.3.sw,
+                              child: const Image(
+                                image: AssetImage('assets/images/icon.png'),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 32),
+                        Text(
+                          'Вход в систему',
+                          style: tt.headlineSmall,
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Войдите, чтобы продолжить осмотры',
+                          style: tt.bodyMedium
+                              ?.copyWith(color: cs.onSurfaceVariant),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 32),
+                        TextFormField(
+                          controller: loginController,
+                          enabled: !_busy,
+                          textInputAction: TextInputAction.next,
+                          autofillHints: const [AutofillHints.username],
+                          decoration: InputDecoration(
+                            labelText: Strings.inputLogin,
+                            prefixIcon: const Icon(Icons.person_outline),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return Strings.loginHelp;
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: passwordController,
+                          obscureText: !_passwordVisible,
+                          enabled: !_busy,
+                          textInputAction: TextInputAction.done,
+                          autofillHints: const [AutofillHints.password],
+                          onFieldSubmitted: (_) => doLogin(),
+                          decoration: InputDecoration(
+                            labelText: Strings.inputPassword,
+                            prefixIcon: const Icon(Icons.lock_outline),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _passwordVisible
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _passwordVisible = !_passwordVisible;
+                                });
+                              },
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return Strings.passwordHelp;
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 24),
+                        SizedBox(
+                          height: 52,
+                          child: ElevatedButton(
+                            onPressed: _busy ? null : doLogin,
+                            child: _busy
+                                ? SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.5,
+                                      color: cs.onPrimary,
+                                    ),
+                                  )
+                                : Text(Strings.login),
+                          ),
+                        ),
+                      ],
                     ),
-                    border: const OutlineInputBorder(),
-                    labelText: Strings.inputPassword),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return Strings.passwordHelp;
-                  }
-                  return null;
-                },
+                  ),
+                ),
               ),
-              ElevatedButton(
-                  onPressed: () async {
-                    try {
-                      User? currentUser = await dataProvider.login(
-                          loginController.text, passwordController.text);
-
-                      if (currentUser != null) {
-                        await dataProvider.mainSync();
-                        await dataProvider.syncCompany();
-                        await GlobalState.updateDebug();
-                        NotificationsService.instance.bootstrap();
-                        // Ждём `start()`: иначе диалог запроса разрешения на
-                        // уведомления (Android 13+) гонится с навигацией и
-                        // на свежей установке часто схлопывается до того, как
-                        // юзер успеет ответить — сервис в итоге не стартует.
-                        await PushNotificationsController.instance.start();
-                        if (!Settings.onboardingCompleted) {
-                          GoRouter.of(context).clearStackAndNavigate("/onboarding");
-                        } else {
-                          GoRouter.of(context).clearStackAndNavigate("/actions");
-                        }
-                        return;
-                      }
-                    } on WalkerOnlyException {
-                      Dialogs.notify(
-                          context, Strings.walkerOnlyTitle, Strings.walkerOnlyDesc);
-                      return;
-                    } on NoConnectionException {
-                      Dialogs.notify(
-                          context, Strings.noConnectionTitle, Strings.noConnectionDesc);
-                      return;
-                    } on InvalidCredentialsException {
-                      Dialogs.notify(
-                          context, Strings.invalidCredentialsTitle, Strings.invalidCredentialsDesc);
-                      return;
-                    } catch (e) {
-                      // Общая ошибка
-                      Dialogs.notify(
-                          context, Strings.loginFailTitle, Strings.loginFailDesc);
-                      return;
-                    }
-
-                    // Если дошли сюда, значит что-то пошло не так
-                    Dialogs.notify(
-                        context, Strings.loginFailTitle, Strings.loginFailDesc);
-                  },
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                    child: Text(
-                      Strings.login,
-                      style: Theme.of(context).textTheme.bodyLarge,
-                    ),
-                  ))
-            ],
+            ),
           ),
-        ),
-      )),
           Positioned(
             top: MediaQuery.of(context).padding.top + 8,
             left: 16,
