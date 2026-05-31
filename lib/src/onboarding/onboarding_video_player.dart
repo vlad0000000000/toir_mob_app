@@ -117,8 +117,9 @@ class _OnboardingVideoPlayerState extends State<OnboardingVideoPlayer> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: cs.inverseSurface,
       body: Stack(
         children: [
           if (_isInitialized)
@@ -129,7 +130,8 @@ class _OnboardingVideoPlayerState extends State<OnboardingVideoPlayer> {
               ),
             )
           else
-            const Center(child: CircularProgressIndicator(color: Colors.white)),
+            Center(
+                child: CircularProgressIndicator(color: cs.onInverseSurface)),
           Positioned(
             top: MediaQuery.of(context).padding.top + 8,
             right: 16,
@@ -139,12 +141,12 @@ class _OnboardingVideoPlayerState extends State<OnboardingVideoPlayer> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 decoration: BoxDecoration(
-                  color: Colors.black54,
+                  color: cs.inverseSurface.withValues(alpha: 0.54),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: const Text(
+                child: Text(
                   'Пропустить',
-                  style: TextStyle(color: Colors.white, fontSize: 14),
+                  style: TextStyle(color: cs.onInverseSurface, fontSize: 14),
                 ),
               ),
             ),
@@ -160,10 +162,11 @@ class _OnboardingVideoPlayerState extends State<OnboardingVideoPlayer> {
                   VideoProgressIndicator(
                     _controller,
                     allowScrubbing: true,
-                    colors: const VideoProgressColors(
-                      playedColor: Color(0xFF4CAF50),
-                      bufferedColor: Colors.white24,
-                      backgroundColor: Colors.white12,
+                    colors: VideoProgressColors(
+                      playedColor: cs.tertiary,
+                      bufferedColor: cs.onInverseSurface.withValues(alpha: 0.24),
+                      backgroundColor:
+                          cs.onInverseSurface.withValues(alpha: 0.12),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -199,16 +202,17 @@ class _ControlButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return GestureDetector(
       onTap: onTap,
       child: Container(
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: Colors.black54,
+          color: cs.inverseSurface.withValues(alpha: 0.54),
           borderRadius: BorderRadius.circular(20),
         ),
-        child: Icon(icon, color: Colors.white, size: 22),
+        child: Icon(icon, color: cs.onInverseSurface, size: 22),
       ),
     );
   }

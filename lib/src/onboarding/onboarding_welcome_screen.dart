@@ -8,8 +8,9 @@ class OnboardingWelcomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: cs.surface,
       body: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -31,22 +32,22 @@ class OnboardingWelcomeScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     '\u{1F44B} Привет, я \u2013 Лиза!',
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
-                      color: Colors.black,
+                      color: cs.onSurface,
                     ),
                   ),
                   const SizedBox(height: 12),
-                  const Text(
+                  Text(
                     'Я помогу вам освоить приложение за пару минут. '
                     'Потренируемся на тестовых данных, чтобы вы уверенно '
                     'начали работу на реальных объектах.',
                     style: TextStyle(
                       fontSize: 15,
-                      color: Colors.black87,
+                      color: cs.onSurface,
                       height: 1.4,
                     ),
                   ),
@@ -57,8 +58,8 @@ class OnboardingWelcomeScreen extends StatelessWidget {
                     child: ElevatedButton(
                       onPressed: () => _startOnboarding(context),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF4CAF50),
-                        foregroundColor: Colors.white,
+                        backgroundColor: cs.tertiary,
+                        foregroundColor: cs.onTertiary,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -77,8 +78,8 @@ class OnboardingWelcomeScreen extends StatelessWidget {
                     child: OutlinedButton(
                       onPressed: () => _skipOnboarding(context),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.black87,
-                        side: const BorderSide(color: Colors.grey),
+                        foregroundColor: cs.onSurface,
+                        side: BorderSide(color: cs.outline),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),

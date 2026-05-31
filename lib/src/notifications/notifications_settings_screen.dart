@@ -195,13 +195,15 @@ class _NotificationsSettingsScreenState
             ],
           ),
         ),
-        const Padding(
-          padding: EdgeInsets.fromLTRB(16, 8, 16, 16),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
           child: Text(
             'Подсказка: если кнопка «Разрешить» открывает выбор «Завершить '
             'действие через…» — выберите «Настройки» или системный диалог '
             'оптимизации батареи и снимите ограничение для приложения.',
-            style: TextStyle(fontSize: 12, color: Colors.grey),
+            style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
         ),
       ],
