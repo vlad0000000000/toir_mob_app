@@ -407,7 +407,7 @@ class MyApp extends StatelessWidget {
                 builder: EasyLoading.init(),
                 title: dotenv.env["APP_TITLE"]!,
                 theme: AppTheme.lightTheme,
-                darkTheme: AppTheme.darkTheme,
+                themeMode: ThemeMode.light,
                 routeInformationProvider: _router.routeInformationProvider,
                 routeInformationParser: _router.routeInformationParser,
                 routerDelegate: _router.routerDelegate,

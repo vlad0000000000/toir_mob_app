@@ -301,11 +301,6 @@ ${widget.machine.descriptionText}
       }
     }
 
-    print('hasDesc ${hasDesc}');
-    print('hasProblem ${hasTypicalProblem}');
-    print('hasProblem ${hasOtherProblem}');
-    print('hasPriority ${hasPriority}');
-    print('hasTasks ${hasTasks}');
 
     if (hasOtherProblem) {
       var returnEmpty = false;

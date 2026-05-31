@@ -184,7 +184,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         if (_isSelectionMode && widget.isModal)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: Colors.blue[50],
+            color: Theme.of(context).colorScheme.primaryContainer,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -211,10 +211,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
     final title = Text(
       task.periodicTask?.title ?? 'Назначенная задача',
-      style: const TextStyle(
+      style: TextStyle(
         fontWeight: FontWeight.bold,
         fontSize: 16,
-        color: Colors.blue,
+        color: Theme.of(context).colorScheme.primary,
       ),
     );
 
@@ -233,10 +233,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
           margin: const EdgeInsets.only(top: 10),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: isSelected ? Colors.blue[50] : Colors.grey[50],
+            color: isSelected ? Theme.of(context).colorScheme.primaryContainer : Colors.grey[50],
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: isSelected ? Colors.blue : Colors.grey[200]!,
+              color: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey[200]!,
               width: isSelected ? 2 : 1,
             ),
           ),

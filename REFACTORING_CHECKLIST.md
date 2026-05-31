@@ -39,10 +39,10 @@
 
 ## Phase 5 — Тема и дизайн-система
 
-- [x] `AppTheme` подключён в `MaterialApp` (light + dark из `src/design/app_theme.dart`), убран мёртвый `raisedButtonStyle` и неиспользуемая `palette`-локалка. **Требует визуального прогона** — цвета поменяются (primary indigo вместо чёрного)
-- [ ] Вынести `theme/example/` из `lib/` (демо-приложения в бандле)
+- [x] `AppTheme.lightTheme` подключён с `themeMode: ThemeMode.light` (всегда светлая), убран мёртвый `raisedButtonStyle` и неиспользуемая `palette`-локалка. Удалён orphaned `src/design/example/` (там был свой `MaterialApp`). В реальном app — **один `MaterialApp` + одна тема**
+- [x] Удалён orphaned `src/design/example/` (был свой `MaterialApp` с собственной темой — нарушение «одной темы»)
 - [ ] Завести design-токены (spacing/radius/color/text), подключить `colorScheme`/`textTheme`
-- [ ] Заменить inline `Color(0xFF…)` (~111) и `TextStyle(...)` (~105) на токены/тему
+- [~] Заменить inline цвета/стили на тему: точечно убраны `Colors.blue`/`Colors.blue[50]` в `equipment_detail_screen` (заголовки задач + панель выбора → `colorScheme.primary`/`primaryContainer`). **Полная замена остатка (~172 Color + 80 TextStyle) — отдельный дизайн-pass: каждое место требует UI-оценки (какой токен подставить)**
 - [~] Inline ButtonStyle в `main.dart`: удалены мёртвые `flatButtonStyle` + `outlineButtonStyle` (хардкод `Colors.red`). Осталось вынести используемый `raisedButtonStyle` в тему
 
 ## Phase 6 — Слой данных (наибольший эффект, средний риск)
