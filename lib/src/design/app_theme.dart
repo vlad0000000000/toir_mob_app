@@ -1,466 +1,733 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'app_constants.dart';
 
-/// AppTheme provides light and dark theme configurations with Material 3 support
-/// Generated with Flutter Theme Generator - Clean, modular, and maintainable
-/// 
-/// Features:
-/// ✅ Uses AppConstants for consistent design tokens
-/// ✅ Modular structure with separate theme components
-/// ✅ Material 3 compliant color schemes
-/// ✅ Support for 6 contrast modes (light, dark, medium/high contrast variants)
-/// ✅ Production-ready with proper type declarations
+/// Дизайн-система приложения — industrial-grade, SOTA 2026.
+///
+/// Палитра «Graphite + Cyan»: спокойный графит как primary (авторитет/контекст
+/// цеха), глубокий cyan как secondary (один яркий акцент для CTA/важных
+/// состояний), forest-green tertiary (успех/выполнено), индустриально-красный
+/// error. Поверхности — тёплый off-white вместо стерильно-белого: дольше
+/// читается и не «жжёт» глаза.
+///
+/// Принципы:
+///   • tonal elevation вместо теней (Material 3) — глубина через ступени
+///     surfaceContainerLow→Highest, тени только для модалок/FAB;
+///   • AAA-контраст для текста на любых поверхностях;
+///   • тап-таргеты ≥ 48px (≥ 56px для primary CTA — перчатки);
+///   • tabular figures для счётчиков/времени, чтобы числа «не прыгали»;
+///   • радиусы по шкале 8/12/16/24/28 (M3 Expressive: модалки крупно).
 class AppTheme {
-  AppTheme._(); // Private constructor to prevent instantiation
+  AppTheme._();
 
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // 🎨 PUBLIC THEME GETTERS
-  // ═══════════════════════════════════════════════════════════════════════════════
+  // ───────────────────────────────────────────────────────────
+  // Публичные точки входа
+  // ───────────────────────────────────────────────────────────
 
-  /// Light theme configuration
-  static ThemeData get lightTheme => theme(lightScheme());
+  static ThemeData get lightTheme => _build(lightScheme(), Brightness.light);
+  static ThemeData get darkTheme => _build(darkScheme(), Brightness.dark);
 
-  /// Dark theme configuration
-  static ThemeData get darkTheme => theme(darkScheme());
+  // Совместимость со старыми названиями (если где-то ссылались)
+  static ThemeData get lightMediumContrast => lightTheme;
+  static ThemeData get lightHighContrast => lightTheme;
+  static ThemeData get darkMediumContrast => darkTheme;
+  static ThemeData get darkHighContrast => darkTheme;
 
-  /// Light medium contrast theme
-  static ThemeData get lightMediumContrast => theme(lightMediumContrastScheme());
+  // ───────────────────────────────────────────────────────────
+  // Цветовые схемы — Graphite + Cyan
+  // ───────────────────────────────────────────────────────────
 
-  /// Light high contrast theme
-  static ThemeData get lightHighContrast => theme(lightHighContrastScheme());
+  /// Светлая схема. Тёплые off-white поверхности, графитовый primary,
+  /// cyan для акцентов, emerald для успеха.
+  static ColorScheme lightScheme() => const ColorScheme.light(
+        // Brand
+        primary: Color(0xFF1A2332),
+        onPrimary: Color(0xFFFFFFFF),
+        primaryContainer: Color(0xFFDDE5EE),
+        onPrimaryContainer: Color(0xFF0E1620),
 
-  /// Dark medium contrast theme
-  static ThemeData get darkMediumContrast => theme(darkMediumContrastScheme());
+        // Accent (cyan)
+        secondary: Color(0xFF0891B2),
+        onSecondary: Color(0xFFFFFFFF),
+        secondaryContainer: Color(0xFFCFFAFE),
+        onSecondaryContainer: Color(0xFF164E63),
 
-  /// Dark high contrast theme
-  static ThemeData get darkHighContrast => theme(darkHighContrastScheme());
+        // Success (forest green)
+        tertiary: Color(0xFF047857),
+        onTertiary: Color(0xFFFFFFFF),
+        tertiaryContainer: Color(0xFFD1FAE5),
+        onTertiaryContainer: Color(0xFF064E3B),
 
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // 🌈 COLOR SCHEMES - Material 3 compliant
-  // ═══════════════════════════════════════════════════════════════════════════════
+        // Error
+        error: Color(0xFFDC2626),
+        onError: Color(0xFFFFFFFF),
+        errorContainer: Color(0xFFFEE2E2),
+        onErrorContainer: Color(0xFF7F1D1D),
 
-  /// Light color scheme
-  static ColorScheme lightScheme() {
-    return const ColorScheme(
-      brightness: Brightness.light,
-      primary: Color(0xFF6366F1),
-      surfaceTint: Color(0xFF6366F1),
-      onPrimary: Color(0xFFFFFFFF),
-      primaryContainer: Color(0xFFb3b6ff),
-      onPrimaryContainer: Color(0xFF3b3ec9),
-      secondary: Color(0xFFEC4899),
-      onSecondary: Color(0xFF000000),
-      secondaryContainer: Color(0xFFff98e9),
-      onSecondaryContainer: Color(0xFFc42071),
-      tertiary: Color(0xFF10B981),
-      onTertiary: Color(0xFF000000),
-      tertiaryContainer: Color(0xFF60ffd1),
-      onTertiaryContainer: Color(0xFF009159),
-      error: Color(0xFFBA1A1A),
-      onError: Color(0xFFFFFFFF),
-      errorContainer: Color(0xFFFFDAD6),
-      onErrorContainer: Color(0xFF93000A),
-      surface: Color(0xFFFFFBFE),
-      onSurface: Color(0xFF1C1B1F),
-      onSurfaceVariant: Color(0xFF49454F),
-      outline: Color(0xFF79747E),
-      outlineVariant: Color(0xFFCAC4D0),
-      shadow: Color(0xFF000000),
-      scrim: Color(0xFF000000),
-      inverseSurface: Color(0xFF313033),
-      onInverseSurface: Color(0xFFF4EFF4),
-      inversePrimary: Color(0xFF4f52dd),
-      primaryFixed: Color(0xFFb3b6ff),
-      onPrimaryFixed: Color(0xFF272ab5),
-      primaryFixedDim: Color(0xFF9fa2ff),
-      onPrimaryFixedVariant: Color(0xFF4f52dd),
-      secondaryFixed: Color(0xFFff98e9),
-      onSecondaryFixed: Color(0xFFb00c5d),
-      secondaryFixedDim: Color(0xFFff84d5),
-      onSecondaryFixedVariant: Color(0xFFd83485),
-      tertiaryFixed: Color(0xFF60ffd1),
-      onTertiaryFixed: Color(0xFF007d45),
-      tertiaryFixedDim: Color(0xFF4cf5bd),
-      onTertiaryFixedVariant: Color(0xFF00a56d),
-      surfaceDim: Color(0xFFE6E0E9),
-      surfaceBright: Color(0xFFFFFBFE),
-      surfaceContainerLowest: Color(0xFFFFFFFF),
-      surfaceContainerLow: Color(0xFFF7F2FA),
-      surfaceContainer: Color(0xFFF3EDF7),
-      surfaceContainerHigh: Color(0xFFECE6F0),
-      surfaceContainerHighest: Color(0xFFE6E0E9),
+        // Surfaces (warm paper-like)
+        surface: Color(0xFFFAFAF9),
+        onSurface: Color(0xFF1A2332),
+        onSurfaceVariant: Color(0xFF4B5563),
+        surfaceContainerLowest: Color(0xFFFFFFFF),
+        surfaceContainerLow: Color(0xFFF7F7F5),
+        surfaceContainer: Color(0xFFF1F1EE),
+        surfaceContainerHigh: Color(0xFFE9E9E5),
+        surfaceContainerHighest: Color(0xFFDCDCD7),
+
+        // Outlines
+        outline: Color(0xFF9CA3AF),
+        outlineVariant: Color(0xFFE1E4E8),
+
+        // System
+        shadow: Color(0xFF000000),
+        scrim: Color(0xFF000000),
+
+        // Inverse (для тёмных полос: status bar, scanner, snackbar и пр.)
+        inverseSurface: Color(0xFF1A2332),
+        onInverseSurface: Color(0xFFFAFAF9),
+        inversePrimary: Color(0xFF22D3EE),
+
+        surfaceTint: Color(0xFF1A2332),
+      );
+
+  /// Тёмная схема. На случай если когда-нибудь включим dark mode.
+  /// Inverted поверхности, тот же cyan-акцент.
+  static ColorScheme darkScheme() => const ColorScheme.dark(
+        primary: Color(0xFF22D3EE),
+        onPrimary: Color(0xFF0E1620),
+        primaryContainer: Color(0xFF1F3247),
+        onPrimaryContainer: Color(0xFFCFFAFE),
+
+        secondary: Color(0xFF22D3EE),
+        onSecondary: Color(0xFF0E1620),
+        secondaryContainer: Color(0xFF164E63),
+        onSecondaryContainer: Color(0xFFCFFAFE),
+
+        tertiary: Color(0xFF34D399),
+        onTertiary: Color(0xFF064E3B),
+        tertiaryContainer: Color(0xFF065F46),
+        onTertiaryContainer: Color(0xFFD1FAE5),
+
+        error: Color(0xFFFCA5A5),
+        onError: Color(0xFF7F1D1D),
+        errorContainer: Color(0xFF991B1B),
+        onErrorContainer: Color(0xFFFEE2E2),
+
+        surface: Color(0xFF0F1620),
+        onSurface: Color(0xFFE7E9EC),
+        onSurfaceVariant: Color(0xFFB0B6BD),
+        surfaceContainerLowest: Color(0xFF0A0F16),
+        surfaceContainerLow: Color(0xFF131B26),
+        surfaceContainer: Color(0xFF17202C),
+        surfaceContainerHigh: Color(0xFF1E2734),
+        surfaceContainerHighest: Color(0xFF26313E),
+
+        outline: Color(0xFF6B7280),
+        outlineVariant: Color(0xFF374151),
+
+        shadow: Color(0xFF000000),
+        scrim: Color(0xFF000000),
+
+        inverseSurface: Color(0xFFFAFAF9),
+        onInverseSurface: Color(0xFF1A2332),
+        inversePrimary: Color(0xFF1A2332),
+
+        surfaceTint: Color(0xFF22D3EE),
+      );
+
+  /// Совместимость со старым API (внешние использования)
+  static ColorScheme lightMediumContrastScheme() => lightScheme();
+  static ColorScheme lightHighContrastScheme() => lightScheme();
+  static ColorScheme darkMediumContrastScheme() => darkScheme();
+  static ColorScheme darkHighContrastScheme() => darkScheme();
+  static ThemeData theme(ColorScheme colorScheme) =>
+      _build(colorScheme, colorScheme.brightness);
+
+  // ───────────────────────────────────────────────────────────
+  // Сборка темы
+  // ───────────────────────────────────────────────────────────
+
+  static ThemeData _build(ColorScheme cs, Brightness brightness) {
+    final tt = _textTheme(cs);
+    return ThemeData(
+      useMaterial3: true,
+      brightness: brightness,
+      colorScheme: cs,
+      scaffoldBackgroundColor: cs.surface,
+      canvasColor: cs.surface,
+      splashFactory: InkSparkle.splashFactory,
+      visualDensity: VisualDensity.standard,
+
+      textTheme: tt,
+      primaryTextTheme: tt,
+
+      appBarTheme: _appBarTheme(cs, tt),
+      bottomAppBarTheme: BottomAppBarTheme(
+        color: cs.surfaceContainerLow,
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
+      ),
+
+      // Buttons
+      elevatedButtonTheme: _elevatedButtonTheme(cs, tt),
+      filledButtonTheme: _filledButtonTheme(cs, tt),
+      outlinedButtonTheme: _outlinedButtonTheme(cs, tt),
+      textButtonTheme: _textButtonTheme(cs, tt),
+      iconButtonTheme: _iconButtonTheme(cs),
+      floatingActionButtonTheme: _fabTheme(cs),
+
+      // Surfaces / containers
+      cardTheme: _cardTheme(cs),
+      dialogTheme: _dialogTheme(cs, tt),
+      bottomSheetTheme: _bottomSheetTheme(cs),
+      popupMenuTheme: _popupMenuTheme(cs, tt),
+      navigationBarTheme: _navigationBarTheme(cs, tt),
+      bottomNavigationBarTheme: _bottomNavigationBarTheme(cs, tt),
+
+      // Inputs & lists
+      inputDecorationTheme: _inputDecorationTheme(cs, tt),
+      listTileTheme: _listTileTheme(cs, tt),
+      chipTheme: _chipTheme(cs, tt),
+      switchTheme: _switchTheme(cs),
+      checkboxTheme: _checkboxTheme(cs),
+      radioTheme: _radioTheme(cs),
+      sliderTheme: _sliderTheme(cs),
+      dividerTheme: _dividerTheme(cs),
+      tabBarTheme: _tabBarTheme(cs, tt),
+
+      // Feedback
+      snackBarTheme: _snackBarTheme(cs, tt),
+      progressIndicatorTheme: _progressIndicatorTheme(cs),
+      tooltipTheme: _tooltipTheme(cs, tt),
+
+      // Icons
+      iconTheme: IconThemeData(color: cs.onSurface, size: 24),
+      primaryIconTheme: IconThemeData(color: cs.onPrimary, size: 24),
     );
   }
 
-  /// Dark color scheme
-  static ColorScheme darkScheme() {
-    return const ColorScheme(
-      brightness: Brightness.dark,
-      primary: Color(0xFF4f52dd),
-      surfaceTint: Color(0xFF4f52dd),
-      onPrimary: Color(0xFF1316a1),
-      primaryContainer: Color(0xFF272ab5),
-      onPrimaryContainer: Color(0xFFb3b6ff),
-      secondary: Color(0xFFd83485),
-      onSecondary: Color(0xFF9c0049),
-      secondaryContainer: Color(0xFFb00c5d),
-      onSecondaryContainer: Color(0xFFff98e9),
-      tertiary: Color(0xFF00a56d),
-      onTertiary: Color(0xFF006931),
-      tertiaryContainer: Color(0xFF007d45),
-      onTertiaryContainer: Color(0xFF60ffd1),
-      error: Color(0xFFFFB4AB),
-      onError: Color(0xFF690005),
-      errorContainer: Color(0xFF93000A),
-      onErrorContainer: Color(0xFFFFDAD6),
-      surface: Color(0xFF10090D),
-      onSurface: Color(0xFFE6E0E9),
-      onSurfaceVariant: Color(0xFFCAC4D0),
-      outline: Color(0xFF938F99),
-      outlineVariant: Color(0xFF49454F),
-      shadow: Color(0xFF000000),
-      scrim: Color(0xFF000000),
-      inverseSurface: Color(0xFFE6E0E9),
-      onInverseSurface: Color(0xFF313033),
-      inversePrimary: Color(0xFF6366F1),
-      primaryFixed: Color(0xFFb3b6ff),
-      onPrimaryFixed: Color(0xFF272ab5),
-      primaryFixedDim: Color(0xFF9fa2ff),
-      onPrimaryFixedVariant: Color(0xFF4f52dd),
-      secondaryFixed: Color(0xFFff98e9),
-      onSecondaryFixed: Color(0xFFb00c5d),
-      secondaryFixedDim: Color(0xFFff84d5),
-      onSecondaryFixedVariant: Color(0xFFd83485),
-      tertiaryFixed: Color(0xFF60ffd1),
-      onTertiaryFixed: Color(0xFF007d45),
-      tertiaryFixedDim: Color(0xFF4cf5bd),
-      onTertiaryFixedVariant: Color(0xFF00a56d),
-      surfaceDim: Color(0xFF10090D),
-      surfaceBright: Color(0xFF362F33),
-      surfaceContainerLowest: Color(0xff000000),
-      surfaceContainerLow: Color(0xFF1D1418),
-      surfaceContainer: Color(0xFF211A1E),
-      surfaceContainerHigh: Color(0xFF2B2329),
-      surfaceContainerHighest: Color(0xFF362F33),
+  // ───────────────────────────────────────────────────────────
+  // Типографика — utility scale + tabular numerics для счётчиков
+  // ───────────────────────────────────────────────────────────
+
+  static TextTheme _textTheme(ColorScheme cs) {
+    const tabular = [FontFeature.tabularFigures()];
+    return TextTheme(
+      // Display — крупная reklama, редко
+      displayLarge: TextStyle(
+        fontSize: AppConstants.fontSizeDisplayLarge,
+        fontWeight: FontWeight.w300,
+        letterSpacing: -0.5,
+        height: 1.12,
+        color: cs.onSurface,
+      ),
+      displayMedium: TextStyle(
+        fontSize: AppConstants.fontSizeDisplayMedium,
+        fontWeight: FontWeight.w300,
+        letterSpacing: -0.25,
+        height: 1.16,
+        color: cs.onSurface,
+      ),
+      displaySmall: TextStyle(
+        fontSize: AppConstants.fontSizeDisplaySmall,
+        fontWeight: FontWeight.w400,
+        letterSpacing: 0,
+        height: 1.22,
+        color: cs.onSurface,
+      ),
+
+      // Headline — заголовки экранов/секций
+      headlineLarge: TextStyle(
+        fontSize: AppConstants.fontSizeHeadlineLarge,
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.25,
+        height: 1.2,
+        color: cs.onSurface,
+      ),
+      headlineMedium: TextStyle(
+        fontSize: AppConstants.fontSizeHeadlineMedium,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0,
+        height: 1.22,
+        color: cs.onSurface,
+      ),
+      headlineSmall: TextStyle(
+        fontSize: AppConstants.fontSizeHeadlineSmall,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0,
+        height: 1.28,
+        color: cs.onSurface,
+      ),
+
+      // Title — заголовки карточек/диалогов, кнопки
+      titleLarge: TextStyle(
+        fontSize: AppConstants.fontSizeTitleLarge,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0,
+        height: 1.27,
+        fontFeatures: tabular,
+        color: cs.onSurface,
+      ),
+      titleMedium: TextStyle(
+        fontSize: AppConstants.fontSizeTitleMedium,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.15,
+        height: 1.5,
+        fontFeatures: tabular,
+        color: cs.onSurface,
+      ),
+      titleSmall: TextStyle(
+        fontSize: AppConstants.fontSizeTitleSmall,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.1,
+        height: 1.43,
+        fontFeatures: tabular,
+        color: cs.onSurface,
+      ),
+
+      // Body — основной текст
+      bodyLarge: TextStyle(
+        fontSize: AppConstants.fontSizeBodyLarge,
+        fontWeight: FontWeight.w400,
+        letterSpacing: 0.15,
+        height: 1.5,
+        color: cs.onSurface,
+      ),
+      bodyMedium: TextStyle(
+        fontSize: AppConstants.fontSizeBodyMedium,
+        fontWeight: FontWeight.w400,
+        letterSpacing: 0.15,
+        height: 1.43,
+        color: cs.onSurface,
+      ),
+      bodySmall: TextStyle(
+        fontSize: AppConstants.fontSizeBodySmall,
+        fontWeight: FontWeight.w400,
+        letterSpacing: 0.25,
+        height: 1.33,
+        color: cs.onSurfaceVariant,
+      ),
+
+      // Label — кнопки, бейджи, метки (tabular для счётчиков)
+      labelLarge: TextStyle(
+        fontSize: AppConstants.fontSizeLabelLarge,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.1,
+        height: 1.43,
+        fontFeatures: tabular,
+        color: cs.onSurface,
+      ),
+      labelMedium: TextStyle(
+        fontSize: AppConstants.fontSizeLabelMedium,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.5,
+        height: 1.33,
+        fontFeatures: tabular,
+        color: cs.onSurfaceVariant,
+      ),
+      labelSmall: TextStyle(
+        fontSize: AppConstants.fontSizeLabelSmall,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.5,
+        height: 1.45,
+        fontFeatures: tabular,
+        color: cs.onSurfaceVariant,
+      ),
     );
   }
 
-  /// Light medium contrast color scheme
-  static ColorScheme lightMediumContrastScheme() {
-    return lightScheme().copyWith(
-      primary: Color(0xFF5457e2),
-      surface: Color(0xFFfaf6f9),
+  // ───────────────────────────────────────────────────────────
+  // Sub-themes
+  // ───────────────────────────────────────────────────────────
+
+  static AppBarTheme _appBarTheme(ColorScheme cs, TextTheme tt) => AppBarTheme(
+        backgroundColor: cs.surface,
+        foregroundColor: cs.onSurface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        centerTitle: false,
+        titleSpacing: AppConstants.spacingMD,
+        toolbarHeight: 56,
+        iconTheme: IconThemeData(color: cs.onSurface, size: 24),
+        actionsIconTheme: IconThemeData(color: cs.onSurface, size: 24),
+        titleTextStyle: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+        shape: Border(
+          bottom: BorderSide(color: cs.outlineVariant, width: 0.5),
+        ),
+      );
+
+  /// Primary CTA (Filled-style на ElevatedButton — большинство старых вызовов)
+  static ElevatedButtonThemeData _elevatedButtonTheme(
+          ColorScheme cs, TextTheme tt) =>
+      ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: cs.primary,
+          foregroundColor: cs.onPrimary,
+          disabledBackgroundColor: cs.onSurface.withValues(alpha: 0.12),
+          disabledForegroundColor: cs.onSurface.withValues(alpha: 0.38),
+          elevation: 0,
+          shadowColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          minimumSize: const Size(0, 48),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppConstants.spacingLG,
+            vertical: AppConstants.spacingSM + 4,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+          ),
+          textStyle: tt.labelLarge,
+        ),
+      );
+
+  static FilledButtonThemeData _filledButtonTheme(
+          ColorScheme cs, TextTheme tt) =>
+      FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: cs.primary,
+          foregroundColor: cs.onPrimary,
+          minimumSize: const Size(0, 48),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppConstants.spacingLG,
+            vertical: AppConstants.spacingSM + 4,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+          ),
+          textStyle: tt.labelLarge,
+        ),
+      );
+
+  static OutlinedButtonThemeData _outlinedButtonTheme(
+          ColorScheme cs, TextTheme tt) =>
+      OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: cs.onSurface,
+          minimumSize: const Size(0, 48),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppConstants.spacingLG,
+            vertical: AppConstants.spacingSM + 4,
+          ),
+          side: BorderSide(color: cs.outline, width: 1),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+          ),
+          textStyle: tt.labelLarge,
+        ),
+      );
+
+  static TextButtonThemeData _textButtonTheme(
+          ColorScheme cs, TextTheme tt) =>
+      TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: cs.primary,
+          minimumSize: const Size(0, 40),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppConstants.spacingMD,
+            vertical: AppConstants.spacingSM,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppConstants.radiusSM),
+          ),
+          textStyle: tt.labelLarge,
+        ),
+      );
+
+  static IconButtonThemeData _iconButtonTheme(ColorScheme cs) =>
+      IconButtonThemeData(
+        style: IconButton.styleFrom(
+          foregroundColor: cs.onSurfaceVariant,
+          minimumSize: const Size(40, 40),
+        ),
+      );
+
+  static FloatingActionButtonThemeData _fabTheme(ColorScheme cs) =>
+      FloatingActionButtonThemeData(
+        backgroundColor: cs.primary,
+        foregroundColor: cs.onPrimary,
+        elevation: 3,
+        focusElevation: 4,
+        hoverElevation: 4,
+        highlightElevation: 6,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusLG),
+        ),
+      );
+
+  /// Карточки — без теней, tonal background, чёткие края.
+  static CardThemeData _cardTheme(ColorScheme cs) => CardThemeData(
+        color: cs.surfaceContainerLow,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        margin: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusLG),
+          side: BorderSide(color: cs.outlineVariant, width: 0.5),
+        ),
+      );
+
+  static DialogThemeData _dialogTheme(ColorScheme cs, TextTheme tt) =>
+      DialogThemeData(
+        backgroundColor: cs.surfaceContainerHigh,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusXL),
+        ),
+        titleTextStyle: tt.headlineSmall,
+        contentTextStyle: tt.bodyMedium,
+      );
+
+  static BottomSheetThemeData _bottomSheetTheme(ColorScheme cs) =>
+      BottomSheetThemeData(
+        backgroundColor: cs.surface,
+        surfaceTintColor: Colors.transparent,
+        modalBackgroundColor: cs.surface,
+        modalElevation: 0,
+        elevation: 0,
+        showDragHandle: true,
+        dragHandleColor: cs.outlineVariant,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(28),
+          ),
+        ),
+      );
+
+  static PopupMenuThemeData _popupMenuTheme(ColorScheme cs, TextTheme tt) =>
+      PopupMenuThemeData(
+        color: cs.surfaceContainerHigh,
+        surfaceTintColor: Colors.transparent,
+        elevation: 2,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+        ),
+        textStyle: tt.bodyMedium,
+      );
+
+  static NavigationBarThemeData _navigationBarTheme(
+          ColorScheme cs, TextTheme tt) =>
+      NavigationBarThemeData(
+        backgroundColor: cs.surfaceContainerLow,
+        surfaceTintColor: Colors.transparent,
+        indicatorColor: cs.secondaryContainer,
+        labelTextStyle: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return tt.labelMedium?.copyWith(color: cs.onSurface);
+          }
+          return tt.labelMedium?.copyWith(color: cs.onSurfaceVariant);
+        }),
+        iconTheme: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return IconThemeData(color: cs.onSecondaryContainer);
+          }
+          return IconThemeData(color: cs.onSurfaceVariant);
+        }),
+        height: 72,
+        elevation: 0,
+      );
+
+  static BottomNavigationBarThemeData _bottomNavigationBarTheme(
+          ColorScheme cs, TextTheme tt) =>
+      BottomNavigationBarThemeData(
+        backgroundColor: cs.surface,
+        selectedItemColor: cs.primary,
+        unselectedItemColor: cs.onSurfaceVariant,
+        selectedLabelStyle: tt.labelSmall?.copyWith(color: cs.primary),
+        unselectedLabelStyle: tt.labelSmall,
+        type: BottomNavigationBarType.fixed,
+        elevation: 0,
+      );
+
+  static InputDecorationTheme _inputDecorationTheme(
+      ColorScheme cs, TextTheme tt) {
+    OutlineInputBorder border({Color? color, double width = 1}) =>
+        OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+          borderSide: BorderSide(color: color ?? cs.outline, width: width),
+        );
+    return InputDecorationTheme(
+      filled: true,
+      fillColor: cs.surfaceContainerLow,
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: AppConstants.spacingMD,
+        vertical: AppConstants.spacingSM + 6,
+      ),
+      isDense: false,
+      hintStyle: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+      labelStyle: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+      floatingLabelStyle: tt.bodySmall?.copyWith(color: cs.primary),
+      helperStyle: tt.bodySmall,
+      errorStyle: tt.bodySmall?.copyWith(color: cs.error),
+      border: border(),
+      enabledBorder: border(color: cs.outlineVariant),
+      focusedBorder: border(color: cs.primary, width: 2),
+      errorBorder: border(color: cs.error),
+      focusedErrorBorder: border(color: cs.error, width: 2),
+      disabledBorder: border(color: cs.outlineVariant),
     );
   }
 
-  /// Light high contrast color scheme
-  static ColorScheme lightHighContrastScheme() {
-    return lightScheme().copyWith(
-      primary: Color(0xFF4548d3),
-      surface: Color(0xFFf5f1f4),
-      outline: const Color(0xff000000),
-    );
-  }
+  static ListTileThemeData _listTileTheme(ColorScheme cs, TextTheme tt) =>
+      ListTileThemeData(
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: AppConstants.spacingMD,
+          vertical: AppConstants.spacingSM / 2,
+        ),
+        iconColor: cs.onSurfaceVariant,
+        textColor: cs.onSurface,
+        titleTextStyle: tt.bodyLarge,
+        subtitleTextStyle: tt.bodySmall,
+        leadingAndTrailingTextStyle: tt.labelMedium,
+        minVerticalPadding: AppConstants.spacingSM,
+      );
 
-  /// Dark medium contrast color scheme
-  static ColorScheme darkMediumContrastScheme() {
-    return darkScheme().copyWith(
-      primary: Color(0xFF5e61ec),
-      surface: Color(0xFF150e12),
-    );
-  }
+  /// Chip — утилитарный, не pill (8px радиус). С чётким outline.
+  static ChipThemeData _chipTheme(ColorScheme cs, TextTheme tt) =>
+      ChipThemeData(
+        backgroundColor: cs.surfaceContainerLow,
+        selectedColor: cs.primary,
+        disabledColor: cs.onSurface.withValues(alpha: 0.08),
+        secondarySelectedColor: cs.secondaryContainer,
+        labelStyle: tt.labelLarge?.copyWith(color: cs.onSurface),
+        secondaryLabelStyle: tt.labelLarge?.copyWith(color: cs.onPrimary),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppConstants.spacingMD - 2,
+          vertical: AppConstants.spacingSM,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusSM),
+          side: BorderSide(color: cs.outlineVariant),
+        ),
+        iconTheme: IconThemeData(color: cs.onSurfaceVariant, size: 18),
+      );
 
-  /// Dark high contrast color scheme
-  static ColorScheme darkHighContrastScheme() {
-    return darkScheme().copyWith(
-      primary: Color(0xFF6d70fb),
-      surface: Color(0xFF1a1317),
-      outline: const Color(0xffffffff),
-    );
-  }
+  static SwitchThemeData _switchTheme(ColorScheme cs) => SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) return cs.onSurface.withValues(alpha: 0.38);
+          if (states.contains(WidgetState.selected)) return cs.onPrimary;
+          return cs.outline;
+        }),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) return cs.onSurface.withValues(alpha: 0.12);
+          if (states.contains(WidgetState.selected)) return cs.primary;
+          return cs.surfaceContainerHighest;
+        }),
+        trackOutlineColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return Colors.transparent;
+          return cs.outline;
+        }),
+      );
 
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // 🎯 MAIN THEME BUILDER - Clean and modular structure
-  // ═══════════════════════════════════════════════════════════════════════════════
+  static CheckboxThemeData _checkboxTheme(ColorScheme cs) => CheckboxThemeData(
+        fillColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return cs.primary;
+          return Colors.transparent;
+        }),
+        checkColor: WidgetStateProperty.all(cs.onPrimary),
+        side: BorderSide(color: cs.outline, width: 1.5),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusXS),
+        ),
+      );
 
-  /// Main theme function that combines all theme components
-  /// Uses clean, modular structure with proper AppConstants integration
-  static ThemeData theme(ColorScheme colorScheme) => ThemeData(
-    useMaterial3: true,
-    brightness: colorScheme.brightness,
-    colorScheme: colorScheme,
-    textTheme: _textTheme,
-    appBarTheme: colorScheme.brightness == Brightness.light ? _lightAppBarTheme : _darkAppBarTheme,
-    elevatedButtonTheme: _elevatedButtonTheme,
-    textButtonTheme: _textButtonTheme,
-    outlinedButtonTheme: _outlinedButtonTheme,
-    inputDecorationTheme: _inputDecorationTheme,
-    cardTheme: _cardTheme,
-    chipTheme: _chipTheme,
-    progressIndicatorTheme: _progressIndicatorTheme,
-    dividerTheme: _dividerTheme,
-    bottomNavigationBarTheme: _bottomNavigationBarTheme,
-    tabBarTheme: _tabBarTheme,
-    switchTheme: _switchTheme,
-    checkboxTheme: _checkboxTheme,
-    radioTheme: _radioTheme,
-    sliderTheme: _sliderTheme,
-    scaffoldBackgroundColor: colorScheme.surface,
-    canvasColor: colorScheme.surface,
-  );
+  static RadioThemeData _radioTheme(ColorScheme cs) => RadioThemeData(
+        fillColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return cs.primary;
+          return cs.outline;
+        }),
+      );
 
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // 🎨 THEME COMPONENTS - All using AppConstants for consistency
-  // ═══════════════════════════════════════════════════════════════════════════════
+  static SliderThemeData _sliderTheme(ColorScheme cs) => SliderThemeData(
+        activeTrackColor: cs.primary,
+        inactiveTrackColor: cs.surfaceContainerHighest,
+        thumbColor: cs.primary,
+        overlayColor: cs.primary.withValues(alpha: 0.12),
+      );
 
+  static DividerThemeData _dividerTheme(ColorScheme cs) => DividerThemeData(
+        color: cs.outlineVariant,
+        thickness: 0.5,
+        space: 1,
+      );
 
-  /// Text theme using AppConstants for consistent font sizes
-  static final TextTheme _textTheme = TextTheme(
-    displayLarge: TextStyle(
-      fontSize: AppConstants.fontSizeDisplayLarge,
-      fontWeight: FontWeight.w400,
-      letterSpacing: -0.25,
-      height: 1.1228070175438596,
-    ),
-    displayMedium: TextStyle(
-      fontSize: AppConstants.fontSizeDisplayMedium,
-      fontWeight: FontWeight.w400,
-      letterSpacing: 0,
-      height: 1.1555555555555554,
-    ),
-    displaySmall: TextStyle(
-      fontSize: AppConstants.fontSizeDisplaySmall,
-      fontWeight: FontWeight.w400,
-      letterSpacing: 0,
-      height: 1.2222222222222223,
-    ),
-    headlineLarge: TextStyle(
-      fontSize: AppConstants.fontSizeHeadlineLarge,
-      fontWeight: FontWeight.w400,
-      letterSpacing: 0,
-      height: 1.25,
-    ),
-    headlineMedium: TextStyle(
-      fontSize: AppConstants.fontSizeHeadlineMedium,
-      fontWeight: FontWeight.w400,
-      letterSpacing: 0,
-      height: 1.2857142857142858,
-    ),
-    headlineSmall: TextStyle(
-      fontSize: AppConstants.fontSizeHeadlineSmall,
-      fontWeight: FontWeight.w400,
-      letterSpacing: 0,
-      height: 1.3333333333333333,
-    ),
-    titleLarge: TextStyle(
-      fontSize: AppConstants.fontSizeTitleLarge,
-      fontWeight: FontWeight.w400,
-      letterSpacing: 0,
-      height: 1.2727272727272727,
-    ),
-    titleMedium: TextStyle(
-      fontSize: AppConstants.fontSizeTitleMedium,
-      fontWeight: FontWeight.w500,
-      letterSpacing: 0.15,
-      height: 1.5,
-    ),
-    titleSmall: TextStyle(
-      fontSize: AppConstants.fontSizeTitleSmall,
-      fontWeight: FontWeight.w500,
-      letterSpacing: 0.1,
-      height: 1.4285714285714286,
-    ),
-    labelLarge: TextStyle(
-      fontSize: AppConstants.fontSizeLabelLarge,
-      fontWeight: FontWeight.w500,
-      letterSpacing: 0.1,
-      height: 1.4285714285714286,
-    ),
-    labelMedium: TextStyle(
-      fontSize: AppConstants.fontSizeLabelMedium,
-      fontWeight: FontWeight.w500,
-      letterSpacing: 0.5,
-      height: 1.3333333333333333,
-    ),
-    labelSmall: TextStyle(
-      fontSize: AppConstants.fontSizeLabelSmall,
-      fontWeight: FontWeight.w500,
-      letterSpacing: 0.5,
-      height: 1.4545454545454546,
-    ),
-    bodyLarge: TextStyle(
-      fontSize: AppConstants.fontSizeBodyLarge,
-      fontWeight: FontWeight.w400,
-      letterSpacing: 0.15,
-      height: 1.5,
-    ),
-    bodyMedium: TextStyle(
-      fontSize: AppConstants.fontSizeBodyMedium,
-      fontWeight: FontWeight.w400,
-      letterSpacing: 0.25,
-      height: 1.4285714285714286,
-    ),
-    bodySmall: TextStyle(
-      fontSize: AppConstants.fontSizeBodySmall,
-      fontWeight: FontWeight.w400,
-      letterSpacing: 0.4,
-      height: 1.3333333333333333,
-    ),
-  );
+  static TabBarThemeData _tabBarTheme(ColorScheme cs, TextTheme tt) =>
+      TabBarThemeData(
+        labelColor: cs.primary,
+        unselectedLabelColor: cs.onSurfaceVariant,
+        labelStyle: tt.titleSmall,
+        unselectedLabelStyle: tt.titleSmall,
+        indicator: UnderlineTabIndicator(
+          borderSide: BorderSide(color: cs.primary, width: 2),
+        ),
+        indicatorSize: TabBarIndicatorSize.label,
+        dividerColor: cs.outlineVariant,
+        labelPadding: const EdgeInsets.symmetric(
+          horizontal: AppConstants.spacingMD,
+        ),
+      );
 
+  /// Floating snackbar: inverse surface (тёмная) + контрастный текст.
+  static SnackBarThemeData _snackBarTheme(ColorScheme cs, TextTheme tt) =>
+      SnackBarThemeData(
+        backgroundColor: cs.inverseSurface,
+        contentTextStyle: tt.bodyMedium?.copyWith(color: cs.onInverseSurface),
+        actionTextColor: cs.inversePrimary,
+        behavior: SnackBarBehavior.floating,
+        elevation: 2,
+        insetPadding: const EdgeInsets.all(AppConstants.spacingMD),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+        ),
+      );
 
-  /// Elevated button theme
-  static final ElevatedButtonThemeData _elevatedButtonTheme = ElevatedButtonThemeData(
-    style: ElevatedButton.styleFrom(
-      elevation: AppConstants.elevationLevel2,
-      padding: EdgeInsets.symmetric(
-        horizontal: AppConstants.spacingLG,
-        vertical: AppConstants.spacingMD,
-      ),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
-      ),
-    ),
-  );
+  static ProgressIndicatorThemeData _progressIndicatorTheme(ColorScheme cs) =>
+      ProgressIndicatorThemeData(
+        color: cs.primary,
+        circularTrackColor: cs.surfaceContainerHigh,
+        linearTrackColor: cs.surfaceContainerHigh,
+        linearMinHeight: 4,
+      );
 
-  /// Text button theme
-  static final TextButtonThemeData _textButtonTheme = TextButtonThemeData(
-    style: TextButton.styleFrom(
-      padding: EdgeInsets.symmetric(
-        horizontal: AppConstants.spacingLG,
-        vertical: AppConstants.spacingMD,
-      ),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
-      ),
-    ),
-  );
-
-  /// Outlined button theme
-  static final OutlinedButtonThemeData _outlinedButtonTheme = OutlinedButtonThemeData(
-    style: OutlinedButton.styleFrom(
-      padding: EdgeInsets.symmetric(
-        horizontal: AppConstants.spacingLG,
-        vertical: AppConstants.spacingMD,
-      ),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
-      ),
-    ),
-  );
-
-
-  /// Input decoration theme
-  static final InputDecorationTheme _inputDecorationTheme = InputDecorationTheme(
-    contentPadding: EdgeInsets.symmetric(
-      horizontal: AppConstants.spacingMD,
-      vertical: AppConstants.spacingMD,
-    ),
-    border: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppConstants.radiusMD),
-    ),
-    enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppConstants.radiusMD),
-    ),
-    focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppConstants.radiusMD),
-    ),
-    errorBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppConstants.radiusMD),
-    ),
-  );
-
-
-  /// App bar theme for light mode
-  static final AppBarTheme _lightAppBarTheme = AppBarTheme(
-    elevation: AppConstants.elevationLevel1,
-    centerTitle: false,
-    titleSpacing: AppConstants.spacingMD,
-    scrolledUnderElevation: AppConstants.elevationLevel1,
-  );
-
-  /// App bar theme for dark mode
-  static final AppBarTheme _darkAppBarTheme = AppBarTheme(
-    elevation: AppConstants.elevationLevel1,
-    centerTitle: false,
-    titleSpacing: AppConstants.spacingMD,
-    scrolledUnderElevation: AppConstants.elevationLevel1,
-  );
-
-  /// Card theme
-  static final CardThemeData _cardTheme = CardThemeData(
-    elevation: AppConstants.elevationLevel1,
-    margin: EdgeInsets.all(AppConstants.spacingSM),
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(AppConstants.radiusLG),
-    ),
-  );
-
-  /// Chip theme
-  static final ChipThemeData _chipTheme = ChipThemeData(
-    padding: EdgeInsets.symmetric(
-      horizontal: AppConstants.spacingMD,
-      vertical: AppConstants.spacingSM,
-    ),
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(AppConstants.radiusFull),
-    ),
-  );
-
-  /// Progress indicator theme
-  static final ProgressIndicatorThemeData _progressIndicatorTheme = ProgressIndicatorThemeData();
-
-  /// Divider theme
-  static final DividerThemeData _dividerTheme = DividerThemeData(
-    thickness: AppConstants.borderWidthThin,
-    space: AppConstants.spacingMD,
-  );
-
-  /// Bottom navigation bar theme
-  static final BottomNavigationBarThemeData _bottomNavigationBarTheme = BottomNavigationBarThemeData(
-    type: BottomNavigationBarType.fixed,
-  );
-
-  /// Tab bar theme
-  static final TabBarThemeData _tabBarTheme = TabBarThemeData(
-    labelPadding: EdgeInsets.symmetric(
-      horizontal: AppConstants.spacingMD,
-      vertical: AppConstants.spacingSM,
-    ),
-  );
-
-  /// Switch theme
-  static final SwitchThemeData _switchTheme = SwitchThemeData(
-    thumbColor: WidgetStateProperty.resolveWith((states) {
-      if (states.contains(WidgetState.selected)) {
-        return lightScheme().primary;
-      }
-      return null;
-    }),
-  );
-
-  /// Checkbox theme
-  static final CheckboxThemeData _checkboxTheme = CheckboxThemeData(
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(AppConstants.radiusXS),
-    ),
-  );
-
-  /// Radio theme
-  static final RadioThemeData _radioTheme = RadioThemeData();
-
-  /// Slider theme
-  static final SliderThemeData _sliderTheme = SliderThemeData();
+  static TooltipThemeData _tooltipTheme(ColorScheme cs, TextTheme tt) =>
+      TooltipThemeData(
+        decoration: BoxDecoration(
+          color: cs.inverseSurface,
+          borderRadius: BorderRadius.circular(AppConstants.radiusSM),
+        ),
+        textStyle: tt.bodySmall?.copyWith(color: cs.onInverseSurface),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppConstants.spacingSM + 2,
+          vertical: AppConstants.spacingSM / 2,
+        ),
+      );
 }
 
-/// Custom theme colors extension for additional brand colors
-extension CustomColors on ColorScheme {
-  /// Success color for positive actions and states
-  Color get success => const Color(0xFF2E7D32);
-  
-  /// Warning color for caution states
-  Color get warning => const Color(0xFFF57C00);
-  
-  /// Info color for informational states
-  Color get info => const Color(0xFF1976D2);
+/// Семантические цвета поверх ColorScheme — для специфичных индустриальных
+/// статусов, которые не маппятся 1-в-1 на стандартные роли темы.
+extension AppSemanticColors on ColorScheme {
+  /// Успех / выполнено (= tertiary).
+  Color get success => tertiary;
+  Color get onSuccess => onTertiary;
+  Color get successContainer => tertiaryContainer;
+  Color get onSuccessContainer => onTertiaryContainer;
+
+  /// Предупреждение / просрочка скоро.
+  Color get warning => const Color(0xFFEA580C);
+  Color get onWarning => const Color(0xFFFFFFFF);
+  Color get warningContainer => const Color(0xFFFEDD9C);
+  Color get onWarningContainer => const Color(0xFF7C2D12);
+
+  /// Информация (нейтральные подсказки).
+  Color get info => secondary;
+  Color get onInfo => onSecondary;
+  Color get infoContainer => secondaryContainer;
+  Color get onInfoContainer => onSecondaryContainer;
+
+  /// Приоритеты задач — единая семантика для всех badge.
+  Color get priorityHigh => error;
+  Color get priorityMedium => const Color(0xFFEA580C);
+  Color get priorityLow => tertiary;
 }
