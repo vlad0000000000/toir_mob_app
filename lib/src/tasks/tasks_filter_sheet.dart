@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../../global_state.dart';
 import '../model/inventory_record.dart';
+import '../design/app_constants.dart';
 import 'tasks_filter_state.dart';
 
 const Map<TasksDateRange, String> _dateRangeLabels = {
@@ -42,7 +43,7 @@ class TasksFilterButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final active = activeCount > 0;
     return Material(
-      color: active ? Colors.black : Colors.grey.shade100,
+      color: active ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.surfaceContainerHigh,
       borderRadius: BorderRadius.circular(24),
       child: InkWell(
         onTap: onTap,
@@ -56,7 +57,7 @@ class TasksFilterButton extends StatelessWidget {
               Icon(
                 Icons.tune,
                 size: 18,
-                color: active ? Colors.white : Colors.black87,
+                color: active ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.onSurface,
               ),
               const SizedBox(width: 8),
               Text(
@@ -64,7 +65,7 @@ class TasksFilterButton extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: active ? Colors.white : Colors.black87,
+                  color: active ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.onSurface,
                 ),
               ),
               if (activeCount > 0) ...[
@@ -73,15 +74,15 @@ class TasksFilterButton extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Theme.of(context).colorScheme.onPrimary,
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
                     activeCount.toString(),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
-                      color: Colors.black,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
                   ),
                 ),
@@ -122,9 +123,9 @@ class _TasksFilterSheetState extends State<_TasksFilterSheet> {
       expand: false,
       builder: (context, scrollController) {
         return Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
           ),
           child: Column(
             children: [
@@ -134,7 +135,7 @@ class _TasksFilterSheetState extends State<_TasksFilterSheet> {
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
+                    color: Theme.of(context).colorScheme.outline,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -222,9 +223,9 @@ class _TasksFilterSheetState extends State<_TasksFilterSheet> {
                 padding: EdgeInsets.fromLTRB(
                     16, 12, 16, 12 + mq.padding.bottom),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: Theme.of(context).colorScheme.surface,
                   border: Border(
-                      top: BorderSide(color: Colors.grey.shade200)),
+                      top: BorderSide(color: Theme.of(context).colorScheme.outlineVariant)),
                 ),
                 child: Row(
                   children: [
@@ -246,8 +247,8 @@ class _TasksFilterSheetState extends State<_TasksFilterSheet> {
                       flex: 2,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.black,
-                          foregroundColor: Colors.white,
+                          backgroundColor: Theme.of(context).colorScheme.primary,
+                          foregroundColor: Theme.of(context).colorScheme.onPrimary,
                           padding:
                               const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
@@ -285,7 +286,7 @@ class _SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(icon, size: 18, color: Colors.grey.shade700),
+        Icon(icon, size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant),
         const SizedBox(width: 8),
         Text(
           title,
@@ -379,7 +380,7 @@ class _PillChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected ? Colors.black : Colors.grey.shade100,
+      color: selected ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.surfaceContainerHigh,
       borderRadius: BorderRadius.circular(20),
       child: InkWell(
         onTap: onTap,
@@ -391,21 +392,23 @@ class _PillChip extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: selected ? Colors.black : Colors.grey.shade300,
+              color: selected ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline,
             ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               if (selected) ...[
-                const Icon(Icons.check, size: 14, color: Colors.white),
+                Icon(Icons.check,
+                    size: 14,
+                    color: Theme.of(context).colorScheme.onPrimary),
                 const SizedBox(width: 6),
               ],
               Text(
                 label,
                 style: TextStyle(
                   fontSize: 14,
-                  color: selected ? Colors.white : Colors.black87,
+                  color: selected ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.onSurface,
                   fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                 ),
               ),
@@ -487,7 +490,7 @@ class _EquipmentPickerTile extends StatelessWidget {
         : records.where((r) => r.uuid == selectedUuid).toList();
     final selected = matching.isEmpty ? null : matching.first;
     return Material(
-      color: Colors.grey.shade50,
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
@@ -509,7 +512,7 @@ class _EquipmentPickerTile extends StatelessWidget {
           child: Row(
             children: [
               Icon(Icons.search,
-                  size: 20, color: Colors.grey.shade600),
+                  size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -517,8 +520,8 @@ class _EquipmentPickerTile extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 14,
                     color: selected != null
-                        ? Colors.black87
-                        : Colors.grey.shade600,
+                        ? Theme.of(context).colorScheme.onSurface
+                        : Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -529,12 +532,12 @@ class _EquipmentPickerTile extends StatelessWidget {
                   child: Padding(
                     padding: const EdgeInsets.all(4),
                     child: Icon(Icons.close,
-                        size: 18, color: Colors.grey.shade600),
+                        size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant),
                   ),
                 )
               else
                 Icon(Icons.chevron_right,
-                    size: 20, color: Colors.grey.shade500),
+                    size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
             ],
           ),
         ),
@@ -567,10 +570,10 @@ class _EquipmentPickerTile extends StatelessWidget {
               expand: false,
               builder: (_, scrollController) {
                 return Container(
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surface,
                     borderRadius:
-                        BorderRadius.vertical(top: Radius.circular(20)),
+                        const BorderRadius.vertical(top: Radius.circular(20)),
                   ),
                   child: Column(
                     children: [
@@ -580,7 +583,7 @@ class _EquipmentPickerTile extends StatelessWidget {
                           width: 40,
                           height: 4,
                           decoration: BoxDecoration(
-                            color: Colors.grey.shade300,
+                            color: Theme.of(context).colorScheme.outline,
                             borderRadius: BorderRadius.circular(2),
                           ),
                         ),
@@ -616,7 +619,7 @@ class _EquipmentPickerTile extends StatelessWidget {
                             hintText: 'Поиск…',
                             prefixIcon: const Icon(Icons.search),
                             filled: true,
-                            fillColor: Colors.grey.shade100,
+                            fillColor: Theme.of(context).colorScheme.surfaceContainerHigh,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                               borderSide: BorderSide.none,
@@ -627,7 +630,7 @@ class _EquipmentPickerTile extends StatelessWidget {
                       const SizedBox(height: 4),
                       ListTile(
                         leading: Icon(Icons.clear_all,
-                            color: Colors.grey.shade700),
+                            color: Theme.of(context).colorScheme.onSurfaceVariant),
                         title: const Text('Любое оборудование'),
                         selected: currentUuid == null,
                         onTap: () =>
@@ -644,8 +647,8 @@ class _EquipmentPickerTile extends StatelessWidget {
                               title: Text(r.name),
                               selected: r.uuid == currentUuid,
                               trailing: r.uuid == currentUuid
-                                  ? const Icon(Icons.check,
-                                      color: Colors.black)
+                                  ? Icon(Icons.check,
+                                      color: Theme.of(context).colorScheme.primary)
                                   : null,
                               onTap: () =>
                                   Navigator.of(ctx).pop(r.uuid),
