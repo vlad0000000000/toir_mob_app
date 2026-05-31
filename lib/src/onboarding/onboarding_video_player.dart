@@ -135,18 +135,30 @@ class _OnboardingVideoPlayerState extends State<OnboardingVideoPlayer> {
           Positioned(
             top: MediaQuery.of(context).padding.top + 8,
             right: 16,
-            child: TextButton(
-              onPressed: _finish,
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: cs.inverseSurface.withValues(alpha: 0.54),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  'Пропустить',
-                  style: TextStyle(color: cs.onInverseSurface, fontSize: 14),
+            child: Material(
+              color: Colors.black.withValues(alpha: 0.54),
+              borderRadius: BorderRadius.circular(20),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: _finish,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Пропустить',
+                        style: Theme.of(context)
+                            .textTheme
+                            .labelLarge
+                            ?.copyWith(color: cs.onInverseSurface),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(Icons.skip_next_rounded,
+                          size: 18, color: cs.onInverseSurface),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -203,16 +215,17 @@ class _ControlButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: cs.inverseSurface.withValues(alpha: 0.54),
-          borderRadius: BorderRadius.circular(20),
+    return Material(
+      color: Colors.black.withValues(alpha: 0.54),
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: Icon(icon, color: cs.onInverseSurface, size: 22),
         ),
-        child: Icon(icon, color: cs.onInverseSurface, size: 22),
       ),
     );
   }

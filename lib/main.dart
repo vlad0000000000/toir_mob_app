@@ -416,31 +416,49 @@ class MyApp extends StatelessWidget {
                 showPerformanceOverlay: false,
               );
               return SafeArea(
-                  child: Column(
-                children: [
-                  Expanded(child: app),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: AppConstants.spacingSM),
-                    color: Theme.of(context).colorScheme.inverseSurface,
-                    alignment: Alignment.centerLeft,
-                    height: 36,
-                    child: Dependent(
-                        value: GlobalState.debug,
-                        builder: (context, value, widget) {
-                          return Text(
-                            value,
-                            textScaler: const TextScaler.linear(0.9),
-                            style: TextStyle(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onInverseSurface),
-                            textDirection: TextDirection.ltr,
-                          );
-                        }),
-                  ),
-                ],
-              ));
+                child: Column(
+                  children: [
+                    Expanded(child: app),
+                    Builder(builder: (context) {
+                      final cs = Theme.of(context).colorScheme;
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppConstants.spacingMD,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: cs.inverseSurface,
+                          border: Border(
+                            top: BorderSide(
+                                color: cs.onInverseSurface
+                                    .withValues(alpha: 0.1),
+                                width: 0.5),
+                          ),
+                        ),
+                        alignment: Alignment.centerLeft,
+                        child: Dependent(
+                          value: GlobalState.debug,
+                          builder: (context, value, widget) {
+                            return Text(
+                              value,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelSmall
+                                  ?.copyWith(
+                                color: cs.onInverseSurface
+                                    .withValues(alpha: 0.85),
+                                fontFamily: 'monospace',
+                                height: 1.3,
+                              ),
+                              textDirection: TextDirection.ltr,
+                            );
+                          },
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              );
             }),
           ),
         );
