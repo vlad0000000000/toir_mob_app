@@ -434,7 +434,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   Widget _statusChip(AppNotification n) {
     final tt = Theme.of(context).textTheme;
-    final color = NotificationFormatters.statusColor(n.status);
+    final color = NotificationFormatters.statusColor(context, n.status);
     final label = NotificationStatuses.displayName(n.status);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),

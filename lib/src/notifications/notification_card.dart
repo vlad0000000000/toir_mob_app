@@ -170,6 +170,7 @@ class NotificationCard extends StatelessWidget {
     if (notification.status == NotificationStatuses.viewed) {
       return cs.info;
     }
+
     if (notification.isRead) return cs.outlineVariant;
     return cs.primary;
   }
@@ -192,7 +193,7 @@ class _StatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tt = Theme.of(context).textTheme;
-    final color = NotificationFormatters.statusColor(status);
+    final color = NotificationFormatters.statusColor(context, status);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(

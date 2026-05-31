@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:go_router/go_router.dart';
 import '../design/app_constants.dart';
+import '../design/app_theme.dart';
 import 'package:qr_scan_industry/settings.dart';
 import 'package:provider/provider.dart';
 import '../../global_state.dart';
@@ -50,98 +51,70 @@ class _QRResultScreenState extends State<QRResultScreen> {
   bool _highlightDescError = false;
   bool _highlightPriorityError = false;
 
+  void _showStateSnack({required String message, required bool ok}) {
+    if (!mounted) return;
+    final cs = Theme.of(context).colorScheme;
+    final fg = ok ? cs.onSuccess : cs.onError;
+    final bg = ok ? cs.success : cs.error;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Row(
+        children: [
+          Icon(
+            ok ? Icons.check_circle_rounded : Icons.error_outline_rounded,
+            color: fg,
+            size: 18,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(message,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.copyWith(color: fg)),
+          ),
+        ],
+      ),
+      backgroundColor: bg,
+      behavior: SnackBarBehavior.floating,
+    ));
+  }
+
+  bool _isOfflineError(Object e) {
+    if (e is SocketException || e is HttpException) return true;
+    final s = e.toString();
+    return s.contains('SocketException') ||
+        s.contains('Failed host lookup') ||
+        s.contains('Connection refused') ||
+        s.contains('Network is unreachable') ||
+        s.contains('TimeoutException');
+  }
+
   void _onStateChanged() async {
     final newState = stateController.value;
-    if (newState != null && newState.isNotEmpty && newState != _previousState) {
-      // Demo mode: skip API call, just update UI
-      if (widget.machine.uuid == DemoEquipment.demoUuid) {
-        _previousState = newState;
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Состояние оборудования успешно изменено',
-                style: TextStyle(color: Colors.black),
-              ),
-              backgroundColor: Colors.greenAccent,
-            ),
-          );
-        }
-        return;
-      }
-      try {
-        await GlobalState.dataProvider
-            .updateEquipmentState(widget.machine.uuid, newState);
-        _previousState = newState;
+    if (newState == null ||
+        newState.isEmpty ||
+        newState == _previousState) {
+      return;
+    }
+    const successMsg = 'Состояние оборудования успешно изменено';
+    const offlineMsg = 'Состояние не обновлено: нет интернета';
+    const otherMsg = 'Не удалось изменить состояние оборудования';
 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Состояние оборудования успешно изменено',
-                style: TextStyle(color: Colors.black),
-              ),
-              backgroundColor: Colors.greenAccent,
-            ),
-          );
-        }
-      } on SocketException catch (_) {
-        // Ошибка соединения с сервером
-        print('Ошибка обновления статуса оборудования: отсутствует интернет');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Состояние не обновлено, потому что нет интернета',
-                  style: TextStyle(color: Colors.black)),
-              backgroundColor: Colors.redAccent,
-            ),
-          );
-        }
-      } on HttpException catch (_) {
-        // Ошибка HTTP соединения
-        print('Ошибка обновления статуса оборудования: отсутствует интернет');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Состояние не обновлено, потому что нет интернета',
-                  style: TextStyle(color: Colors.black)),
-              backgroundColor: Colors.redAccent,
-            ),
-          );
-        }
-      } catch (e) {
-        // Проверяем, не является ли это ошибкой соединения
-        final errorString = e.toString();
-        if (errorString.contains('SocketException') ||
-            errorString.contains('Failed host lookup') ||
-            errorString.contains('Connection refused') ||
-            errorString.contains('Network is unreachable') ||
-            errorString.contains('TimeoutException')) {
-          print('Ошибка обновления статуса оборудования: отсутствует интернет');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                    'Состояние не обновлено, потому что нет интернета',
-                    style: TextStyle(color: Colors.black)),
-                backgroundColor: Colors.redAccent,
-              ),
-            );
-          }
-        } else {
-          // Другие ошибки
-          print('Ошибка обновления статуса оборудования: $e');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Не удалось изменить состояние оборудования',
-                    style: TextStyle(color: Colors.black)),
-                backgroundColor: Colors.redAccent,
-              ),
-            );
-          }
-        }
-      }
+    if (widget.machine.uuid == DemoEquipment.demoUuid) {
+      _previousState = newState;
+      _showStateSnack(message: successMsg, ok: true);
+      return;
+    }
+    try {
+      await GlobalState.dataProvider
+          .updateEquipmentState(widget.machine.uuid, newState);
+      _previousState = newState;
+      _showStateSnack(message: successMsg, ok: true);
+    } catch (e) {
+      _showStateSnack(
+        message: _isOfflineError(e) ? offlineMsg : otherMsg,
+        ok: false,
+      );
     }
   }
 

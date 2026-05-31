@@ -1,23 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../design/app_theme.dart';
 import '../model/notification.dart';
 
 /// Чистые форматтеры/стили уведомлений. Вынесены из `_NotificationsScreenState`,
 /// чтобы и экран, и `NotificationCard` использовали их без cross-class доступа
 /// к приватным статикам State.
 class NotificationFormatters {
-  static Color statusColor(String status) {
+  /// Семантический цвет статуса уведомления, опираясь на ColorScheme
+  /// (success / info / error). Контекст обязателен — нужен ColorScheme.
+  static Color statusColor(BuildContext context, String status) {
+    final cs = Theme.of(context).colorScheme;
     switch (status) {
       case NotificationStatuses.newStatus:
-        return Colors.red;
+        return cs.primary;
       case NotificationStatuses.viewed:
-        return Colors.blue;
+        return cs.info;
       case NotificationStatuses.completed:
-        return Colors.green;
+        return cs.success;
       case NotificationStatuses.overdue:
-        return Colors.red.shade700;
+        return cs.error;
     }
-    return Colors.grey;
+    return cs.onSurfaceVariant;
   }
 
   static String formatDateTime(DateTime utc) {
