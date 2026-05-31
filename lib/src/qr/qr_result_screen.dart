@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:go_router/go_router.dart';
+import '../design/app_constants.dart';
 import 'package:qr_scan_industry/settings.dart';
 import 'package:provider/provider.dart';
 import '../../global_state.dart';
@@ -145,93 +146,81 @@ class _QRResultScreenState extends State<QRResultScreen> {
   }
 
   Widget passport() {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
     // Упрощенный вид - только название станка
     if (Settings.qrResultShowSimplifiedView) {
       return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16.0),
-          child: Column(
-            spacing: 8,
-            mainAxisAlignment: MainAxisAlignment.start,
-            children: [
-              Text(
-                widget.machine.descriptionTextSimple,
-                style: Theme.of(context)
-                    .textTheme
-                    .headlineSmall
-                    ?.copyWith(fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
-              ),
-              Row(
-                children: [
-                  SelectStateButton(
-                    controller: stateController,
-                    initialValue: widget.machine.state,
-                  ),
-                ],
-              ),
-            ],
-          ));
+        padding: const EdgeInsets.fromLTRB(8, 16, 8, 8),
+        child: Column(
+          children: [
+            Text(
+              widget.machine.descriptionTextSimple,
+              style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                SelectStateButton(
+                  controller: stateController,
+                  initialValue: widget.machine.state,
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
     }
 
-    var passportType = 1;
-    // image + text
-    if (passportType == 1) {
-      return Column(
-        spacing: 8,
-        mainAxisAlignment: MainAxisAlignment.start,
-        children: [
-          if (widget.machine.imageData.isNotEmpty)
-            ConstrainedBox(
-              constraints: BoxConstraints(
-                  maxHeight:
-                      max(MediaQuery.of(context).size.shortestSide, 350)),
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.start,
+      children: [
+        if (widget.machine.imageData.isNotEmpty)
+          ConstrainedBox(
+            constraints: BoxConstraints(
+                maxHeight:
+                    max(MediaQuery.of(context).size.shortestSide, 350)),
+            child: ClipRRect(
+              borderRadius:
+                  BorderRadius.circular(AppConstants.radiusMD),
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  Container(
-                    color: Theme.of(context).colorScheme.inverseSurface,
-                  ),
+                  Container(color: cs.inverseSurface),
                   Image.network(
                     widget.machine.imageData,
                     errorBuilder: (context, error, stackTrace) {
                       return Icon(
-                        Icons.broken_image,
+                        Icons.broken_image_rounded,
                         size: 64,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onInverseSurface
-                            .withValues(alpha: 0.5),
+                        color: cs.onInverseSurface.withValues(alpha: 0.5),
                       );
                     },
-                  )
+                  ),
                 ],
               ),
             ),
-          Row(
-            children: [
-              Expanded(child: MarkdownBody(data: """
-${widget.machine.descriptionText}
-    """))
-            ],
           ),
-          SizedBox(
-            height: 0,
-          ),
-          Row(
-            children: [
-              SelectStateButton(
-                controller: stateController,
-                initialValue: widget.machine.state,
-              ),
-            ],
-          ),
-        ],
-      );
-    }
-
-    // pdf
-    if (passportType == 2) {}
-    return SizedBox();
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: MarkdownBody(data: widget.machine.descriptionText),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            SelectStateButton(
+              controller: stateController,
+              initialValue: widget.machine.state,
+            ),
+          ],
+        ),
+      ],
+    );
   }
 
   List<UsageUpdate> createUsageScans() {

@@ -151,10 +151,17 @@ class _BarcodeScannerWithControllerState
               );
             },
           ),
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 24,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(32),
+              ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
