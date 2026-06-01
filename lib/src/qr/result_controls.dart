@@ -962,6 +962,7 @@ class _PhotoStripState extends State<_PhotoStrip> {
     return SizedBox(
       height: 80,
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (var i = 0; i < widget.controllers.length; i++) ...[
             if (i > 0) const SizedBox(width: 8),
@@ -1008,8 +1009,10 @@ class _PhotoSlot extends StatelessWidget {
                 fit: BoxFit.cover,
                 gaplessPlayback: true,
               )
-            : Icon(Icons.add_a_photo_outlined,
-                color: cs.onSurfaceVariant, size: 22),
+            : Center(
+                child: Icon(Icons.add_a_photo_outlined,
+                    color: cs.onSurfaceVariant, size: 22),
+              ),
       ),
     );
   }
