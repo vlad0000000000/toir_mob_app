@@ -1,7 +1,22 @@
 import '../../src/data/data_provider.dart';
+import '../../src/design/app_theme.dart';
 
 class Settings {
   static late DataProvider dataProvider;
+
+  /// Активная тема. По умолчанию — fresh (lime green).
+  static set themeId(AppThemeId value) {
+    dataProvider.stringBox.put('themeId', value.name);
+  }
+
+  static AppThemeId get themeId {
+    final v = dataProvider.stringBox.get('themeId');
+    if (v == null) return AppTheme.defaultThemeId;
+    return AppThemeId.values.firstWhere(
+      (x) => x.name == v,
+      orElse: () => AppTheme.defaultThemeId,
+    );
+  }
 
   static set qrResultShowTasksFirst(bool value) {
     dataProvider.stringBox.put('qrResultShowTasksFirst', value ? "1" : "0");

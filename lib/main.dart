@@ -160,6 +160,9 @@ Future<void> main() async {
   GlobalState.dataProvider = dataProvider;
   Settings.dataProvider = dataProvider;
 
+  // Восстанавливаем выбранную тему из Hive (Settings.themeId → AppTheme).
+  AppTheme.activeThemeId.value = Settings.themeId;
+
   // clear Hive of first launch
   // final prefs = await SharedPreferences.getInstance();
   // final isFirstLaunch = prefs.getBool('is_first_launch');
@@ -404,16 +407,19 @@ class MyApp extends StatelessWidget {
               ),
             ],
             child: Builder(builder: (context) {
-              var app = MaterialApp.router(
-                builder: EasyLoading.init(),
-                title: dotenv.env["APP_TITLE"]!,
-                theme: AppTheme.lightTheme,
-                themeMode: ThemeMode.light,
-                routeInformationProvider: _router.routeInformationProvider,
-                routeInformationParser: _router.routeInformationParser,
-                routerDelegate: _router.routerDelegate,
-                scaffoldMessengerKey: scaffoldMessengerKey,
-                showPerformanceOverlay: false,
+              var app = ValueListenableBuilder<AppThemeId>(
+                valueListenable: AppTheme.activeThemeId,
+                builder: (context, _, __) => MaterialApp.router(
+                  builder: EasyLoading.init(),
+                  title: dotenv.env["APP_TITLE"]!,
+                  theme: AppTheme.lightTheme,
+                  themeMode: ThemeMode.light,
+                  routeInformationProvider: _router.routeInformationProvider,
+                  routeInformationParser: _router.routeInformationParser,
+                  routerDelegate: _router.routerDelegate,
+                  scaffoldMessengerKey: scaffoldMessengerKey,
+                  showPerformanceOverlay: false,
+                ),
               );
               return SafeArea(
                 child: Column(

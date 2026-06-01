@@ -4,6 +4,7 @@ import 'package:qr_scan_industry/src/update_manager.dart';
 import '../../global_state.dart';
 import '../../src/data/data_provider.dart';
 import '../../src/design/app_constants.dart';
+import '../../src/design/app_theme.dart';
 import '../../src/app_bar/app_bar.dart';
 import '../../src/notifications/notifications_service.dart';
 import '../../src/notifications/push/push_notifications_controller.dart';
@@ -608,12 +609,20 @@ class _SettingsSheet extends StatefulWidget {
 class _SettingsSheetState extends State<_SettingsSheet> {
   late bool _tasksFirst;
   late bool _simplified;
+  late AppThemeId _themeId;
 
   @override
   void initState() {
     super.initState();
     _tasksFirst = Settings.qrResultShowTasksFirst;
     _simplified = Settings.qrResultShowSimplifiedView;
+    _themeId = Settings.themeId;
+  }
+
+  void _setTheme(AppThemeId id) {
+    setState(() => _themeId = id);
+    Settings.themeId = id;
+    AppTheme.activeThemeId.value = id;
   }
 
   @override
@@ -669,7 +678,45 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                 style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
               ),
             ),
-            const SizedBox(height: AppConstants.spacingMD),
+            Divider(height: 1, color: cs.outlineVariant),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  0, AppConstants.spacingMD, 0, AppConstants.spacingSM),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Тема оформления', style: tt.bodyLarge),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Палитра интерфейса и кнопок',
+                    style: tt.bodySmall
+                        ?.copyWith(color: cs.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: AppConstants.spacingSM),
+                  SizedBox(
+                    width: double.infinity,
+                    child: SegmentedButton<AppThemeId>(
+                      segments: const [
+                        ButtonSegment(
+                          value: AppThemeId.fresh,
+                          label: Text('Свежая'),
+                          icon: Icon(Icons.eco_outlined),
+                        ),
+                        ButtonSegment(
+                          value: AppThemeId.industrial,
+                          label: Text('Графит'),
+                          icon: Icon(Icons.factory_outlined),
+                        ),
+                      ],
+                      selected: {_themeId},
+                      showSelectedIcon: false,
+                      onSelectionChanged: (s) => _setTheme(s.first),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppConstants.spacingSM),
             SizedBox(
               height: 48,
               child: OutlinedButton.icon(

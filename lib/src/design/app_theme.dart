@@ -1,13 +1,22 @@
 import 'package:flutter/material.dart';
 import 'app_constants.dart';
 
+/// Идентификатор активной темы. Хранится в `Settings.themeId`, переключается
+/// из настроек, дефолт — `fresh` (зелёная по гайду админки).
+enum AppThemeId {
+  /// Свежая — лаймовый зелёный primary, тёплая cream-поверхность.
+  /// Адаптация HSL-палитры из веб-админки. Дефолт.
+  fresh,
+
+  /// Графит — индустриальный графит + cyan акцент. Старая SOTA-схема.
+  industrial,
+}
+
 /// Дизайн-система приложения — industrial-grade, SOTA 2026.
 ///
-/// Палитра «Graphite + Cyan»: спокойный графит как primary (авторитет/контекст
-/// цеха), глубокий cyan как secondary (один яркий акцент для CTA/важных
-/// состояний), forest-green tertiary (успех/выполнено), индустриально-красный
-/// error. Поверхности — тёплый off-white вместо стерильно-белого: дольше
-/// читается и не «жжёт» глаза.
+/// Две палитры: `fresh` (lime green из админки, дефолт) и `industrial`
+/// (Graphite + Cyan). Активная выбирается через `activeThemeId` и
+/// переключается в `Settings → Тема`.
 ///
 /// Принципы:
 ///   • tonal elevation вместо теней (Material 3) — глубина через ступени
@@ -20,11 +29,22 @@ class AppTheme {
   AppTheme._();
 
   // ───────────────────────────────────────────────────────────
+  // Реактивный switcher тем — main.dart слушает через ValueListenableBuilder
+  // ───────────────────────────────────────────────────────────
+
+  static const AppThemeId defaultThemeId = AppThemeId.fresh;
+
+  static final ValueNotifier<AppThemeId> activeThemeId =
+      ValueNotifier<AppThemeId>(defaultThemeId);
+
+  // ───────────────────────────────────────────────────────────
   // Публичные точки входа
   // ───────────────────────────────────────────────────────────
 
-  static ThemeData get lightTheme => _build(lightScheme(), Brightness.light);
-  static ThemeData get darkTheme => _build(darkScheme(), Brightness.dark);
+  static ThemeData get lightTheme =>
+      _build(_lightSchemeFor(activeThemeId.value), Brightness.light);
+  static ThemeData get darkTheme =>
+      _build(_darkSchemeFor(activeThemeId.value), Brightness.dark);
 
   // Совместимость со старыми названиями (если где-то ссылались)
   static ThemeData get lightMediumContrast => lightTheme;
@@ -33,12 +53,142 @@ class AppTheme {
   static ThemeData get darkHighContrast => darkTheme;
 
   // ───────────────────────────────────────────────────────────
-  // Цветовые схемы — Graphite + Cyan
+  // Dispatcher по id
+  // ───────────────────────────────────────────────────────────
+
+  static ColorScheme _lightSchemeFor(AppThemeId id) {
+    switch (id) {
+      case AppThemeId.fresh:
+        return _freshLightScheme();
+      case AppThemeId.industrial:
+        return _industrialLightScheme();
+    }
+  }
+
+  static ColorScheme _darkSchemeFor(AppThemeId id) {
+    switch (id) {
+      case AppThemeId.fresh:
+        return _freshDarkScheme();
+      case AppThemeId.industrial:
+        return _industrialDarkScheme();
+    }
+  }
+
+  /// Обратная совместимость с прежним API.
+  static ColorScheme lightScheme() => _lightSchemeFor(activeThemeId.value);
+  static ColorScheme darkScheme() => _darkSchemeFor(activeThemeId.value);
+
+  // ───────────────────────────────────────────────────────────
+  // Свежая схема — Lime Green (адаптация HSL из веб-админки)
+  // ───────────────────────────────────────────────────────────
+
+  /// Светлая «свежая» схема:
+  ///   primary `hsl(93 53% 47%)` → #71B738 (lime green)
+  ///   background `hsl(33 30% 97%)` → #FAF8F5 (warm cream)
+  ///   foreground `hsl(0 0% 18%)` → #2E2E2E
+  ///   destructive `hsl(0 75% 55%)` → #E23636
+  static ColorScheme _freshLightScheme() => const ColorScheme.light(
+        // Brand: lime/forest green
+        primary: Color(0xFF71B738),
+        onPrimary: Color(0xFFFFFFFF),
+        primaryContainer: Color(0xFFE8F4E1),
+        onPrimaryContainer: Color(0xFF55892A),
+
+        // Secondary — тот же зелёный, но darker — для emphasis-чипов
+        secondary: Color(0xFF55892A),
+        onSecondary: Color(0xFFFFFFFF),
+        secondaryContainer: Color(0xFFE8F4E1),
+        onSecondaryContainer: Color(0xFF55892A),
+
+        // Tertiary = success (в админке status-success = primary)
+        tertiary: Color(0xFF71B738),
+        onTertiary: Color(0xFFFFFFFF),
+        tertiaryContainer: Color(0xFFE8F4E1),
+        onTertiaryContainer: Color(0xFF55892A),
+
+        // Destructive
+        error: Color(0xFFE23636),
+        onError: Color(0xFFFFFFFF),
+        errorContainer: Color(0xFFFADBDB),
+        onErrorContainer: Color(0xFF701010),
+
+        // Surfaces — тёплый cream
+        surface: Color(0xFFFAF8F5),
+        onSurface: Color(0xFF2E2E2E),
+        onSurfaceVariant: Color(0xFF737373),
+        surfaceContainerLowest: Color(0xFFFFFFFF),
+        surfaceContainerLow: Color(0xFFF5F2EE),
+        surfaceContainer: Color(0xFFEFEBE6),
+        surfaceContainerHigh: Color(0xFFE7E1DA),
+        surfaceContainerHighest: Color(0xFFDCD6CE),
+
+        // Outlines (admin --border = 0 0% 88%)
+        outline: Color(0xFFB8B8B8),
+        outlineVariant: Color(0xFFE0E0E0),
+
+        shadow: Color(0xFF000000),
+        scrim: Color(0xFF000000),
+
+        // Inverse — для status bar, sidebar, snackbar
+        inverseSurface: Color(0xFF2E2E2E),
+        onInverseSurface: Color(0xFFFAF8F5),
+        inversePrimary: Color(0xFFAEDB8A),
+
+        surfaceTint: Color(0xFF71B738),
+      );
+
+  /// Тёмная «свежая» схема. Не используется в light-only режиме, но
+  /// держим целостной для возможности включить.
+  static ColorScheme _freshDarkScheme() => const ColorScheme.dark(
+        primary: Color(0xFFAEDB8A),
+        onPrimary: Color(0xFF1A2E08),
+        primaryContainer: Color(0xFF3C5B1A),
+        onPrimaryContainer: Color(0xFFE8F4E1),
+
+        secondary: Color(0xFFAEDB8A),
+        onSecondary: Color(0xFF1A2E08),
+        secondaryContainer: Color(0xFF3C5B1A),
+        onSecondaryContainer: Color(0xFFE8F4E1),
+
+        tertiary: Color(0xFFAEDB8A),
+        onTertiary: Color(0xFF1A2E08),
+        tertiaryContainer: Color(0xFF3C5B1A),
+        onTertiaryContainer: Color(0xFFE8F4E1),
+
+        error: Color(0xFFFCA5A5),
+        onError: Color(0xFF7F1D1D),
+        errorContainer: Color(0xFF991B1B),
+        onErrorContainer: Color(0xFFFEE2E2),
+
+        surface: Color(0xFF181815),
+        onSurface: Color(0xFFE9E6E2),
+        onSurfaceVariant: Color(0xFFB5B0AA),
+        surfaceContainerLowest: Color(0xFF101010),
+        surfaceContainerLow: Color(0xFF1F1E1B),
+        surfaceContainer: Color(0xFF252420),
+        surfaceContainerHigh: Color(0xFF2E2C27),
+        surfaceContainerHighest: Color(0xFF37352F),
+
+        outline: Color(0xFF6B6B6B),
+        outlineVariant: Color(0xFF3A3A3A),
+
+        shadow: Color(0xFF000000),
+        scrim: Color(0xFF000000),
+
+        inverseSurface: Color(0xFFFAF8F5),
+        onInverseSurface: Color(0xFF2E2E2E),
+        inversePrimary: Color(0xFF71B738),
+
+        surfaceTint: Color(0xFFAEDB8A),
+      );
+
+  // ───────────────────────────────────────────────────────────
+  // Индустриальная схема — Graphite + Cyan (прежняя SOTA)
   // ───────────────────────────────────────────────────────────
 
   /// Светлая схема. Тёплые off-white поверхности, графитовый primary,
   /// cyan для акцентов, emerald для успеха.
-  static ColorScheme lightScheme() => const ColorScheme.light(
+  static ColorScheme _industrialLightScheme() => const ColorScheme.light(
         // Brand
         primary: Color(0xFF1A2332),
         onPrimary: Color(0xFFFFFFFF),
@@ -91,7 +241,7 @@ class AppTheme {
 
   /// Тёмная схема. На случай если когда-нибудь включим dark mode.
   /// Inverted поверхности, тот же cyan-акцент.
-  static ColorScheme darkScheme() => const ColorScheme.dark(
+  static ColorScheme _industrialDarkScheme() => const ColorScheme.dark(
         primary: Color(0xFF22D3EE),
         onPrimary: Color(0xFF0E1620),
         primaryContainer: Color(0xFF1F3247),
