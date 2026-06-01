@@ -357,12 +357,23 @@ class AppTheme {
       );
 
   /// Primary CTA (Filled-style на ElevatedButton — большинство старых вызовов)
+  /// Текстовый стиль для кнопок — те же метрики, что у labelLarge, но БЕЗ
+  /// color. Если оставить color в textStyle, он перебивает foregroundColor,
+  /// и текст на тёмной кнопке остаётся тёмным.
+  static const TextStyle _buttonTextStyle = TextStyle(
+    fontSize: AppConstants.fontSizeLabelLarge,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0.1,
+    height: 1.43,
+  );
+
   static ElevatedButtonThemeData _elevatedButtonTheme(
           ColorScheme cs, TextTheme tt) =>
       ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: cs.primary,
           foregroundColor: cs.onPrimary,
+          iconColor: cs.onPrimary,
           disabledBackgroundColor: cs.onSurface.withValues(alpha: 0.12),
           disabledForegroundColor: cs.onSurface.withValues(alpha: 0.38),
           elevation: 0,
@@ -376,7 +387,7 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppConstants.radiusMD),
           ),
-          textStyle: tt.labelLarge,
+          textStyle: _buttonTextStyle,
         ),
       );
 
@@ -386,6 +397,7 @@ class AppTheme {
         style: FilledButton.styleFrom(
           backgroundColor: cs.primary,
           foregroundColor: cs.onPrimary,
+          iconColor: cs.onPrimary,
           minimumSize: const Size(0, 48),
           padding: const EdgeInsets.symmetric(
             horizontal: AppConstants.spacingLG,
@@ -394,7 +406,7 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppConstants.radiusMD),
           ),
-          textStyle: tt.labelLarge,
+          textStyle: _buttonTextStyle,
         ),
       );
 
@@ -412,7 +424,7 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppConstants.radiusMD),
           ),
-          textStyle: tt.labelLarge,
+          textStyle: _buttonTextStyle,
         ),
       );
 
@@ -429,7 +441,7 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppConstants.radiusSM),
           ),
-          textStyle: tt.labelLarge,
+          textStyle: _buttonTextStyle,
         ),
       );
 

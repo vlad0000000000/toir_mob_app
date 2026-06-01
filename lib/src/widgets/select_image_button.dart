@@ -74,6 +74,7 @@ class _SelectImageButton extends State<SelectImageButton>
               },
               child: stack));
     } else {
+      final cs = Theme.of(context).colorScheme;
       return Expanded(
           child: SquareButton(
               child: Column(
@@ -81,15 +82,16 @@ class _SelectImageButton extends State<SelectImageButton>
                 spacing: 4,
                 children: [
                   Icon(
-                    Icons.image,
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                    Icons.camera_alt_rounded,
+                    color: cs.onPrimary,
                     size: 32,
                   ),
                   Text(
                     Strings.addImage,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
-                    ),
+                    style: Theme.of(context)
+                        .textTheme
+                        .labelMedium
+                        ?.copyWith(color: cs.onPrimary),
                     textAlign: TextAlign.center,
                   )
                 ],

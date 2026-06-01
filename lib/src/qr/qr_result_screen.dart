@@ -577,9 +577,6 @@ class _SubmitBar extends StatelessWidget {
             onPressed: onSubmit,
             icon: const Icon(Icons.send_rounded, size: 20),
             label: const Text('Отправить'),
-            style: ElevatedButton.styleFrom(
-              textStyle: Theme.of(context).textTheme.titleMedium,
-            ),
           ),
         ),
       ),
