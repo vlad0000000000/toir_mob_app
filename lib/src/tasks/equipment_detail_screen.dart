@@ -120,14 +120,19 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
               horizontal: AppConstants.spacingMD,
               vertical: AppConstants.spacingSM / 2 + 2),
           clipBehavior: Clip.antiAlias,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          child: Stack(
             children: [
-              Container(
-                width: 4,
-                color: periodColors[checklist.period],
+              Positioned(
+                left: 0,
+                top: 0,
+                bottom: 0,
+                child: Container(
+                  width: 4,
+                  color: periodColors[checklist.period],
+                ),
               ),
-              Expanded(
+              Padding(
+                padding: const EdgeInsets.only(left: 4),
                 child: ExpansionTile(
                   shape: const Border(),
                   collapsedShape: const Border(),
