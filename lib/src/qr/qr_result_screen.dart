@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
@@ -18,7 +17,6 @@ import '../../src/tasks/tasks.dart';
 import '../../src/utils/dialogs.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../src/widgets/select_image_button.dart';
-import '../../src/widgets/select_state_button.dart';
 import '../model/typical_problem.dart';
 import '../model/usage_update.dart';
 import '../model/periodic_task_request.dart';
@@ -119,80 +117,10 @@ class _QRResultScreenState extends State<QRResultScreen> {
   }
 
   Widget passport() {
-    final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
-    // Упрощенный вид - только название станка
-    if (Settings.qrResultShowSimplifiedView) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(8, 16, 8, 8),
-        child: Column(
-          children: [
-            Text(
-              widget.machine.descriptionTextSimple,
-              style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                SelectStateButton(
-                  controller: stateController,
-                  initialValue: widget.machine.state,
-                ),
-              ],
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.start,
-      children: [
-        if (widget.machine.imageData.isNotEmpty)
-          ConstrainedBox(
-            constraints: BoxConstraints(
-                maxHeight:
-                    max(MediaQuery.of(context).size.shortestSide, 350)),
-            child: ClipRRect(
-              borderRadius:
-                  BorderRadius.circular(AppConstants.radiusMD),
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Container(color: cs.inverseSurface),
-                  Image.network(
-                    widget.machine.imageData,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Icon(
-                        Icons.broken_image_rounded,
-                        size: 64,
-                        color: cs.onInverseSurface.withValues(alpha: 0.5),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: MarkdownBody(data: widget.machine.descriptionText),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Row(
-          children: [
-            SelectStateButton(
-              controller: stateController,
-              initialValue: widget.machine.state,
-            ),
-          ],
-        ),
-      ],
+    return _HeroPassport(
+      machine: widget.machine,
+      stateController: stateController,
+      showDetails: !Settings.qrResultShowSimplifiedView,
     );
   }
 
@@ -549,6 +477,328 @@ class _QRResultScreenState extends State<QRResultScreen> {
     imageData3Controller.dispose();
     equipmentController.dispose();
     super.dispose();
+  }
+}
+
+/// Компактный паспорт оборудования: 64px превью слева, имя + подзаголовок
+/// (модель / S/N) + chip состояния — справа. Полная разметка свёрнута в
+/// `ExpansionTile «Подробнее»`. Тап по превью открывает lightbox.
+class _HeroPassport extends StatelessWidget {
+  final InventoryRecord machine;
+  final AnyController<String> stateController;
+  final bool showDetails;
+
+  const _HeroPassport({
+    required this.machine,
+    required this.stateController,
+    required this.showDetails,
+  });
+
+  String? _subtitle() {
+    final parts = <String>[];
+    if (machine.typeModel != null && machine.typeModel!.isNotEmpty) {
+      parts.add(machine.typeModel!);
+    }
+    if (machine.serialNumber != null && machine.serialNumber!.isNotEmpty) {
+      parts.add('S/N ${machine.serialNumber}');
+    }
+    return parts.isEmpty ? null : parts.join(' · ');
+  }
+
+  void _showLightbox(BuildContext context) {
+    if (machine.imageData.isEmpty) return;
+    showDialog(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: Stack(
+          children: [
+            Center(
+              child: InteractiveViewer(
+                child: Image.network(
+                  machine.imageData,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Icon(
+                    Icons.broken_image_outlined,
+                    color: Colors.white54,
+                    size: 64,
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 0,
+              right: 0,
+              child: Material(
+                color: Colors.black.withValues(alpha: 0.55),
+                shape: const CircleBorder(),
+                child: IconButton(
+                  color: Colors.white,
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => Navigator.of(ctx).pop(),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final subtitle = _subtitle();
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      margin: const EdgeInsets.fromLTRB(8, 12, 8, 0),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _Thumb(
+                  imageData: machine.imageData,
+                  onTap: () => _showLightbox(context),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        machine.name,
+                        style: tt.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (subtitle != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          style: tt.bodySmall
+                              ?.copyWith(color: cs.onSurfaceVariant),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      _StateChip(
+                        controller: stateController,
+                        initialValue: machine.state,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (showDetails)
+            Theme(
+              data: Theme.of(context)
+                  .copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                shape: const Border(),
+                collapsedShape: const Border(),
+                tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+                title: Text(
+                  'Подробнее об оборудовании',
+                  style: tt.labelLarge?.copyWith(
+                    color: cs.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                trailing: Icon(Icons.expand_more_rounded, color: cs.primary),
+                childrenPadding:
+                    const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: MarkdownBody(data: machine.descriptionText),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Thumb extends StatelessWidget {
+  final String imageData;
+  final VoidCallback onTap;
+  const _Thumb({required this.imageData, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final hasImage = imageData.isNotEmpty;
+    return Material(
+      color: cs.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(AppConstants.radiusSM),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: hasImage ? onTap : null,
+        child: SizedBox(
+          width: 64,
+          height: 64,
+          child: hasImage
+              ? Image.network(
+                  imageData,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Icon(
+                    Icons.broken_image_outlined,
+                    color: cs.onSurfaceVariant,
+                  ),
+                )
+              : Icon(
+                  Icons.precision_manufacturing_outlined,
+                  color: cs.onSurfaceVariant,
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Chip с текущим состоянием оборудования. Тап открывает bottom-sheet со
+/// списком состояний из `GlobalState.dataProvider.equipmentState`. Если
+/// состояний нет — chip не рендерится.
+class _StateChip extends StatefulWidget {
+  final AnyController<String> controller;
+  final String? initialValue;
+
+  const _StateChip({required this.controller, this.initialValue});
+
+  @override
+  State<_StateChip> createState() => _StateChipState();
+}
+
+class _StateChipState extends State<_StateChip> {
+  String? _value;
+
+  @override
+  void initState() {
+    super.initState();
+    final iv = widget.initialValue;
+    if (iv != null && iv.isNotEmpty) {
+      _value = iv;
+      widget.controller.value = iv;
+    }
+  }
+
+  String? _label(String? id) {
+    if (id == null) return null;
+    final states = GlobalState.dataProvider.equipmentState?.states;
+    return states?[id];
+  }
+
+  Future<void> _pick() async {
+    final eq = GlobalState.dataProvider.equipmentState;
+    if (eq == null || eq.states.isEmpty) return;
+    final cs = Theme.of(context).colorScheme;
+    final selected = await showModalBottomSheet<String?>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: Text(
+                'СОСТОЯНИЕ ОБОРУДОВАНИЯ',
+                style: Theme.of(ctx).textTheme.labelSmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                      letterSpacing: 0.6,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ),
+            ListTile(
+              leading: Icon(Icons.remove_circle_outline_rounded,
+                  color: cs.onSurfaceVariant),
+              title: const Text('Без состояния'),
+              onTap: () => Navigator.of(ctx).pop(''),
+            ),
+            Divider(height: 1, color: cs.outlineVariant),
+            for (final entry in eq.states.entries)
+              ListTile(
+                leading: Icon(Icons.circle, size: 12, color: cs.primary),
+                title: Text(entry.value),
+                trailing: _value == entry.key
+                    ? Icon(Icons.check_rounded, color: cs.primary)
+                    : null,
+                onTap: () => Navigator.of(ctx).pop(entry.key),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (selected == null) return;
+    final next = selected.isEmpty ? null : selected;
+    widget.controller.value = selected;
+    setState(() => _value = next);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final states = GlobalState.dataProvider.equipmentState?.states;
+    if (states == null || states.isEmpty) return const SizedBox.shrink();
+    final hasValue = _value != null;
+    final label = _label(_value);
+    return Material(
+      color: hasValue ? cs.primaryContainer : cs.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: _pick,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(10, 6, 8, 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: hasValue ? cs.primary : cs.onSurfaceVariant,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label ?? 'Состояние',
+                style: tt.labelMedium?.copyWith(
+                  color: hasValue
+                      ? cs.onPrimaryContainer
+                      : cs.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 2),
+              Icon(
+                Icons.expand_more_rounded,
+                size: 18,
+                color: hasValue
+                    ? cs.onPrimaryContainer
+                    : cs.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
