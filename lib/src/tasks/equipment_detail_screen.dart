@@ -273,7 +273,6 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       padding: const EdgeInsets.only(top: AppConstants.spacingSM),
       child: Material(
         color: isSelected ? cs.primaryContainer : cs.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppConstants.radiusMD),
           side: BorderSide(

@@ -283,7 +283,6 @@ class _SecondaryActionCard extends StatelessWidget {
     final tt = Theme.of(context).textTheme;
     return Material(
       color: cs.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(AppConstants.radiusLG),
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
         side: BorderSide(color: cs.outlineVariant, width: 0.5),
@@ -369,7 +368,6 @@ class _NotificationsCard extends StatelessWidget {
         final tt = Theme.of(context).textTheme;
         return Material(
           color: cs.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(AppConstants.radiusLG),
           clipBehavior: Clip.antiAlias,
           shape: RoundedRectangleBorder(
             side: BorderSide(color: cs.outlineVariant, width: 0.5),
