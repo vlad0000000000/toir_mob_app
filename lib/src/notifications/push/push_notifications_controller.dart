@@ -16,7 +16,6 @@ class PushNotificationsController {
 
   static const String _channelId = 'notifications_sse_service';
   static const String _channelName = 'Уведомления (фоновый канал)';
-  static const String _batteryOptAskedKey = 'push_battery_opt_asked';
 
   /// Интервал watchdog'а — раз в полторы минуты проверяем, что сервис жив.
   static const Duration _watchdogInterval = Duration(seconds: 90);
@@ -37,8 +36,11 @@ class PushNotificationsController {
         channelName: _channelName,
         channelDescription:
             'Поддерживает соединение для получения уведомлений',
-        channelImportance: NotificationChannelImportance.LOW,
-        priority: NotificationPriority.LOW,
+        // MIN — нотификация уходит в «Тихие» (без иконки в статус-баре,
+        // без peek, без звука). Полностью скрыть нельзя: foreground service
+        // обязан показывать notification (Android API 26+).
+        channelImportance: NotificationChannelImportance.MIN,
+        priority: NotificationPriority.MIN,
         onlyAlertOnce: true,
       ),
       iosNotificationOptions: const IOSNotificationOptions(
@@ -115,10 +117,11 @@ class PushNotificationsController {
     final ok = result is ServiceRequestSuccess;
     debugPrint('[Push] startService result: $result (ok=$ok)');
 
-    // Один раз за всё время жизни приложения покажем системный диалог
-    // про оптимизацию батареи. Дальше — только вручную из настроек.
+    // Battery optimization автоматически НЕ просим — это раздражает и не
+    // обязательно. Пользователь может явно разрешить из «Настройки уведомлений
+    // → Push в фоне → Разрешить» если столкнётся с потерей сервиса на
+    // агрессивных OEM (Xiaomi/Huawei/Samsung).
     if (ok) {
-      await _askBatteryOptimizationOnce();
       _ensureWatchdog();
     }
 
@@ -171,26 +174,6 @@ class PushNotificationsController {
       }
     } catch (e) {
       debugPrint('[Push] watchdog tick error: $e');
-    }
-  }
-
-  Future<void> _askBatteryOptimizationOnce() async {
-    try {
-      final asked = await FlutterForegroundTask.getData<bool>(
-              key: _batteryOptAskedKey) ??
-          false;
-      if (asked) return;
-      if (await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
-        await FlutterForegroundTask.saveData(
-            key: _batteryOptAskedKey, value: true);
-        return;
-      }
-      debugPrint('[Push] first-launch battery optimization prompt');
-      await FlutterForegroundTask.requestIgnoreBatteryOptimization();
-      await FlutterForegroundTask.saveData(
-          key: _batteryOptAskedKey, value: true);
-    } catch (e) {
-      debugPrint('[Push] askBatteryOptimizationOnce failed: $e');
     }
   }
 

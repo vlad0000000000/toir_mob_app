@@ -356,11 +356,18 @@ class AppTheme {
   }
 
   // ───────────────────────────────────────────────────────────
-  // Типографика — utility scale + tabular numerics для счётчиков
+  // Типографика — utility scale.
+  //
+  // ВАЖНО: НЕ применяем `FontFeature.tabularFigures()` глобально. На части
+  // Android-устройств (Samsung One UI, Xiaomi MIUI, старые Android) при
+  // включённом `tnum` рендер кириллицы ломается — глифы подменяются из
+  // неправильной таблицы или мажется кёрнинг. Симптом: «одна карточка
+  // нормальная, другая — со сломанным текстом». Если где-то реально нужны
+  // моноширинные цифры (счётчик, таймер) — применяем локально через
+  // `style.copyWith(fontFeatures: const [FontFeature.tabularFigures()])`.
   // ───────────────────────────────────────────────────────────
 
   static TextTheme _textTheme(ColorScheme cs) {
-    const tabular = [FontFeature.tabularFigures()];
     return TextTheme(
       // Display — крупная reklama, редко
       displayLarge: TextStyle(
@@ -414,7 +421,6 @@ class AppTheme {
         fontWeight: FontWeight.w600,
         letterSpacing: 0,
         height: 1.27,
-        fontFeatures: tabular,
         color: cs.onSurface,
       ),
       titleMedium: TextStyle(
@@ -422,7 +428,6 @@ class AppTheme {
         fontWeight: FontWeight.w600,
         letterSpacing: 0.15,
         height: 1.5,
-        fontFeatures: tabular,
         color: cs.onSurface,
       ),
       titleSmall: TextStyle(
@@ -430,7 +435,6 @@ class AppTheme {
         fontWeight: FontWeight.w600,
         letterSpacing: 0.1,
         height: 1.43,
-        fontFeatures: tabular,
         color: cs.onSurface,
       ),
 
@@ -457,13 +461,12 @@ class AppTheme {
         color: cs.onSurfaceVariant,
       ),
 
-      // Label — кнопки, бейджи, метки (tabular для счётчиков)
+      // Label — кнопки, бейджи, метки.
       labelLarge: TextStyle(
         fontSize: AppConstants.fontSizeLabelLarge,
         fontWeight: FontWeight.w600,
         letterSpacing: 0.1,
         height: 1.43,
-        fontFeatures: tabular,
         color: cs.onSurface,
       ),
       labelMedium: TextStyle(
@@ -471,7 +474,6 @@ class AppTheme {
         fontWeight: FontWeight.w600,
         letterSpacing: 0.5,
         height: 1.33,
-        fontFeatures: tabular,
         color: cs.onSurfaceVariant,
       ),
       labelSmall: TextStyle(
@@ -479,7 +481,6 @@ class AppTheme {
         fontWeight: FontWeight.w600,
         letterSpacing: 0.5,
         height: 1.45,
-        fontFeatures: tabular,
         color: cs.onSurfaceVariant,
       ),
     );
