@@ -28,16 +28,31 @@ class NotificationsService {
   final ValueNotifier<bool> isLoadingMore = ValueNotifier<bool>(false);
   final ValueNotifier<bool> hasMore = ValueNotifier<bool>(true);
 
+  /// `true` после того, как первый refreshList завершился (успешно или с
+  /// ошибкой). Нужен экрану: пока false — показывает spinner, не EmptyState,
+  /// иначе на холодном старте мелькает «Уведомлений пока нет», пока ответ
+  /// сервера ещё в полёте.
+  final ValueNotifier<bool> hasLoadedOnce = ValueNotifier<bool>(false);
+
   final API _api = API();
 
   StreamedResponseHandle? _streamHandle;
   StreamSubscription<String>? _streamSubscription;
   Timer? _reconnectTimer;
+  Timer? _keepaliveTimer;
+  DateTime _lastSseActivity = DateTime.now();
+  static const Duration _silentDropThreshold = Duration(minutes: 3);
+  static const Duration _keepaliveCheckInterval = Duration(seconds: 60);
+
   bool _disposed = false;
 
   Future<void> bootstrap() async {
     _disposed = false;
     _attachForegroundListener();
+    // Сразу включаем флаг загрузки — иначе первая отрисовка экрана видит
+    // isLoading=false + пустой список и моргает EmptyState'ом до того, как
+    // запрос успеет долететь до сервера.
+    isLoading.value = true;
     try {
       final s = await _api.getNotificationSettings();
       settings.value = s;
@@ -92,6 +107,7 @@ class NotificationsService {
       debugPrint('Failed to load notifications: $e');
     } finally {
       isLoading.value = false;
+      hasLoadedOnce.value = true;
     }
   }
 
@@ -195,11 +211,16 @@ class NotificationsService {
         return;
       }
       _streamHandle = handle;
+      _lastSseActivity = DateTime.now();
+      _ensureKeepalive();
       _streamSubscription = handle.response.stream
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen(
-        (line) => _sseParser.handleLine(line, _dispatchSseEvent),
+        (line) {
+          _lastSseActivity = DateTime.now();
+          _sseParser.handleLine(line, _dispatchSseEvent);
+        },
         onError: (Object e) {
           debugPrint('SSE error: $e');
           _scheduleReconnect();
@@ -213,6 +234,22 @@ class NotificationsService {
     }).catchError((Object e) {
       debugPrint('Failed to open SSE: $e');
       _scheduleReconnect();
+    });
+  }
+
+  /// Watchdog: SSE-сокет может «тихо умереть» — ни onError, ни onDone.
+  /// Раз в минуту проверяем активность; если тихо больше 3 минут — рвём
+  /// и переподключаемся. См. аналог в NotificationsTaskHandler.
+  void _ensureKeepalive() {
+    if (_keepaliveTimer != null) return;
+    _keepaliveTimer = Timer.periodic(_keepaliveCheckInterval, (_) {
+      if (_disposed) return;
+      final silentFor = DateTime.now().difference(_lastSseActivity);
+      if (silentFor > _silentDropThreshold) {
+        debugPrint(
+            'SSE silent for ${silentFor.inSeconds}s — force reconnect');
+        _scheduleReconnect();
+      }
     });
   }
 
@@ -247,6 +284,8 @@ class NotificationsService {
   void dispose() {
     _disposed = true;
     _reconnectTimer?.cancel();
+    _keepaliveTimer?.cancel();
+    _keepaliveTimer = null;
     _disconnectStream();
     _detachForegroundListener();
   }

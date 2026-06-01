@@ -68,15 +68,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             GoRouter.of(context).clearStackAndNavigate('/actions');
           },
         ),
-        title: ValueListenableBuilder<int>(
-          valueListenable: _service.unreadCount,
-          builder: (context, count, _) {
-            if (count > 0) {
-              return Text('Уведомления ($count)');
-            }
-            return const Text('Уведомления');
-          },
-        ),
+        title: const Text('Уведомления'),
         actions: [
           IconButton(
             tooltip: 'Настройки уведомлений',
@@ -94,77 +86,31 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       ),
       body: Column(
         children: [
-          _HideReadToggle(
-            value: _hideRead,
-            onChanged: (v) {
+          _HeaderRow(
+            unreadCount: _service.unreadCount,
+            hideRead: _hideRead,
+            onHideReadChanged: (v) {
               setState(() => _hideRead = v);
               Settings.notificationsHideRead = v;
             },
           ),
           Expanded(
             child: ValueListenableBuilder<bool>(
-              valueListenable: _service.isLoading,
-              builder: (context, loading, _) {
-                return ValueListenableBuilder<List<AppNotification>>(
-                  valueListenable: _service.notifications,
-                  builder: (context, allItems, __) {
-                    final items = _hideRead
-                        ? allItems.where((n) => !n.isRead).toList()
-                        : allItems;
-                    if (loading && items.isEmpty) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    if (items.isEmpty) {
-                      return RefreshIndicator(
-                        onRefresh: _refresh,
-                        child: ListView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          children: [
-                            SizedBox(height: MediaQuery.of(context).size.height * 0.1),
-                            EmptyState(
-                              icon: _hideRead
-                                  ? Icons.mark_email_read_outlined
-                                  : Icons.notifications_none_rounded,
-                              title: _hideRead
-                                  ? 'Всё прочитано'
-                                  : 'Уведомлений пока нет',
-                              hint: _hideRead
-                                  ? 'Здесь будут появляться новые уведомления о задачах и осмотрах.'
-                                  : 'Уведомления о задачах и осмотрах появятся здесь.',
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-                    return RefreshIndicator(
-                      onRefresh: _refresh,
-                      child: ValueListenableBuilder<bool>(
-                        valueListenable: _service.isLoadingMore,
-                        builder: (context, loadingMore, ___) {
-                          return ListView.separated(
-                            controller: _scrollController,
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 12),
-                            itemCount: items.length + (loadingMore ? 1 : 0),
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 10),
-                            itemBuilder: (context, i) {
-                              if (i >= items.length) {
-                                return const Padding(
-                                  padding: EdgeInsets.symmetric(vertical: 16),
-                                  child: Center(
-                                      child: CircularProgressIndicator()),
-                                );
-                              }
-                              final n = items[i];
-                              return NotificationCard(
-                                notification: n,
-                                onTap: () => _onTap(n),
-                              );
-                            },
-                          );
-                        },
-                      ),
+              valueListenable: _service.hasLoadedOnce,
+              builder: (context, loadedOnce, _) {
+                return ValueListenableBuilder<bool>(
+                  valueListenable: _service.isLoading,
+                  builder: (context, loading, __) {
+                    return ValueListenableBuilder<List<AppNotification>>(
+                      valueListenable: _service.notifications,
+                      builder: (context, allItems, ___) {
+                        return _buildBody(
+                          context,
+                          allItems: allItems,
+                          loading: loading,
+                          loadedOnce: loadedOnce,
+                        );
+                      },
                     );
                   },
                 );
@@ -172,6 +118,73 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildBody(
+    BuildContext context, {
+    required List<AppNotification> allItems,
+    required bool loading,
+    required bool loadedOnce,
+  }) {
+    final items = _hideRead
+        ? allItems.where((n) => !n.isRead).toList()
+        : allItems;
+    // Пока сервер не ответил хоть раз — spinner, а не EmptyState.
+    // Также показываем spinner, если запрос вышел в полёт, но
+    // список ещё пустой (ручной pull-to-refresh с нуля).
+    if (!loadedOnce || (loading && items.isEmpty)) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (items.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _refresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            SizedBox(height: MediaQuery.of(context).size.height * 0.1),
+            EmptyState(
+              icon: _hideRead
+                  ? Icons.mark_email_read_outlined
+                  : Icons.notifications_none_rounded,
+              title: _hideRead
+                  ? 'Всё прочитано'
+                  : 'Уведомлений пока нет',
+              hint: _hideRead
+                  ? 'Здесь будут появляться новые уведомления о задачах и осмотрах.'
+                  : 'Уведомления о задачах и осмотрах появятся здесь.',
+            ),
+          ],
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: ValueListenableBuilder<bool>(
+        valueListenable: _service.isLoadingMore,
+        builder: (context, loadingMore, ___) {
+          return ListView.separated(
+            controller: _scrollController,
+            padding: const EdgeInsets.symmetric(
+                horizontal: 12, vertical: 12),
+            itemCount: items.length + (loadingMore ? 1 : 0),
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
+            itemBuilder: (context, i) {
+              if (i >= items.length) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final n = items[i];
+              return NotificationCard(
+                notification: n,
+                onTap: () => _onTap(n),
+              );
+            },
+          );
+        },
       ),
     );
   }
@@ -239,16 +252,18 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     ),
                   ),
                   const SizedBox(height: AppConstants.spacingMD),
-                  if (NotificationFormatters.summaryDescription(n) != null)
-                    Text(
-                      NotificationFormatters.summaryDescription(n)!,
-                      style: tt.bodyMedium,
-                    )
-                  else if (n.description.isNotEmpty)
-                    Text(n.description, style: tt.bodyMedium),
-                  if (NotificationFormatters.summaryDescription(n) != null ||
-                      n.description.isNotEmpty)
-                    const SizedBox(height: AppConstants.spacingMD),
+                  Builder(builder: (_) {
+                    final summary =
+                        NotificationFormatters.summaryDescription(n);
+                    final desc = summary ??
+                        NotificationFormatters.effectiveDescription(n);
+                    if (desc.isEmpty) return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.only(
+                          bottom: AppConstants.spacingMD),
+                      child: Text(desc, style: tt.bodyMedium),
+                    );
+                  }),
                   Wrap(
                     spacing: AppConstants.spacingSM,
                     runSpacing: AppConstants.spacingSM,
@@ -267,14 +282,45 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   const SizedBox(height: AppConstants.spacingMD),
                   _metaRow(Icons.person_outline,
                       NotificationFormatters.executorLabel(n)),
-                  _metaRow(
-                    Icons.schedule_rounded,
-                    'Создано ${NotificationFormatters.formatDateTime(n.createdAt)}',
-                  ),
+                  Builder(builder: (_) {
+                    // Для уведомлений о назначении осмотра: показываем дату
+                    // создания самого осмотра (приходит в payload), а ниже
+                    // — когда нам это уведомление прислали.
+                    final src = NotificationFormatters.sourceCreatedAt(n);
+                    final isInspection = n.notificationType ==
+                            NotificationTypes.assignedInspection ||
+                        n.notificationType ==
+                            NotificationTypes.inspectionHighPriority;
+                    if (src != null && isInspection) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _metaRow(
+                            Icons.event_available_rounded,
+                            'Осмотр создан ${NotificationFormatters.formatDateTime(src)}',
+                          ),
+                          _metaRow(
+                            Icons.schedule_rounded,
+                            'Уведомление ${NotificationFormatters.formatDateTime(n.createdAt)}',
+                          ),
+                        ],
+                      );
+                    }
+                    return _metaRow(
+                      Icons.schedule_rounded,
+                      'Создано ${NotificationFormatters.formatDateTime(n.createdAt)}',
+                    );
+                  }),
                   if (task != null) ...[
                     const SizedBox(height: AppConstants.spacingLG),
                     _sectionDivider('Задача'),
-                    ..._buildTaskInfo(task),
+                    ..._buildTaskInfo(
+                      task,
+                      hideComment: n.notificationType ==
+                              NotificationTypes.assignedInspection ||
+                          n.notificationType ==
+                              NotificationTypes.inspectionHighPriority,
+                    ),
                   ],
                   if (equipment != null) ...[
                     const SizedBox(height: AppConstants.spacingLG),
@@ -353,7 +399,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  List<Widget> _buildTaskInfo(Task task) {
+  List<Widget> _buildTaskInfo(Task task, {bool hideComment = false}) {
     final widgets = <Widget>[];
     final pt = task.periodicTask;
     if (pt != null) {
@@ -374,7 +420,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         widgets.add(_kv('Узел', pt.node!));
       }
     }
-    if (task.comment != null && task.comment!.isNotEmpty) {
+    // Для уведомлений типа «Назначение осмотра» комментарий относится
+    // к самому осмотру и уже выведен в карточке выше — здесь дублировать
+    // не нужно.
+    if (!hideComment && task.comment != null && task.comment!.isNotEmpty) {
       widgets.add(_kv('Комментарий', task.comment!));
     }
     if (task.roles.isNotEmpty) {
@@ -466,11 +515,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 }
 
-class _HideReadToggle extends StatelessWidget {
-  final bool value;
-  final ValueChanged<bool> onChanged;
+/// Шапка над списком: слева — chip со счётчиком непрочитанных
+/// («N новых», если > 0), справа — переключатель «Скрыть прочитанные».
+/// Counter вынесен из AppBar title, потому что при больших числах title
+/// не помещается и тайтл обрезается на узких экранах.
+class _HeaderRow extends StatelessWidget {
+  final ValueNotifier<int> unreadCount;
+  final bool hideRead;
+  final ValueChanged<bool> onHideReadChanged;
 
-  const _HideReadToggle({required this.value, required this.onChanged});
+  const _HeaderRow({
+    required this.unreadCount,
+    required this.hideRead,
+    required this.onHideReadChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -483,33 +541,64 @@ class _HideReadToggle extends StatelessWidget {
           border:
               Border(bottom: BorderSide(color: cs.outlineVariant, width: 0.5)),
         ),
-        child: InkWell(
-          onTap: () => onChanged(!value),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-                horizontal: AppConstants.spacingMD, vertical: 4),
-            child: Row(
-              children: [
-                Icon(
-                  value
-                      ? Icons.mark_email_read_outlined
-                      : Icons.email_outlined,
-                  size: 18,
-                  color: cs.onSurfaceVariant,
-                ),
-                const SizedBox(width: AppConstants.spacingSM),
-                Expanded(
-                  child: Text(
-                    'Скрыть прочитанные',
-                    style: tt.bodyMedium,
-                  ),
-                ),
-                Switch(
-                  value: value,
-                  onChanged: onChanged,
-                ),
-              ],
-            ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+              AppConstants.spacingMD, 6, AppConstants.spacingSM, 4),
+          child: Row(
+            children: [
+              ValueListenableBuilder<int>(
+                valueListenable: unreadCount,
+                builder: (context, count, _) {
+                  if (count <= 0) {
+                    return Text(
+                      'Все прочитаны',
+                      style: tt.labelMedium
+                          ?.copyWith(color: cs.onSurfaceVariant),
+                    );
+                  }
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: cs.primaryContainer,
+                      borderRadius: BorderRadius.circular(
+                          AppConstants.radiusFull),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: cs.primary,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          '$count новых',
+                          style: tt.labelMedium?.copyWith(
+                            color: cs.onPrimaryContainer,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+              const Spacer(),
+              Text(
+                'Скрыть прочитанные',
+                style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+              ),
+              const SizedBox(width: 4),
+              Switch(
+                value: hideRead,
+                onChanged: onHideReadChanged,
+              ),
+            ],
           ),
         ),
       ),

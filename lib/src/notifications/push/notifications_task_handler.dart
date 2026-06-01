@@ -43,6 +43,15 @@ class NotificationsTaskHandler extends TaskHandler {
   http.Client? _client;
   StreamSubscription<String>? _sseSub;
   Timer? _reconnectTimer;
+  Timer? _keepaliveTimer;
+  DateTime _lastSseActivity = DateTime.now();
+
+  /// Если на SSE-потоке ничего не приходило дольше, чем этот порог —
+  /// считаем соединение «тихо умершим» (TCP-сокет не отдал FIN) и
+  /// перезапускаем подключение. Покрывает доза-режим и силовое
+  /// убиение сокетов сетью оператора.
+  static const Duration _silentDropThreshold = Duration(minutes: 3);
+  static const Duration _keepaliveCheckInterval = Duration(seconds: 60);
 
   String _baseUrl = '';
   String _jwt = '';
@@ -86,6 +95,8 @@ class NotificationsTaskHandler extends TaskHandler {
   Future<void> onDestroy(DateTime timestamp) async {
     _stopped = true;
     _reconnectTimer?.cancel();
+    _keepaliveTimer?.cancel();
+    _keepaliveTimer = null;
     await _sseSub?.cancel();
     _sseSub = null;
     try {
@@ -198,11 +209,16 @@ class NotificationsTaskHandler extends TaskHandler {
         _scheduleReconnect();
         return;
       }
+      _lastSseActivity = DateTime.now();
+      _ensureKeepalive();
       _sseSub = response.stream
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen(
-        (line) => _sseParser.handleLine(line, _dispatchEvent),
+        (line) {
+          _lastSseActivity = DateTime.now();
+          _sseParser.handleLine(line, _dispatchEvent);
+        },
         onError: (Object e) {
           debugPrint('[NotifTask] SSE error: $e');
           _scheduleReconnect();
@@ -243,6 +259,24 @@ class NotificationsTaskHandler extends TaskHandler {
     });
   }
 
+  /// Сторож: SSE-сокет может «тихо умереть» (TCP keep-alive не успел
+  /// отвалиться по таймауту → ни onError, ни onDone). Раз в минуту проверяем,
+  /// что хоть что-то прилетало за последние [_silentDropThreshold]; если нет —
+  /// форсируем reconnect. Сервер обычно шлёт `event: ping` каждые 30-60с,
+  /// поэтому 3 минуты тишины — это уже точно мёртвое соединение.
+  void _ensureKeepalive() {
+    if (_keepaliveTimer != null) return;
+    _keepaliveTimer = Timer.periodic(_keepaliveCheckInterval, (_) {
+      if (_stopped) return;
+      final silentFor = DateTime.now().difference(_lastSseActivity);
+      if (silentFor > _silentDropThreshold) {
+        debugPrint(
+            '[NotifTask] SSE silent for ${silentFor.inSeconds}s — force reconnect');
+        _scheduleReconnect();
+      }
+    });
+  }
+
   Future<void> _dispatchEvent(String event, String dataStr) async {
     if (event != 'notification') return;
     Map<String, dynamic> data = const {};
@@ -275,17 +309,29 @@ class NotificationsTaskHandler extends TaskHandler {
       }
     }
 
+    final notificationType = data['notification_type']?.toString();
+
+    // Summary task — это агрегатный дайджест, его не нужно показывать
+    // пушем (только в списке внутри приложения). Без этого фильтра
+    // пользователь получал две нотификации: одну с cryptic-текстом
+    // «summary_task» (fallback ниже, когда деталь ещё не успела
+    // проиндексироваться на бэке), и вторую — нормальную.
+    if (notificationType == 'summary_task') {
+      debugPrint('[NotifTask] summary_task — skip push, only update list');
+      FlutterForegroundTask.sendDataToMain(
+          {'type': 'sse_event', 'data': data});
+      return;
+    }
+
     // Подтягиваем детали и показываем уведомление.
+    // Без детали пуш не показываем — лучше пропустить один кадр, чем
+    // светить пользователю системное имя типа («new_task» и т. п.).
     final detail = await _fetchNotificationDetail(notificationUuid);
     if (detail != null) {
       await _showLocalNotification(detail);
     } else {
-      // Фоллбэк: показать общее уведомление с типом.
-      await _showLocalNotification({
-        'uuid': notificationUuid,
-        'title': 'Новое уведомление',
-        'description': data['notification_type']?.toString() ?? '',
-      });
+      debugPrint(
+          '[NotifTask] detail not found for $notificationUuid ($notificationType) — skip push');
     }
 
     FlutterForegroundTask.sendDataToMain({'type': 'sse_event', 'data': data});

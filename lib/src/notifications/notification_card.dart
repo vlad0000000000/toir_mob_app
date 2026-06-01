@@ -34,7 +34,8 @@ class NotificationCard extends StatelessWidget {
     final tt = Theme.of(context).textTheme;
     final unread = !notification.isRead;
     final summaryDesc = NotificationFormatters.summaryDescription(notification);
-    final descText = summaryDesc ?? notification.description;
+    final descText = summaryDesc ??
+        NotificationFormatters.effectiveDescription(notification);
     final accentColor = _accentColor(context);
 
     return Material(
