@@ -17,6 +17,7 @@ import '../../src/model/equipment_state.dart';
 import '../../src/model/periodic_task_request.dart';
 import '../model/usage_update.dart';
 import '../exceptions/app_exceptions.dart';
+import '../feature_flags.dart';
 
 part 'data_provider_remote.dart';
 part 'data_provider_sync.dart';
@@ -70,6 +71,10 @@ class DataProvider {
     _company = companyBox.get('company');
     _currentSession = sessionBox.get('current_session');
     _equipmentState = equipmentStateBox.get('equipment_state');
+    final pprCached = stringBox.get('ppr_periodic_task_uuids');
+    if (pprCached != null && pprCached.isNotEmpty) {
+      _pprPeriodicTaskUuids = pprCached.split(',').toSet();
+    }
   }
 
   List<User> _users = [];
@@ -81,6 +86,20 @@ class DataProvider {
   EquipmentState? _equipmentState;
   bool _isLoading = false;
   bool _isSyncingScans = false;
+
+  /// UUID периодических задач, входящих в актуальные (незакрытые) ППР.
+  /// Осмотры таких задач в списке выносятся в отдельную группу «ППР».
+  /// Наполняется в [syncPpr], кэшируется в `stringBox` для офлайна.
+  Set<String> _pprPeriodicTaskUuids = {};
+
+  Set<String> get pprPeriodicTaskUuids => _pprPeriodicTaskUuids;
+
+  /// Входит ли периодическая задача в актуальный ППР. При выключенном
+  /// [FeatureFlags.pprEnabled] всегда `false` — группа «ППР» не появляется
+  /// даже при наличии старого кэша.
+  bool isPeriodicTaskInPpr(String periodicTaskUuid) =>
+      FeatureFlags.pprEnabled &&
+      _pprPeriodicTaskUuids.contains(periodicTaskUuid);
 
   List<User> get users => _users;
 

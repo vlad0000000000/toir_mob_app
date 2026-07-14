@@ -124,10 +124,31 @@ extension DataProviderSync on DataProvider {
     }
   }
 
+  /// Синхронизирует членство периодических задач в актуальных ППР.
+  /// Ошибку глотаем (как и остальные sync-методы) — при сбое остаётся
+  /// последний закэшированный набор из `stringBox`.
+  ///
+  /// При выключенном [FeatureFlags.pprEnabled] не ходит в сеть: на проде
+  /// эндпоинтов ППР нет.
+  Future<void> syncPpr() async {
+    if (!FeatureFlags.pprEnabled) return;
+    _isLoading = true;
+    try {
+      final uuids = await api.getActivePprPeriodicTaskUuids();
+      _pprPeriodicTaskUuids = uuids;
+      await stringBox.put('ppr_periodic_task_uuids', uuids.join(','));
+    } catch (e) {
+      print('Failed sync PPR: $e');
+    } finally {
+      _isLoading = false;
+    }
+  }
+
   Future mainSync() async {
     if (GlobalState.isAuthorized) {
       await syncInventory();
       await syncTasks();
+      await syncPpr();
       await syncTypicalProblems();
       await syncPeriodicityRules();
       await syncUsageUnitTypes();

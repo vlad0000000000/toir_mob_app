@@ -8,7 +8,12 @@ import '../design/app_constants.dart';
 import 'task_models.dart';
 import 'equipment_detail_controller.dart';
 
+/// Имя группы ППР. Осмотры периодических задач, входящих в актуальный ППР,
+/// собираются под ним и показываются в самом верху списка.
+const String kPprGroupName = 'ППР';
+
 final Map<String, Color> periodColors = {
+  kPprGroupName: Colors.deepPurple,
   'Назначенные задачи': Colors.red,
   'Однократно': Colors.red,
   'Ежедневно (каждые 2.5 часа)': Colors.red,
@@ -72,10 +77,16 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     var periodOrder = periodColors.keys.toList();
     for (var task in tasks) {
       var periodName = '';
-      if (task.resultStatus == 'open') {
+      final periodicTask = task.periodicTask;
+      if (periodicTask != null &&
+          GlobalState.dataProvider.isPeriodicTaskInPpr(periodicTask.uuid)) {
+        // Осмотр принадлежит периодической задаче, которая сейчас в ППР —
+        // выносим его в отдельную группу вне зависимости от статуса.
+        periodName = kPprGroupName;
+      } else if (task.resultStatus == 'open') {
         periodName = 'Назначенные задачи';
       } else {
-        periodName = task.periodicTask!.periodicityRuleDisplay;
+        periodName = periodicTask!.periodicityRuleDisplay;
       }
       if (periodName.length == 0) {
         continue;

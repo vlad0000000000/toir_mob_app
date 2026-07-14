@@ -26,6 +26,7 @@ part 'equipment_api.dart';
 part 'task_api.dart';
 part 'scan_api.dart';
 part 'notifications_api.dart';
+part 'ppr_api.dart';
 
 /// Тонкое ядро HTTP-клиента. Методы по доменам вынесены в part-файлы
 /// (auth/equipment/task/scan/notifications) как extension на [API];
