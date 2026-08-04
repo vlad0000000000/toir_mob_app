@@ -125,6 +125,19 @@ class NotificationStatuses {
   static const String completed = 'completed';
   static const String overdue = 'overdue';
 
+  /// Осмотр сняли с исполнителя: сервер шлёт это в поле `status` того же
+  /// уведомления `assigned_inspection` (тип не меняется). Намеренно НЕ входит
+  /// в [known] — для бейджа статуса мы показываем read-state (Новая/
+  /// Просмотрена), а сам факт снятия выносим в тег типа (см.
+  /// [NotificationFormatters.typeLabel]).
+  static const String unassigned = 'unassigned';
+
+  /// Статусы, для которых у нас есть человекочитаемое имя и цвет. Всё, что
+  /// вне этого набора (например, новый серверный тип «снят с осмотра»,
+  /// приходящий без привычного new/viewed), приводим к Новая/Просмотрена
+  /// по флагу is_read — см. [NotificationFormatters.effectiveStatus].
+  static const Set<String> known = {newStatus, viewed, completed, overdue};
+
   static String displayName(String status) {
     switch (status) {
       case newStatus:

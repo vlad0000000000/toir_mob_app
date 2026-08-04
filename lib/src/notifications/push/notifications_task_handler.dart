@@ -59,11 +59,14 @@ class NotificationsTaskHandler extends TaskHandler {
   bool _stopped = false;
   int _nextNotificationId = 1000;
 
-  /// Окно дедупа по `notification_uuid`. SSE может слать один и тот же
-  /// upsert повторно (особенно на ре-коннекте) — без дедупа получаются
-  /// дубликаты пушей.
+  /// Окно дедупа по ключу `notification_uuid|status`. SSE может слать один и
+  /// тот же upsert повторно (особенно на ре-коннекте) — без дедупа получаются
+  /// дубликаты пушей. Ключ включает `status`, а не только uuid: смена
+  /// состояния на ТОМ ЖЕ уведомлении (напр. снятие исполнителя с осмотра —
+  /// сервер апсертит тот же uuid со `status: unassigned`) должна давать новый
+  /// пуш, иначе старый исполнитель его не получал.
   static const int _dedupeWindow = 200;
-  final LinkedHashSet<String> _seenUuids = LinkedHashSet<String>();
+  final LinkedHashSet<String> _seenKeys = LinkedHashSet<String>();
 
   final SseLineParser _sseParser = SseLineParser();
 
@@ -293,46 +296,40 @@ class NotificationsTaskHandler extends TaskHandler {
       return;
     }
 
-    // Дедуп по uuid: тот же upsert может прилететь снова (re-connect SSE,
-    // сетевой ретрай и т. п.) — пуш показываем максимум один раз.
     final notificationUuid = data['notification_uuid'] as String?;
+    final notificationType = data['notification_type']?.toString();
+
+    // Деталь тянем ДО дедупа: она нужна и для текста пуша, и для ключа
+    // дедупа (`uuid|status`). Без детали пуш не показываем — лучше пропустить
+    // один кадр, чем светить системное имя типа («new_task» и т. п.).
+    final detail = await _fetchNotificationDetail(notificationUuid);
+    if (detail == null) {
+      debugPrint(
+          '[NotifTask] detail not found for $notificationUuid ($notificationType) — skip push');
+      FlutterForegroundTask.sendDataToMain({'type': 'sse_event', 'data': data});
+      return;
+    }
+
+    // Дедуп по `uuid|status`: тот же upsert может прилететь снова (re-connect
+    // SSE, сетевой ретрай, двойная эмиссия сервера) — пуш показываем максимум
+    // один раз. Но смена `status` на том же uuid (assigned -> unassigned) даёт
+    // новый ключ и, как следствие, новый пуш.
     if (notificationUuid != null && notificationUuid.isNotEmpty) {
-      if (_seenUuids.contains(notificationUuid)) {
-        debugPrint('[NotifTask] duplicate upsert $notificationUuid — skip');
+      final status = detail['status']?.toString() ?? '';
+      final dedupeKey = '$notificationUuid|$status';
+      if (_seenKeys.contains(dedupeKey)) {
+        debugPrint('[NotifTask] duplicate upsert $dedupeKey — skip');
         FlutterForegroundTask.sendDataToMain(
             {'type': 'sse_event', 'data': data});
         return;
       }
-      _seenUuids.add(notificationUuid);
-      while (_seenUuids.length > _dedupeWindow) {
-        _seenUuids.remove(_seenUuids.first);
+      _seenKeys.add(dedupeKey);
+      while (_seenKeys.length > _dedupeWindow) {
+        _seenKeys.remove(_seenKeys.first);
       }
     }
 
-    final notificationType = data['notification_type']?.toString();
-
-    // Summary task — это агрегатный дайджест, его не нужно показывать
-    // пушем (только в списке внутри приложения). Без этого фильтра
-    // пользователь получал две нотификации: одну с cryptic-текстом
-    // «summary_task» (fallback ниже, когда деталь ещё не успела
-    // проиндексироваться на бэке), и вторую — нормальную.
-    if (notificationType == 'summary_task') {
-      debugPrint('[NotifTask] summary_task — skip push, only update list');
-      FlutterForegroundTask.sendDataToMain(
-          {'type': 'sse_event', 'data': data});
-      return;
-    }
-
-    // Подтягиваем детали и показываем уведомление.
-    // Без детали пуш не показываем — лучше пропустить один кадр, чем
-    // светить пользователю системное имя типа («new_task» и т. п.).
-    final detail = await _fetchNotificationDetail(notificationUuid);
-    if (detail != null) {
-      await _showLocalNotification(detail);
-    } else {
-      debugPrint(
-          '[NotifTask] detail not found for $notificationUuid ($notificationType) — skip push');
-    }
+    await _showLocalNotification(detail);
 
     FlutterForegroundTask.sendDataToMain({'type': 'sse_event', 'data': data});
   }
@@ -366,10 +363,29 @@ class NotificationsTaskHandler extends TaskHandler {
   }
 
   Future<void> _showLocalNotification(Map<String, dynamic> item) async {
+    final type = item['notification_type']?.toString();
+    final isSummary = type == 'summary_task';
+
     final title = (item['title'] as String?)?.trim().isNotEmpty == true
         ? item['title'] as String
-        : 'Уведомление';
-    final body = (item['description'] as String?) ?? '';
+        : (isSummary ? 'Сводка по задачам' : 'Уведомление');
+
+    var body = (item['description'] as String?) ?? '';
+    // Для сводки сервер часто не кладёт description — собираем текст из
+    // payload.summary.
+    if (isSummary) {
+      final summary = item['payload'] is Map
+          ? (item['payload'] as Map)['summary']
+          : null;
+      if (summary is Map) {
+        final newTasks = (summary['new_tasks'] ?? 0);
+        final assigned = (summary['assigned_inspections'] ?? 0);
+        final overdue = (summary['overdue_tasks'] ?? 0);
+        body = 'Новых: $newTasks, Назначенных: $assigned, Просроченных: $overdue';
+      } else if (body.isEmpty) {
+        body = 'Есть новые задачи и осмотры';
+      }
+    }
     final uuid = item['uuid']?.toString();
     // Детерминированный id из uuid → если по какой-то причине пуш всё же
     // покажется повторно, Android заменит существующее уведомление,

@@ -46,3 +46,7 @@ app.*.map.json
 **/configure_fingerprint.bin
 *.bin
 /android/app/.cxx/
+
+# Секреты: API-креды и пароли от keystore подписи. Файл локальный
+# (подключается как asset в pubspec.yaml) и в репозиторий не попадает.
+.env

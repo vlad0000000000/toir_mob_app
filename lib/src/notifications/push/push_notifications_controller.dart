@@ -6,6 +6,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import '../../../global_state.dart';
+import '../../../settings.dart';
 import 'notifications_task_handler.dart';
 
 class PushNotificationsController {
@@ -67,6 +68,11 @@ class PushNotificationsController {
   Future<bool> start() async {
     if (kIsWeb || !Platform.isAndroid) return false;
     if (!GlobalState.isAuthorized) return false;
+    // Пользователь мог отключить пуши в настройках — уважаем это.
+    if (!Settings.pushEnabled) {
+      debugPrint('[Push] start aborted: disabled by user');
+      return false;
+    }
     final token = GlobalState.authUser?.JWTToken;
     if (token == null || token.isEmpty) {
       debugPrint('[Push] start aborted: no JWT');
@@ -133,7 +139,7 @@ class PushNotificationsController {
   /// никаких действий не делается.
   Future<void> ensureRunning() async {
     if (kIsWeb || !Platform.isAndroid) return;
-    if (!GlobalState.isAuthorized) {
+    if (!GlobalState.isAuthorized || !Settings.pushEnabled) {
       _cancelWatchdog();
       return;
     }

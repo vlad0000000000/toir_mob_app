@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../../global_state.dart';
 import '../design/app_theme.dart';
 import '../model/notification.dart';
 
@@ -7,6 +8,30 @@ import '../model/notification.dart';
 /// чтобы и экран, и `NotificationCard` использовали их без cross-class доступа
 /// к приватным статикам State.
 class NotificationFormatters {
+  /// Тег типа уведомления для верхней метки карточки/детали. Для снятия с
+  /// осмотра сервер не меняет `notification_type` (остаётся
+  /// `assigned_inspection`), а помечает снятие через `status == unassigned`.
+  /// Дефолтная метка «Назначение осмотра» тут вводит в заблуждение, поэтому
+  /// показываем «Снятие с осмотра».
+  static String typeLabel(AppNotification n) {
+    if (n.status == NotificationStatuses.unassigned) {
+      return 'Снятие с осмотра';
+    }
+    return NotificationTypes.displayName(n.notificationType);
+  }
+
+  /// Статус для отображения. Сервер у некоторых типов (напр. уведомление о
+  /// снятии исполнителя с осмотра) присылает статус вне нашего словаря —
+  /// тогда показываем Новая/Просмотрена по флагу is_read, чтобы у всех
+  /// уведомлений был единый бейдж и цвет (зелёный/голубой), и в списке, и
+  /// в карточке.
+  static String effectiveStatus(AppNotification n) {
+    if (NotificationStatuses.known.contains(n.status)) return n.status;
+    return n.isRead
+        ? NotificationStatuses.viewed
+        : NotificationStatuses.newStatus;
+  }
+
   /// Семантический цвет статуса уведомления, опираясь на ColorScheme
   /// (success / info / error). Контекст обязателен — нужен ColorScheme.
   static Color statusColor(BuildContext context, String status) {
@@ -29,14 +54,18 @@ class NotificationFormatters {
     return DateFormat('dd.MM.yyyy HH:mm').format(local);
   }
 
-  static String? summaryDescription(AppNotification n) {
+  /// Текст сводки по задачам: `Новых`, `Назначенных`, `Просроченных`.
+  /// В детальной карточке (`multiline: true`) каждый параметр выводится
+  /// с новой строки, в списке — через запятую.
+  static String? summaryDescription(AppNotification n, {bool multiline = false}) {
     if (n.notificationType != NotificationTypes.summaryTask) return null;
     final s = n.payload['summary'];
     if (s is! Map) return null;
     final newTasks = (s['new_tasks'] ?? 0) as int;
     final assigned = (s['assigned_inspections'] ?? 0) as int;
     final overdue = (s['overdue_tasks'] ?? 0) as int;
-    return 'Новых: $newTasks, Назначенных: $assigned, Просроченных: $overdue';
+    final sep = multiline ? '\n' : ', ';
+    return 'Новых: $newTasks${sep}Назначенных: $assigned${sep}Просроченных: $overdue';
   }
 
   static String executorLabel(AppNotification n) {
@@ -50,6 +79,14 @@ class NotificationFormatters {
     final role = _extractRoleName(n.payload);
     if (role != null && role.isNotEmpty) {
       return 'Исполнитель: $role';
+    }
+    // 3) Фоллбэк — роль текущего пользователя. По ТЗ для «Новой задачи»
+    // исполнитель = роль, которой адресовано уведомление; сервер её не
+    // возвращает, но уведомление и так доходит только нужной роли, поэтому
+    // безопасно показать роль текущего юзера вместо прочерка.
+    final myRole = GlobalState.authUser?.effectiveRole;
+    if (myRole != null && myRole.isNotEmpty) {
+      return 'Исполнитель: $myRole';
     }
     return 'Исполнитель: —';
   }

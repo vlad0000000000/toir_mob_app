@@ -11,7 +11,9 @@
     <!-- Push-like notifications via foreground service (SSE) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <!-- specialUse: тип сервиса без таймаута (в отличие от dataSync — 6ч/24ч на
+         Android 15). Барьера ревью Google Play нет, т.к. публикуемся в RuStore. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 
@@ -57,12 +59,22 @@
             android:name="flutterEmbedding"
             android:value="2" />
 
-        <!-- flutter_foreground_task: hold SSE in background -->
+        <!-- flutter_foreground_task: hold SSE in background.
+             foregroundServiceType=specialUse — у dataSync на Android 15 (API 35)
+             лимит 6ч/24ч + краш по onTimeout (плагин его не обрабатывает) +
+             запрет старта из BOOT_COMPLETED. specialUse этих ограничений лишён.
+             Плагин запускает сервис с FOREGROUND_SERVICE_TYPE_MANIFEST, поэтому
+             тип берётся отсюда. PROPERTY_SPECIAL_USE_FGS_SUBTYPE обязателен при
+             targetSdk 34+. -->
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
-            android:foregroundServiceType="dataSync"
+            android:foregroundServiceType="specialUse"
             android:exported="false"
-            android:stopWithTask="false" />
+            android:stopWithTask="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Поддержание SSE-соединения для доставки уведомлений о задачах и осмотрах" />
+        </service>
         <!-- Добавьте этот provider -->
         <provider
             android:name="androidx.core.content.FileProvider"
