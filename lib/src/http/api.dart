@@ -11,6 +11,7 @@ import '../../src/model/inventory_record.dart';
 import '../../src/model/notification.dart';
 import '../../src/model/notification_settings.dart';
 import '../../src/model/periodicity_rule.dart';
+import '../../src/model/ppr.dart';
 import '../../src/model/scan.dart';
 import '../../src/model/session.dart';
 import '../../src/model/task.dart';

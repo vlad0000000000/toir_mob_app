@@ -273,6 +273,15 @@ class MyApp extends StatelessWidget {
         },
       ),
       GoRoute(
+        path: '/ppr',
+        pageBuilder: (context, state) {
+          return buildMyTransition<void>(
+            child: const PprListScreen(key: Key('ppr')),
+            color: context.watch<Palette>().backgroundMain,
+          );
+        },
+      ),
+      GoRoute(
         path: '/problems',
         pageBuilder: (context, state) {
           return buildMyTransition<void>(

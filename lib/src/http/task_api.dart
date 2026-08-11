@@ -112,6 +112,36 @@ extension TaskApi on API {
     }
   }
 
+  /// Один осмотр по uuid. Нужен для задач ППР: в общую выборку
+  /// [getCurrentTasks] они могут не попасть (она отсекает осмотры с
+  /// вышедшим сроком), а задача ППР актуальна, пока ППР не закрыт.
+  /// Возвращает `null`, если осмотра больше нет (404).
+  Future<Task?> getTaskByUuid(String inspectionUuid) async {
+    _guardOffline();
+    if (API.jwtToken == null) {
+      throw Exception('Not authenticated');
+    }
+
+    final response = await http.get(
+      Uri.parse('${API.baseUrl}/v1/company/fault_inspections/$inspectionUuid'),
+      headers: {
+        'Authorization': 'Bearer ${API.jwtToken}',
+      },
+    ).timeout(API._readTimeout);
+
+    if (response.statusCode == 404) {
+      return null;
+    }
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception('Failed to load inspection: ${response.statusCode}');
+    }
+
+    const utf8Decoder = Utf8Decoder(allowMalformed: true);
+    final Map<String, dynamic> data =
+        jsonDecode(utf8Decoder.convert(response.bodyBytes));
+    return Task.fromJson(data);
+  }
+
   Future<List<TypicalProblem>> getTypicalProblems(
       {limit = 50, offset = 0}) async {
     _guardOffline();

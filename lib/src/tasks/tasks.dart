@@ -4,3 +4,4 @@ export 'task_models.dart';
 export 'equipment_detail_controller.dart';
 export 'equipment_list_screen.dart';
 export 'equipment_detail_screen.dart';
+export 'ppr_list_screen.dart';

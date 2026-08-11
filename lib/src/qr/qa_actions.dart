@@ -38,6 +38,7 @@ class _QRActionsState extends State<QRActions> {
         // сервис, если он не запущен.
         PushNotificationsController.instance.ensureRunning();
       });
+      _refreshPpr();
     }
   }
 
@@ -54,6 +55,21 @@ class _QRActionsState extends State<QRActions> {
   void _onTasks() {
     GlobalState.allowSyncMainOnce = true;
     GoRouter.of(context).clearStackAndNavigate('/tasks');
+  }
+
+  void _onPpr() {
+    GlobalState.allowSyncMainOnce = true;
+    GoRouter.of(context).clearStackAndNavigate('/ppr');
+  }
+
+  /// Кнопка «ППР» появляется, только когда есть ППР «В работе», — поэтому
+  /// при заходе на главный экран подтягиваем актуальный список ППР.
+  /// При выключенном фича-флаге `syncPpr()` в сеть не ходит.
+  Future<void> _refreshPpr() async {
+    if (!GlobalState.isAuthorized) return;
+    await GlobalState.dataProvider.syncPpr();
+    await GlobalState.dataProvider.syncPprInspections();
+    if (mounted) setState(() {});
   }
 
   void _onNotifications() {
@@ -138,6 +154,15 @@ class _QRActionsState extends State<QRActions> {
               ),
             ],
           ),
+          if (GlobalState.dataProvider.hasPprInProgressWithTasks) ...[
+            const SizedBox(height: AppConstants.spacingMD),
+            _SecondaryActionCard(
+              icon: Icons.event_repeat_rounded,
+              label: 'ППР',
+              onTap: _onPpr,
+              fullWidth: true,
+            ),
+          ],
           if (allowRequestsWithoutQr) ...[
             const SizedBox(height: AppConstants.spacingMD),
             _SecondaryActionCard(

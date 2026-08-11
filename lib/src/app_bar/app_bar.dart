@@ -65,6 +65,15 @@ class MyAppBar {
         title: const Text('Оборудование'),
       );
     }
+    if (location == '/ppr') {
+      return AppBar(
+        leading: BackButton(
+          onPressed: () =>
+              GoRouter.of(context).clearStackAndNavigate('/actions'),
+        ),
+        title: const Text('ППР'),
+      );
+    }
     if (location == '/knowledge_base') {
       return AppBar(
         leading: BackButton(
@@ -87,9 +96,12 @@ class MyAppBar {
       );
     }
     if (location.startsWith('/details')) {
+      // На карточку оборудования приходят и из списка задач, и из ППР —
+      // возвращаемся туда, откуда пришли (см. `?from=ppr`).
+      final backTo = location.contains('from=ppr') ? '/ppr' : '/tasks';
       return AppBar(
         leading: BackButton(
-          onPressed: () => GoRouter.of(context).clearStackAndNavigate('/tasks'),
+          onPressed: () => GoRouter.of(context).clearStackAndNavigate(backTo),
         ),
         title: const Text('Задачи'),
       );

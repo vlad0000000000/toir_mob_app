@@ -4,25 +4,25 @@ import 'package:qr_scan_industry/src/feature_flags.dart';
 
 void main() {
   group('FeatureFlags.pprEnabled', () {
-    test('выключен, если PPR_ENABLED отсутствует (прод)', () {
+    test('включён, если PPR_ENABLED не задан', () {
       dotenv.testLoad(fileInput: 'API_ENDPOINT=https://example.test');
+      expect(FeatureFlags.pprEnabled, isTrue);
+    });
+
+    test('выключается только явным PPR_ENABLED=false', () {
+      dotenv.testLoad(fileInput: 'PPR_ENABLED=false');
       expect(FeatureFlags.pprEnabled, isFalse);
     });
 
-    test('включён только при PPR_ENABLED=true (дев)', () {
-      dotenv.testLoad(fileInput: 'PPR_ENABLED=true');
-      expect(FeatureFlags.pprEnabled, isTrue);
-    });
-
     test('регистр и пробелы не важны', () {
-      dotenv.testLoad(fileInput: 'PPR_ENABLED=True');
-      expect(FeatureFlags.pprEnabled, isTrue);
+      dotenv.testLoad(fileInput: 'PPR_ENABLED= False ');
+      expect(FeatureFlags.pprEnabled, isFalse);
     });
 
-    test('выключен при любом другом значении', () {
-      for (final value in ['false', '0', '1', 'yes', '']) {
+    test('включён при любом другом значении', () {
+      for (final value in ['true', 'True', '0', '1', 'yes', '']) {
         dotenv.testLoad(fileInput: 'PPR_ENABLED=$value');
-        expect(FeatureFlags.pprEnabled, isFalse, reason: 'значение "$value"');
+        expect(FeatureFlags.pprEnabled, isTrue, reason: 'значение "$value"');
       }
     });
   });

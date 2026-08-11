@@ -109,13 +109,18 @@ extension DataProviderSync on DataProvider {
       for (var task in await loadAllOpenTasks()) {
         tasks.add(task);
       }
-      await taskBox.clear();
       Map<String, Task> tasksDict = {};
       for (var task in tasks) {
         tasksDict[task.uuid] = task;
       }
+      // Осмотры задач ППР добираем до записи в ящик: очистка и заливка
+      // должны быть одной операцией, иначе между ними раздел «ППР»
+      // ненадолго пропадает из списков.
+      for (final task in await loadPprInspections(tasksDict.keys.toSet())) {
+        tasksDict[task.uuid] = task;
+      }
+      await taskBox.clear();
       await taskBox.putAll(tasksDict);
-      // await taskBox.addAll(tasks);
     } catch (e, stack) {
       print('Error syncing tasks: $e');
       print(stack);
@@ -124,19 +129,22 @@ extension DataProviderSync on DataProvider {
     }
   }
 
-  /// Синхронизирует членство периодических задач в актуальных ППР.
+  /// Синхронизирует актуальные ППР и состав их периодических задач.
   /// Ошибку глотаем (как и остальные sync-методы) — при сбое остаётся
   /// последний закэшированный набор из `stringBox`.
   ///
-  /// При выключенном [FeatureFlags.pprEnabled] не ходит в сеть: на проде
-  /// эндпоинтов ППР нет.
+  /// Сами осмотры задач ППР догружает [syncTasks] (или [syncPprInspections],
+  /// если задачи перечитывать не нужно), поэтому вызывать до [syncTasks].
+  ///
+  /// При выключенном [FeatureFlags.pprEnabled] не ходит в сеть.
   Future<void> syncPpr() async {
     if (!FeatureFlags.pprEnabled) return;
     _isLoading = true;
     try {
-      final uuids = await api.getActivePprPeriodicTaskUuids();
-      _pprPeriodicTaskUuids = uuids;
-      await stringBox.put('ppr_periodic_task_uuids', uuids.join(','));
+      final pprs = await api.getActivePprs();
+      setActivePprs(pprs);
+      await stringBox.put(DataProvider.pprCacheKey,
+          jsonEncode(pprs.map((ppr) => ppr.toJson()).toList()));
     } catch (e) {
       print('Failed sync PPR: $e');
     } finally {
@@ -144,11 +152,52 @@ extension DataProviderSync on DataProvider {
     }
   }
 
+  /// Осмотры задач актуальных ППР, которых нет среди уже загруженных [have].
+  ///
+  /// Общая выборка ([TaskApi.getCurrentTasks]) отдаёт осмотр только пока не
+  /// вышел его срок, а задача ППР актуальна, пока ППР не закрыт, — поэтому
+  /// такие осмотры берём поштучно по uuid из состава ППР.
+  Future<List<Task>> loadPprInspections(Set<String> have) async {
+    final Set<String> missing = {};
+    for (final ppr in activePprs) {
+      for (final uuid in ppr.inspectionUuids) {
+        if (!have.contains(uuid) &&
+            !DataProvider.closedTasks.containsKey(uuid)) {
+          missing.add(uuid);
+        }
+      }
+    }
+    final List<Task> tasks = [];
+    for (final uuid in missing) {
+      try {
+        final task = await api.getTaskByUuid(uuid);
+        if (task != null && task.resultStatus != 'closed') {
+          tasks.add(task);
+        }
+      } catch (e) {
+        print('Failed to load PPR inspection $uuid: $e');
+      }
+    }
+    return tasks;
+  }
+
+  /// Добавляет недостающие осмотры ППР в ящик задач, не трогая остальные.
+  /// Нужен там, где перечитывать весь список задач ради ППР незачем
+  /// (главный экран).
+  Future<void> syncPprInspections() async {
+    final have = taskBox.keys.map((key) => key.toString()).toSet();
+    for (final task in await loadPprInspections(have)) {
+      await taskBox.put(task.uuid, task);
+    }
+  }
+
   Future mainSync() async {
     if (GlobalState.isAuthorized) {
       await syncInventory();
-      await syncTasks();
+      // ППР — до задач: syncTasks по его составу догружает осмотры ППР
+      // и пишет всё в ящик задач одной операцией.
       await syncPpr();
+      await syncTasks();
       await syncTypicalProblems();
       await syncPeriodicityRules();
       await syncUsageUnitTypes();

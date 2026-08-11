@@ -1,5 +1,6 @@
 import 'package:hive_ce/hive.dart';
 import 'package:intl/intl.dart';
+import 'dart:convert';
 import 'dart:io';
 import '../../global_state.dart';
 import '../../src/http/api.dart';
@@ -15,6 +16,7 @@ import '../../src/model/usage_unit.dart';
 import '../../src/model/user.dart';
 import '../../src/model/equipment_state.dart';
 import '../../src/model/periodic_task_request.dart';
+import '../../src/model/ppr.dart';
 import '../model/usage_update.dart';
 import '../exceptions/app_exceptions.dart';
 import '../feature_flags.dart';
@@ -71,9 +73,21 @@ class DataProvider {
     _company = companyBox.get('company');
     _currentSession = sessionBox.get('current_session');
     _equipmentState = equipmentStateBox.get('equipment_state');
-    final pprCached = stringBox.get('ppr_periodic_task_uuids');
-    if (pprCached != null && pprCached.isNotEmpty) {
-      _pprPeriodicTaskUuids = pprCached.split(',').toSet();
+    _loadCachedPprs();
+  }
+
+  /// Восстанавливает актуальные ППР из кэша (`stringBox`), чтобы кнопка
+  /// «ППР» и группа «ППР» работали до первой синхронизации и офлайн.
+  void _loadCachedPprs() {
+    final cached = stringBox.get(pprCacheKey);
+    if (cached == null || cached.isEmpty) return;
+    try {
+      final List<dynamic> raw = jsonDecode(cached);
+      setActivePprs(raw
+          .map((e) => Ppr.fromJson(e as Map<String, dynamic>))
+          .toList());
+    } catch (e) {
+      print('Failed to read PPR cache: $e');
     }
   }
 
@@ -87,12 +101,60 @@ class DataProvider {
   bool _isLoading = false;
   bool _isSyncingScans = false;
 
-  /// UUID периодических задач, входящих в актуальные (незакрытые) ППР.
-  /// Осмотры таких задач в списке выносятся в отдельную группу «ППР».
-  /// Наполняется в [syncPpr], кэшируется в `stringBox` для офлайна.
+  /// Ключ кэша актуальных ППР в `stringBox`.
+  static const String pprCacheKey = 'ppr_active';
+
+  /// Актуальные (незакрытые) ППР. Наполняются в [syncPpr], кэшируются в
+  /// `stringBox` для офлайна.
+  List<Ppr> _activePprs = [];
+
+  /// UUID периодических задач всех актуальных ППР — производное от
+  /// [_activePprs], чтобы не пересобирать множество на каждую задачу списка.
   Set<String> _pprPeriodicTaskUuids = {};
 
+  /// При выключенном [FeatureFlags.pprEnabled] раздел ППР не показывается
+  /// вообще — даже при наличии старого кэша.
+  List<Ppr> get activePprs =>
+      FeatureFlags.pprEnabled ? _activePprs : const <Ppr>[];
+
   Set<String> get pprPeriodicTaskUuids => _pprPeriodicTaskUuids;
+
+  /// Актуальные ППР, в которых текущему пользователю есть что делать, —
+  /// то, что показывает экран ППР. Пустые ППР (все задачи чужие или уже
+  /// выполнены) в списке не нужны.
+  List<Ppr> pprsWithTasks() {
+    final pprs = activePprs;
+    if (pprs.isEmpty || _pprPeriodicTaskUuids.isEmpty) {
+      return const <Ppr>[];
+    }
+    // Один проход по задачам: для каждой периодической задачи из ППР
+    // запоминаем, есть ли по ней доступный пользователю осмотр.
+    final tasksInScans = _scannedTaskUuids();
+    final Set<String> available = {};
+    for (final task in taskBox.values) {
+      final periodicTask = task.periodicTask;
+      if (periodicTask == null) continue;
+      if (!_pprPeriodicTaskUuids.contains(periodicTask.uuid)) continue;
+      if (!_isTaskAvailable(task, tasksInScans)) continue;
+      available.add(periodicTask.uuid);
+    }
+    return pprs
+        .where((ppr) => ppr.periodicTaskUuids.any(available.contains))
+        .toList();
+  }
+
+  /// Признак для кнопки «ППР» на главном экране: есть ППР «В работе» (по ТЗ)
+  /// и в нём есть задачи для текущего пользователя — иначе кнопка вела бы на
+  /// пустой экран.
+  bool get hasPprInProgressWithTasks =>
+      pprsWithTasks().any((ppr) => ppr.isInProgress);
+
+  void setActivePprs(List<Ppr> pprs) {
+    _activePprs = pprs;
+    _pprPeriodicTaskUuids = {
+      for (final ppr in pprs) ...ppr.periodicTaskUuids,
+    };
+  }
 
   /// Входит ли периодическая задача в актуальный ППР. При выключенном
   /// [FeatureFlags.pprEnabled] всегда `false` — группа «ППР» не появляется
@@ -100,6 +162,15 @@ class DataProvider {
   bool isPeriodicTaskInPpr(String periodicTaskUuid) =>
       FeatureFlags.pprEnabled &&
       _pprPeriodicTaskUuids.contains(periodicTaskUuid);
+
+  /// Актуальный ППР, в который входит периодическая задача (первый найденный).
+  /// Нужен, чтобы подписать группу именем конкретного ППР.
+  Ppr? pprForPeriodicTask(String periodicTaskUuid) {
+    for (final ppr in activePprs) {
+      if (ppr.periodicTaskUuids.contains(periodicTaskUuid)) return ppr;
+    }
+    return null;
+  }
 
   List<User> get users => _users;
 
@@ -231,33 +302,74 @@ class DataProvider {
         ),
       ];
     }
-    final tasksInScans = {};
-    for (var scan in scanBox.values.toList()) {
-      tasksInScans[scan.taskUuid] = scan.taskUuid;
-    }
-    for (var scan in scanPendingBox.values.toList()) {
-      tasksInScans[scan.taskUuid] = scan.taskUuid;
-    }
+    final tasksInScans = _scannedTaskUuids();
     return taskBox.values
         .where((task) => task.equipmentUuid == machineUUID)
-        .where((x) {
-      if (tasksInScans.containsKey(x.uuid) || closedTasks.containsKey(x.uuid)) {
-        return false;
-      }
-      if (GlobalState.authUser == null) {
-        return false;
-      }
-      if (x.resultStatus == "scheduled") {
-        return x.periodicTask!.customRoles.where((x) {
-              return x.id == GlobalState.authUser!.customRoleId;
-            }).length >
-            0;
-      } else if (x.resultStatus == "open") {
-        return x.responsibleUser!.uuid == GlobalState.authUser!.uuid;
-      } else {
-        return false;
-      }
-    }).toList();
+        .where((x) => _isTaskAvailable(x, tasksInScans))
+        .toList();
+  }
+
+  /// Задачи актуального ППР, доступные текущему пользователю. Фильтр тот же,
+  /// что и в [getTasksForMachine] — просто отбор идёт не по оборудованию, а
+  /// по составу ППР (осмотры его периодических задач).
+  List<Task> getTasksForPpr(String pprUuid) {
+    final matched = activePprs.where((p) => p.uuid == pprUuid).toList();
+    if (matched.isEmpty || matched.first.periodicTaskUuids.isEmpty) {
+      return [];
+    }
+    final ppr = matched.first;
+    final tasksInScans = _scannedTaskUuids();
+    final tasks = taskBox.values
+        .where((task) =>
+            task.periodicTask != null &&
+            ppr.periodicTaskUuids.contains(task.periodicTask!.uuid))
+        .where((task) => _isTaskAvailable(task, tasksInScans))
+        .toList();
+    tasks.sort((a, b) {
+      final byEquipment = a.periodicTask!.equipment.name
+          .toLowerCase()
+          .compareTo(b.periodicTask!.equipment.name.toLowerCase());
+      if (byEquipment != 0) return byEquipment;
+      return a.periodicTask!.title
+          .toLowerCase()
+          .compareTo(b.periodicTask!.title.toLowerCase());
+    });
+    return tasks;
+  }
+
+  /// UUID осмотров, по которым уже есть скан (отправленный или в очереди) —
+  /// такие задачи в списках не показываем.
+  Map<String, String?> _scannedTaskUuids() {
+    final Map<String, String?> tasksInScans = {};
+    for (var scan in scanBox.values.toList()) {
+      tasksInScans[scan.taskUuid ?? ''] = scan.taskUuid;
+    }
+    for (var scan in scanPendingBox.values.toList()) {
+      tasksInScans[scan.taskUuid ?? ''] = scan.taskUuid;
+    }
+    return tasksInScans;
+  }
+
+  /// Показывать ли задачу текущему пользователю: не закрыта локально,
+  /// периодическая — по его роли, назначенная — по ответственному.
+  bool _isTaskAvailable(Task task, Map<String, String?> tasksInScans) {
+    if (tasksInScans.containsKey(task.uuid) ||
+        closedTasks.containsKey(task.uuid)) {
+      return false;
+    }
+    if (GlobalState.authUser == null) {
+      return false;
+    }
+    if (task.resultStatus == "scheduled") {
+      return task.periodicTask!.customRoles
+              .where((role) => role.id == GlobalState.authUser!.customRoleId)
+              .length >
+          0;
+    } else if (task.resultStatus == "open") {
+      return task.responsibleUser!.uuid == GlobalState.authUser!.uuid;
+    } else {
+      return false;
+    }
   }
 
   String getUsageUnitDisplayName(String value) {
