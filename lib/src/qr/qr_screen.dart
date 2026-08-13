@@ -114,9 +114,10 @@ class _BarcodeScannerWithControllerState
                               // print(machine.getQRValue());
                               if (machine.uuid.toLowerCase() ==
                                   barcodeUUID.toLowerCase()) {
-                                GoRouter.of(context).clearStackAndNavigate(
-                                    '/qr_result',
-                                    extra: machine);
+                                // push, а не сброс стека: сканер остаётся под
+                                // карточкой, и «назад» возвращает к камере.
+                                GoRouter.of(context)
+                                    .push('/qr_result', extra: machine);
                                 return;
                               }
                             }

@@ -1,8 +1,394 @@
 part of 'data_provider.dart';
 
+/// Перевод отказа «No access to this repair» — по нему очередь узнаёт, что
+/// ремонт передали другому сотруднику. Сравниваем с переводом, а не с
+/// английским оригиналом, чтобы источник строки был ровно один.
+const String _noAccessMessage = 'Нет доступа к этому ремонту';
+
+/// Перевод «Repair photo not found». Снимка на сервере уже нет — для
+/// отложенного удаления это успех, а не отказ.
+const String _photoNotFoundMessage = 'Фотография не найдена';
+
 /// Офлайн-очереди отправки: осмотры (scans), наработки (usage),
-/// периодические задачи. Перекладывание pending ↔ box + ретраи.
+/// периодические задачи, черновики ремонтов. Перекладывание pending ↔ box +
+/// ретраи.
 extension DataProviderOutbox on DataProvider {
+  /// Отправляет черновики ремонтов, накопленные без связи.
+  ///
+  /// Схема проще, чем у осмотров: отдельный pending-бокс с возвратом через
+  /// 120 секунд здесь не нужен, потому что защита от дубля живёт на сервере —
+  /// каждый черновик уходит со своим `Idempotency-Key`, и повтор возвращает
+  /// уже созданный ремонт вместо второго. Поэтому черновик просто лежит в
+  /// очереди, пока не будет принят или явно отклонён.
+  ///
+  /// Возвращает число отправленных за проход.
+  Future<int> syncPendingRepairs() async {
+    // Тот же замок, что у осмотров: пятисекундный цикл и кнопка
+    // «Синхронизировать данные» могут войти сюда одновременно, и тогда один
+    // черновик ушёл бы двумя запросами. Сервер их склеил бы по ключу, но
+    // второй ответ всё равно попытался бы удалить уже удалённую запись.
+    if (_isSyncingPendingRepairs) return 0;
+    _isSyncingPendingRepairs = true;
+    try {
+      return await _syncPendingRepairsImpl();
+    } finally {
+      _isSyncingPendingRepairs = false;
+    }
+  }
+
+  Future<int> _syncPendingRepairsImpl() async {
+    var sent = 0;
+    for (final draft in pendingRepairBox.values.toList()) {
+      // Отклонённые не долбим на каждом цикле: причина никуда не денется
+      // сама («Для этого оборудования уже есть ремонт»), а обходчик увидит
+      // её в списке и решит — повторить вручную или удалить черновик.
+      if (draft.isRejected) continue;
+      try {
+        // Ремонт создаём только если его ещё нет: на повторном проходе
+        // (например, когда доехал ремонт, но не доехали снимки) черновик уже
+        // помнит серверный uuid.
+        var current = draft;
+        if (current.serverUuid == null) {
+          final repair = await api.createRepair(
+            equipmentUuid: current.equipmentUuid,
+            consumptionNormUuid: current.consumptionNormUuid,
+            startedAt: current.startedAt,
+            comment: current.comment,
+            idempotencyKey: current.localId,
+          );
+          await upsertRepair(repair);
+          // Записываем uuid до загрузки снимков: если приложение убьют
+          // посреди неё, следующий проход не создаст второй ремонт.
+          current = current.copyWith(serverUuid: repair.uuid);
+          await pendingRepairBox.put(current.localId, current);
+        }
+
+        final left =
+            await _uploadPhotos(current.serverUuid!, current.photoPaths);
+        if (left.isNotEmpty) {
+          // Часть снимков не ушла — черновик остаётся в очереди ровно с
+          // ними. Отправленные уже вычеркнуты и повторно не полетят.
+          await pendingRepairBox.put(
+            current.localId,
+            current.copyWith(photoPaths: left),
+          );
+          continue;
+        }
+        // Последний шаг конвейера: расход, комментарий и — если обходчик уже
+        // нажал «Отправить» — перевод в «На рассмотрении». Только теперь, по
+        // порядку из п. 4.5.4: создание → фото → статус.
+        final finished = await api.updateRepair(
+          current.serverUuid!,
+          comment: current.comment,
+          consumptions: current.consumptions,
+          submitForReview: current.submitForReview,
+        );
+        await upsertRepair(finished);
+        await deletePendingRepair(current.localId);
+        authExpired.value = false;
+        sent++;
+      } catch (e) {
+        if (e is AuthExpiredException) {
+          // Токен протух. Черновик не виноват — оставляем как есть и поднимаем
+          // пометку; после повторного входа отправка продолжится сама.
+          authExpired.value = true;
+          continue;
+        }
+        if (isRetryableRepairError(e)) {
+          // Связи нет или сервер ещё дожёвывает наш прошлый запрос с тем же
+          // ключом — оставляем как есть, даже попытку не засчитываем.
+          continue;
+        }
+        // Сервер ответил и отказал. Запоминаем причину по-русски и больше не
+        // повторяем автоматически.
+        await pendingRepairBox.put(
+          draft.localId,
+          draft.copyWith(
+            attempts: draft.attempts + 1,
+            lastError: repairErrorMessage(e),
+            conflictRepairUuid: await _findBlockingRepair(draft.equipmentUuid),
+          ),
+        );
+        print('Error sending pending repair: $e');
+      }
+    }
+    return sent;
+  }
+
+  /// Грузит снимки по одному и возвращает те, что отправить не удалось.
+  ///
+  /// По одному, а не пачкой, — намеренно: сервер принимает список файлов
+  /// одним запросом, но если он оборвётся на середине, узнать, какие снимки
+  /// уже сохранились, будет неоткуда, и повтор их продублирует. Один файл —
+  /// один запрос: успех означает ровно один принятый снимок, и путь тут же
+  /// вычёркивается, а файл удаляется.
+  ///
+  /// Первая же неудача прекращает проход: связь пропала — остальные всё
+  /// равно не уйдут, а долбить сервер незачем.
+  ///
+  /// Дополнительно каждый снимок уходит со своим `Idempotency-Key`. Один файл
+  /// на запрос защищает от дубля только тогда, когда ответ дошёл; если же
+  /// связь оборвалась *после* сохранения на сервере, путь остаётся в очереди
+  /// и повтор без ключа положил бы второй такой же снимок. Ключ считается от
+  /// содержимого кадра (`RepairPhotoFiles.idempotencyKey`), поэтому он один и
+  /// тот же при любом числе повторов — и совпадает с тем, под которым тот же
+  /// кадр уже пытались отправить из карточки.
+  Future<List<String>> _uploadPhotos(
+      String repairUuid, List<String> paths) async {
+    final left = <String>[];
+    var failed = false;
+    for (final path in paths) {
+      if (failed) {
+        left.add(path);
+        continue;
+      }
+      final bytes = await RepairPhotoFiles.read(path);
+      if (bytes == null) {
+        // Файла нет — вычёркиваем: ждать его бессмысленно.
+        continue;
+      }
+      try {
+        await api.uploadRepairPhotos(
+          repairUuid,
+          [base64Encode(bytes)],
+          idempotencyKey: RepairPhotoFiles.idempotencyKey(repairUuid, bytes),
+        );
+        await RepairPhotoFiles.delete(path);
+      } catch (e) {
+        if (e is AuthExpiredException) authExpired.value = true;
+        failed = true;
+        left.add(path);
+        print('Error uploading repair photo: $e');
+      }
+    }
+    return left;
+  }
+
+  /// Удаляет снимки, убранные обходчиком без связи. Возвращает те, что
+  /// удалить не удалось.
+  ///
+  /// Отсутствие снимка на сервере (его уже удалили с другого устройства) —
+  /// это успех, а не ошибка: цель достигнута.
+  Future<List<String>> _deletePhotos(
+    String repairUuid,
+    List<String> photoUuids,
+  ) async {
+    final left = <String>[];
+    var failed = false;
+    for (final uuid in photoUuids) {
+      if (failed) {
+        left.add(uuid);
+        continue;
+      }
+      try {
+        await api.deleteRepairPhoto(repairUuid, uuid);
+      } catch (e) {
+        if (repairErrorMessage(e) == _photoNotFoundMessage) continue;
+        if (e is AuthExpiredException) authExpired.value = true;
+        failed = true;
+        left.add(uuid);
+        print('Error deleting repair photo: $e');
+      }
+    }
+    return left;
+  }
+
+  /// Ищет ремонт, занявший оборудование: сервер отвечает «Equipment is already
+  /// in repair», но какой именно ремонт мешает — не говорит.
+  ///
+  /// Сначала перечитываем список: ремонт мог появиться только что и в
+  /// офлайн-кэше его ещё нет. Если и после этого не нашёлся — значит он
+  /// назначен на другого сотрудника, обходчику такие не отдают. Экран
+  /// разрешения конфликта это переживёт: перенос всё равно был бы недоступен.
+  Future<String?> _findBlockingRepair(String equipmentUuid) async {
+    String? search() {
+      for (final repair in _repairs) {
+        if (repair.equipmentUuid == equipmentUuid && repair.isActive) {
+          return repair.uuid;
+        }
+      }
+      return null;
+    }
+
+    final known = search();
+    if (known != null) return known;
+    await syncMyRepairs();
+    return search();
+  }
+
+  /// Повторить отправку отклонённого черновика вручную — с экрана списка.
+  /// Снимает пометку об отказе, чтобы очередь снова взяла его в работу.
+  Future<void> retryPendingRepair(String localId) async {
+    final draft = pendingRepairBox.get(localId);
+    if (draft == null) return;
+    await pendingRepairBox.put(localId, draft.copyWith(lastError: null));
+    await syncPendingRepairs();
+  }
+
+  /// Отправляет правки существующих ремонтов, сделанные без связи.
+  ///
+  /// В отличие от черновиков создания, здесь нет ключа идемпотентности — он и
+  /// не нужен: PATCH задаёт поля целиком, повтор с тем же телом приводит к
+  /// тому же результату. Опасность другая: ремонт мог измениться на сервере,
+  /// пока правка лежала в очереди. Такой отказ помечается конфликтом и ждёт
+  /// решения человека, автоповторы по нему прекращаются.
+  Future<int> syncPendingRepairUpdates() async {
+    if (_isSyncingRepairUpdates) return 0;
+    _isSyncingRepairUpdates = true;
+    try {
+      return await _syncPendingRepairUpdatesImpl();
+    } finally {
+      _isSyncingRepairUpdates = false;
+    }
+  }
+
+  Future<int> _syncPendingRepairUpdatesImpl() async {
+    var sent = 0;
+    for (final update in pendingRepairUpdateBox.values.toList()) {
+      if (update.isRejected) continue;
+      try {
+        // Фотографии — до PATCH, а не после. PATCH может перевести ремонт в
+        // «На рассмотрении», и после этого сервер снимки уже не примет.
+        var current = update;
+        if (current.hasPhotoWork) {
+          final photosLeft =
+              await _uploadPhotos(current.repairUuid, current.photoPaths);
+          final deletesLeft = await _deletePhotos(
+            current.repairUuid,
+            current.deletedPhotoUuids,
+          );
+          current = current.copyWith(
+            lastError: current.lastError,
+            serverStatus: current.serverStatus,
+            conflictKind: current.conflictKind,
+            photoPaths: photosLeft,
+            deletedPhotoUuids: deletesLeft,
+          );
+          await pendingRepairUpdateBox.put(current.repairUuid, current);
+          if (current.hasPhotoWork) {
+            // Связь пропала на фотографиях — поля отправим следующим проходом,
+            // вместе с оставшимися снимками.
+            continue;
+          }
+        }
+        final repair = await api.updateRepair(
+          current.repairUuid,
+          comment: current.comment,
+          consumptions: current.consumptions,
+          submitForReview: current.submitForReview,
+        );
+        await upsertRepair(repair);
+        await deletePendingRepairUpdate(update.repairUuid);
+        authExpired.value = false;
+        sent++;
+      } catch (e) {
+        if (e is AuthExpiredException) {
+          authExpired.value = true;
+          continue;
+        }
+        if (isRetryableRepairError(e)) continue;
+        // Сервер отказал. Чтобы обходчику было что показать, дочитываем
+        // текущее состояние ремонта — чаще всего окажется, что администратор
+        // закрыл ремонт или передал его другому.
+        String? serverStatus;
+        var kind = RepairConflictKind.other;
+        try {
+          final fresh = await api.getRepair(update.repairUuid);
+          serverStatus = fresh.status;
+          await upsertRepair(fresh);
+          if (fresh.isClosed) {
+            kind = RepairConflictKind.repairClosed;
+          } else {
+            // Ремонт жив, но ответственный уже не мы — забрал другой обходчик
+            // или переназначил администратор.
+            final me = GlobalState.authUser?.uuid;
+            final owner = fresh.responsibleUserUuid;
+            if (me != null &&
+                owner != null &&
+                owner.isNotEmpty &&
+                owner != me) {
+              kind = RepairConflictKind.repairReassigned;
+            }
+          }
+        } catch (readError) {
+          // Доступа к ремонту больше нет — верный признак передачи другому
+          // сотруднику: обходчику отдают только свои и своей должности.
+          if (repairErrorMessage(readError) == _noAccessMessage) {
+            kind = RepairConflictKind.repairReassigned;
+          }
+          // Иначе связь пропала сразу после отказа: вид останется «прочее»,
+          // экран разрешения это переживёт.
+        }
+        await pendingRepairUpdateBox.put(
+          update.repairUuid,
+          update.copyWith(
+            lastError: repairErrorMessage(e),
+            serverStatus: serverStatus,
+            conflictKind: kind.code,
+          ),
+        );
+        print('Error sending pending repair update: $e');
+      }
+    }
+    return sent;
+  }
+
+  /// Переносит содержимое черновика в уже существующий ремонт и удаляет
+  /// черновик. Доступно только когда ответственный по этому ремонту —
+  /// текущий обходчик.
+  ///
+  /// Правила слияния выбраны так, чтобы ничего не пропало и ничего не
+  /// удвоилось:
+  /// * комментарий черновика **дописывается** к имеющемуся, а не заменяет его;
+  /// * позиции расхода добавляются только те, которых в ремонте ещё нет.
+  ///   Количества по совпадающим позициям не складываются: расход — это
+  ///   списание со склада, и удваивать его молча нельзя. Такую позицию
+  ///   обходчик поправит руками в карточке.
+  Future<void> transferDraftToRepair(PendingRepair draft, Repair target) async {
+    final comments = <String>[
+      if ((target.comment ?? '').trim().isNotEmpty) target.comment!.trim(),
+      if (draft.comment.trim().isNotEmpty &&
+          !(target.comment ?? '').contains(draft.comment.trim()))
+        draft.comment.trim(),
+    ];
+
+    final merged = List<RepairConsumption>.from(target.actualConsumptions);
+    final present = merged.map((item) => item.sparePartUuid).toSet();
+    for (final item in draft.consumptions) {
+      if (present.add(item.sparePartUuid)) merged.add(item);
+    }
+
+    await savePendingRepairUpdate(PendingRepairUpdate(
+      repairUuid: target.uuid,
+      repairId: target.id,
+      equipmentName: target.equipmentName,
+      baseStatus: target.status,
+      createdAt: DateTime.now(),
+      comment: comments.join('\n'),
+      consumptions: merged,
+      // Снимки переезжают вместе с остальным — файлы уже на устройстве, и
+      // терять их при переносе нельзя.
+      photoPaths: draft.photoPaths,
+    ));
+    // Черновик убираем из бокса напрямую: deletePendingRepair снёс бы и файлы
+    // снимков, которые только что перешли к правке.
+    await pendingRepairBox.delete(draft.localId);
+    _refreshActiveRepairsCount();
+    // Связь может быть прямо сейчас — тогда правка уедет, не дожидаясь цикла.
+    await syncPendingRepairUpdates();
+  }
+
+  /// Повторить отправку правки после разбора конфликта.
+  Future<void> retryPendingRepairUpdate(String repairUuid) async {
+    final update = pendingRepairUpdateBox.get(repairUuid);
+    if (update == null) return;
+    await pendingRepairUpdateBox.put(
+      repairUuid,
+      update.copyWith(lastError: null, serverStatus: null),
+    );
+    await syncPendingRepairUpdates();
+  }
+
   Future<void> syncUsageScans() async {
     final scans = scanUsageBox.values.toList();
     for (final scan in scans) {

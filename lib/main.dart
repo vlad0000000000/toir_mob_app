@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -17,14 +18,17 @@ import '../../src/model/usage_unit.dart';
 import '../../src/model/usage_update.dart';
 import '../../src/model/equipment_state.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import '../../src/login/login_screen.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/periodic_task_models.dart';
 import '../../src/model/periodic_task_request.dart';
 import '../../src/model/periodicity_rule.dart';
+import '../../src/model/pending_repair.dart';
+import '../../src/model/pending_repair_update.dart';
+import '../../src/model/repair.dart';
 import '../../src/model/scan.dart';
+import '../../src/model/spare_part.dart';
 import '../../src/model/task.dart';
 import '../../src/model/typical_problem.dart';
 import '../../src/qr/qr_screen.dart';
@@ -38,6 +42,11 @@ import '../../src/notifications/push/push_notifications_controller.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import '../../src/onboarding/onboarding_video_player.dart';
 import '../../src/onboarding/onboarding_welcome_screen.dart';
+import '../../src/repairs/create_repair_screen.dart';
+import '../../src/repairs/repair_detail_screen.dart';
+import '../../src/repairs/repairs_list_screen.dart';
+import '../../src/spare_parts/spare_part_detail_screen.dart';
+import '../../src/spare_parts/spare_parts_screen.dart';
 import '../../src/splash/splash_screen.dart';
 import '../../src/style/snack_bar.dart';
 import '../../src/tasks/tasks.dart';
@@ -46,13 +55,13 @@ import '../../src/utils/dependent.dart';
 import 'global_state.dart';
 import 'src/app_lifecycle/app_lifecycle.dart';
 import 'src/data/data_provider.dart';
+import 'src/data/hive_storage_location.dart';
+import 'src/data/repair_photo_files.dart';
 import 'src/design/app_constants.dart';
 import 'src/design/app_theme.dart';
 import 'src/http/api.dart';
 import 'src/model/session.dart';
 import 'src/model/user.dart';
-import 'src/style/my_transition.dart';
-import 'src/style/palette.dart';
 
 Future<void> main() async {
   if (kReleaseMode) {
@@ -92,19 +101,13 @@ Future<void> main() async {
   // }
 
   PackageInfo packageInfo = await PackageInfo.fromPlatform();
-  String directory = GlobalState.digest([
-    packageInfo.appName,
-    packageInfo.packageName,
-    packageInfo.version,
-    packageInfo.buildNumber
-  ].join('|'));
   if (kIsWeb) {
     await Hive.initFlutter();
   } else {
-    final appDocumentDir = await getApplicationDocumentsDirectory();
-    final customPath =
-        '${appDocumentDir.path}/${directory}'; // Define your custom path
-    await Hive.initFlutter(customPath);
+    // Путь не зависит от версии приложения: иначе обновление открывало бы
+    // пустую базу и теряло неотправленные осмотры. Подробности и перенос
+    // данных прошлой версии — в HiveStorageLocation.
+    await Hive.initFlutter(await HiveStorageLocation.resolve(packageInfo));
   }
 
   // await Hive.initFlutter();
@@ -130,6 +133,13 @@ Future<void> main() async {
   Hive.registerAdapter(EquipmentFaultAdapter());
   Hive.registerAdapter(EquipmentStateAdapter());
   Hive.registerAdapter(PeriodicTaskRequestAdapter());
+  Hive.registerAdapter(SparePartAdapter());
+  Hive.registerAdapter(RepairAdapter());
+  Hive.registerAdapter(RepairConsumptionAdapter());
+  Hive.registerAdapter(RepairPhotoAdapter());
+  Hive.registerAdapter(RepairNormItemAdapter());
+  Hive.registerAdapter(PendingRepairAdapter());
+  Hive.registerAdapter(PendingRepairUpdateAdapter());
 
   var dataProvider = DataProvider(
       api: API(),
@@ -149,13 +159,33 @@ Future<void> main() async {
       taskBox: await Hive.openBox<Task>('tasks'),
       companyBox: await Hive.openBox<Company>('company'),
       equipmentStateBox: await Hive.openBox<EquipmentState>('equipment_states'),
-      periodicTaskBox: await Hive.openBox<PeriodicTaskRequest>('periodic_tasks'),
-      periodicTaskPendingBox: await Hive.openBox<PeriodicTaskRequest>('pending_periodic_tasks'));
+      sparePartBox: await Hive.openBox<SparePart>('spare_parts'),
+      repairBox: await Hive.openBox<Repair>('repairs'),
+      pendingRepairBox: await Hive.openBox<PendingRepair>('pending_repairs'),
+      pendingRepairUpdateBox:
+          await Hive.openBox<PendingRepairUpdate>('pending_repair_updates'),
+      periodicTaskBox:
+          await Hive.openBox<PeriodicTaskRequest>('periodic_tasks'),
+      periodicTaskPendingBox:
+          await Hive.openBox<PeriodicTaskRequest>('pending_periodic_tasks'));
 
   for (var scan in dataProvider.scanPendingBox.values) {
     await dataProvider.scanPendingBox.delete(scan.key());
     await dataProvider.scanBox.put(scan.key(), scan);
   }
+
+  // Уборка снимков без владельца. Делаем на старте, до того как обходчик
+  // успеет снять новый кадр: набор «нужных» путей берётся из очередей, и
+  // файл, сохранённый параллельно, в него бы не попал.
+  //
+  // Осиротеть файл может по-разному: сбой посреди отправки, чистка Hive,
+  // переустановка базы. Каталог со снимками переживает всё это, и без уборки
+  // они копились бы вечно (п. 4.1.5 отчёта).
+  unawaited(RepairPhotoFiles.deleteOrphans(dataProvider.referencedPhotoPaths)
+      .then((removed) {
+    if (removed > 0)
+      debugPrint('[Photos] удалено осиротевших файлов: $removed');
+  }));
 
   GlobalState.dataProvider = dataProvider;
   Settings.dataProvider = dataProvider;
@@ -176,12 +206,20 @@ Future<void> main() async {
   dataProvider.startSyncing();
   dataProvider.startScanSyncing();
 
-  Future.sync(() async {
-    while (true) {
-      await GlobalState.updateDebug();
-      await Future.delayed(Duration(seconds: 15));
-    }
-  });
+  // Отладочная строка внизу экрана обновляется только в отладочной сборке.
+  //
+  // Внутри `updateDebug` сидит проверка связи, то есть HTTP-запрос к серверу.
+  // Раньше цикл крутился всегда — каждые 15 секунд, всё время жизни
+  // приложения, включая фон. У обходчика в цеху это лишний трафик и расход
+  // батареи ради строки, которой в релизе всё равно не видно.
+  if (kDebugMode) {
+    Future.sync(() async {
+      while (true) {
+        await GlobalState.updateDebug();
+        await Future.delayed(Duration(seconds: 15));
+      }
+    });
+  }
 
   runApp(
     MyApp(
@@ -199,7 +237,7 @@ class MyApp extends StatelessWidget {
 
       final bool isGoingToProtectedRoute =
           !state.matchedLocation.startsWith('/login') &&
-          state.matchedLocation != '/knowledge_base';
+              state.matchedLocation != '/knowledge_base';
 
       if (!isAuthenticated && isGoingToProtectedRoute) {
         return '/login';
@@ -215,81 +253,154 @@ class MyApp extends StatelessWidget {
       // Если приложение было запущено тапом по push-уведомлению — после
       // прохождения авторизационных редиректов перебрасываем сразу на
       // экран уведомлений (один раз).
-      if (isAuthenticated &&
-          PushNotificationRouter.hasPendingOpen &&
-          state.matchedLocation != '/notifications') {
-        PushNotificationRouter.consumePendingOpen();
-        return '/notifications';
+      if (isAuthenticated && PushNotificationRouter.hasPendingOpen) {
+        final target = PushNotificationRouter.pendingLocation;
+        if (state.matchedLocation != target) {
+          PushNotificationRouter.consumePendingOpen();
+          return target;
+        }
       }
 
       return null;
     },
     routes: [
+      // Все маршруты отдают NoTransitionPage: анимация смены экранов в
+      // приложении отключена целиком. Обходчик листает экраны десятками за
+      // обход, и любой переход воспринимается как задержка.
       GoRoute(
         path: '/',
-        builder: (context, state) {
-          return SplashScreen();
+        pageBuilder: (context, state) {
+          return const NoTransitionPage<void>(child: SplashScreen());
         },
       ),
       GoRoute(
         path: '/login',
-        builder: (context, state) {
-          // const QRScreen(key: Key('main')),
-          // return QRResultScreen(GlobalState.dataProvider.machines[0],
-          //     key: Key('main'));
-          return LoginScreen(key: Key('main'));
+        pageBuilder: (context, state) {
+          // Без const: конструктор LoginScreen не константный.
+          return NoTransitionPage<void>(
+            child: LoginScreen(key: const Key('main')),
+          );
         },
       ),
       GoRoute(
         path: '/onboarding',
-        builder: (context, state) {
-          return const OnboardingWelcomeScreen(key: Key('onboarding'));
+        pageBuilder: (context, state) {
+          return const NoTransitionPage<void>(
+            child: OnboardingWelcomeScreen(key: Key('onboarding')),
+          );
         },
       ),
       GoRoute(
         path: '/onboarding_video',
-        builder: (context, state) {
-          return const OnboardingVideoPlayer(key: Key('onboarding_video'));
+        pageBuilder: (context, state) {
+          return const NoTransitionPage<void>(
+            child: OnboardingVideoPlayer(key: Key('onboarding_video')),
+          );
         },
       ),
       GoRoute(
         path: '/actions',
         pageBuilder: (context, state) {
-          return buildMyTransition<void>(
+          return NoTransitionPage<void>(
             child: const QRActions(key: Key('qr_actions')),
-            color: context.watch<Palette>().backgroundMain,
           );
         },
       ),
       GoRoute(
         path: '/tasks',
         pageBuilder: (context, state) {
-          return buildMyTransition<void>(
+          return NoTransitionPage<void>(
             child: EquipmentListScreen(
               key: Key('tasks'),
             ),
-            color: context.watch<Palette>().backgroundMain,
           );
         },
       ),
       GoRoute(
         path: '/problems',
         pageBuilder: (context, state) {
-          return buildMyTransition<void>(
+          return NoTransitionPage<void>(
             child: EquipmentListScreen(
               isProblems: true,
               key: Key('problems'),
             ),
-            color: context.watch<Palette>().backgroundMain,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/repairs',
+        pageBuilder: (context, state) {
+          return NoTransitionPage<void>(
+            child: const RepairsListScreen(key: Key('repairs')),
+          );
+        },
+      ),
+      GoRoute(
+        path: '/repair_create',
+        pageBuilder: (context, state) {
+          return NoTransitionPage<void>(
+            child: CreateRepairScreen(
+              key: const Key('repair_create'),
+              equipment: state.extra as InventoryRecord,
+            ),
+          );
+        },
+      ),
+      GoRoute(
+        path: '/repairs/:uuid',
+        pageBuilder: (context, state) {
+          return NoTransitionPage<void>(
+            child: RepairDetailScreen(
+              key: Key('repair_${state.pathParameters['uuid']}'),
+              repairUuid: state.pathParameters['uuid'] ?? '',
+              initial: state.extra is Repair ? state.extra as Repair : null,
+            ),
+          );
+        },
+      ),
+      GoRoute(
+        // Карточка локального черновика: та же карточка ремонта, но всё
+        // заполненное сохраняется обратно в очередь.
+        path: '/repair_draft/:localId',
+        pageBuilder: (context, state) {
+          return NoTransitionPage<void>(
+            child: RepairDetailScreen(
+              key: Key('draft_${state.pathParameters['localId']}'),
+              repairUuid: '',
+              draftLocalId: state.pathParameters['localId'],
+            ),
+          );
+        },
+      ),
+      GoRoute(
+        path: '/spare_parts',
+        pageBuilder: (context, state) {
+          return NoTransitionPage<void>(
+            child: const SparePartsScreen(key: Key('spare_parts')),
+          );
+        },
+      ),
+      GoRoute(
+        path: '/spare_parts/:uuid',
+        // Без анимации: карточка ЗИП открывается по тапу из списка, и переход
+        // «как будто грузится страница» здесь только тормозит — обходчик
+        // листает справочник и заглядывает в позиции подряд.
+        pageBuilder: (context, state) {
+          return NoTransitionPage<void>(
+            child: SparePartDetailScreen(
+              key: Key('spare_part_${state.pathParameters['uuid']}'),
+              sparePartUuid: state.pathParameters['uuid'] ?? '',
+              initial:
+                  state.extra is SparePart ? state.extra as SparePart : null,
+            ),
           );
         },
       ),
       GoRoute(
         path: '/knowledge_base',
         pageBuilder: (context, state) {
-          return buildMyTransition<void>(
+          return NoTransitionPage<void>(
             child: const KnowledgeBaseScreen(key: Key('knowledge_base')),
-            color: context.watch<Palette>().backgroundMain,
           );
         },
       ),
@@ -297,43 +408,39 @@ class MyApp extends StatelessWidget {
         path: '/details/:index',
         pageBuilder: (context, state) {
           final index = int.parse(state.pathParameters['index']!);
-          return buildMyTransition<void>(
+          return NoTransitionPage<void>(
             child: EquipmentDetailScreen(
               machine: GlobalState.dataProvider.inventoryRecords
                   .where((element) => element.id == index)
                   .first,
             ),
             // child: const QRTabsScreen(key: Key('qr_scanner')),
-            color: context.watch<Palette>().backgroundMain,
           );
         },
       ),
       GoRoute(
         path: '/qr_scanner',
         pageBuilder: (context, state) {
-          return buildMyTransition<void>(
+          return NoTransitionPage<void>(
             child: const QRScreen(key: Key('qr_scanner')),
             // child: const QRTabsScreen(key: Key('qr_scanner')),
-            color: context.watch<Palette>().backgroundMain,
           );
         },
       ),
       GoRoute(
         path: '/notifications',
         pageBuilder: (context, state) {
-          return buildMyTransition<void>(
+          return NoTransitionPage<void>(
             child: const NotificationsScreen(key: Key('notifications')),
-            color: context.watch<Palette>().backgroundMain,
           );
         },
       ),
       GoRoute(
         path: '/notifications_settings',
         pageBuilder: (context, state) {
-          return buildMyTransition<void>(
+          return NoTransitionPage<void>(
             child: const NotificationsSettingsScreen(
                 key: Key('notifications_settings')),
-            color: context.watch<Palette>().backgroundMain,
           );
         },
       ),
@@ -341,24 +448,25 @@ class MyApp extends StatelessWidget {
         path: '/qr_result',
         pageBuilder: (context, state) {
           final machine = state.extra! as InventoryRecord;
-          return buildMyTransition<void>(
+          return NoTransitionPage<void>(
             child: QRResultScreen(
               machine,
               key: const Key('qr_result'),
               openDateTime: GlobalState.nowUTCDate,
             ),
-            color: context.watch<Palette>().backgroundMain,
           );
         },
       ),
       GoRoute(
         path: '/qr_result_demo',
-        builder: (context, state) {
+        pageBuilder: (context, state) {
           final machine = state.extra! as InventoryRecord;
-          return QRResultScreen(
-            machine,
-            key: const Key('qr_result_demo'),
-            openDateTime: GlobalState.nowUTCDate,
+          return NoTransitionPage<void>(
+            child: QRResultScreen(
+              machine,
+              key: const Key('qr_result_demo'),
+              openDateTime: GlobalState.nowUTCDate,
+            ),
           );
         },
       ),
@@ -366,13 +474,12 @@ class MyApp extends StatelessWidget {
         path: '/qr_result_problems',
         pageBuilder: (context, state) {
           final machine = state.extra! as InventoryRecord;
-          return buildMyTransition<void>(
+          return NoTransitionPage<void>(
             child: QRResultScreen(
               machine,
               key: const Key('qr_result'),
               openDateTime: GlobalState.nowUTCDate,
             ),
-            color: context.watch<Palette>().backgroundMain,
           );
         },
       )
@@ -402,9 +509,6 @@ class MyApp extends StatelessWidget {
               Provider(
                 create: (context) => dataProvider,
               ),
-              Provider(
-                create: (context) => Palette(),
-              ),
             ],
             child: Builder(builder: (context) {
               var app = ValueListenableBuilder<AppThemeId>(
@@ -414,6 +518,11 @@ class MyApp extends StatelessWidget {
                   title: dotenv.env["APP_TITLE"]!,
                   theme: AppTheme.lightTheme,
                   themeMode: ThemeMode.light,
+                  // flutter_localizations здесь намеренно нет: пакет из SDK
+                  // требует intl 0.19, а понижение с 0.20 тянет за собой
+                  // collection и vector_math до версий, с которыми не
+                  // собирается уже сам Flutter. Русские дата и время делаются
+                  // своими листами выбора — см. `_DateWheelSheet`.
                   routeInformationProvider: _router.routeInformationProvider,
                   routeInformationParser: _router.routeInformationParser,
                   routerDelegate: _router.routerDelegate,
@@ -436,8 +545,8 @@ class MyApp extends StatelessWidget {
                           color: cs.inverseSurface,
                           border: Border(
                             top: BorderSide(
-                                color: cs.onInverseSurface
-                                    .withValues(alpha: 0.1),
+                                color:
+                                    cs.onInverseSurface.withValues(alpha: 0.1),
                                 width: 0.5),
                           ),
                         ),
@@ -451,11 +560,11 @@ class MyApp extends StatelessWidget {
                                   .textTheme
                                   .labelSmall
                                   ?.copyWith(
-                                color: cs.onInverseSurface
-                                    .withValues(alpha: 0.85),
-                                fontFamily: 'monospace',
-                                height: 1.3,
-                              ),
+                                    color: cs.onInverseSurface
+                                        .withValues(alpha: 0.85),
+                                    fontFamily: 'monospace',
+                                    height: 1.3,
+                                  ),
                               textDirection: TextDirection.ltr,
                             );
                           },

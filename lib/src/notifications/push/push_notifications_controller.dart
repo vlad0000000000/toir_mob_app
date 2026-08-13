@@ -34,8 +34,7 @@ class PushNotificationsController {
       androidNotificationOptions: AndroidNotificationOptions(
         channelId: _channelId,
         channelName: _channelName,
-        channelDescription:
-            'Поддерживает соединение для получения уведомлений',
+        channelDescription: 'Поддерживает соединение для получения уведомлений',
         // MIN — нотификация уходит в «Тихие» (без иконки в статус-баре,
         // без peek, без звука). Полностью скрыть нельзя: foreground service
         // обязан показывать notification (Android API 26+).

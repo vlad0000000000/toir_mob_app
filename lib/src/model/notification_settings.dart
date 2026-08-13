@@ -17,16 +17,24 @@ class NotificationSettings {
         notificationsEnabled: true,
         realtimeEnabled: true,
         maxFutureDays: null,
+        // Зеркало серверных DEFAULT_TYPE_PREFERENCES /
+        // DEFAULT_STATUS_PREFERENCES (`services/notifications/mobile.py`).
+        // Значения нужны только до первого ответа сервера, но расходиться им
+        // незачем: экран настроек рисует переключатели по этому набору.
         typePreferences: {
           'assigned_inspection': true,
           'new_task': true,
           'overdue_task': true,
+          'summary_task': true,
+          'repair_assigned': true,
+          'repair_returned_for_rework': true,
         },
         statusPreferences: {
           'new': true,
           'viewed': true,
           'completed': true,
           'overdue': true,
+          'unassigned': true,
         },
       );
 

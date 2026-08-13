@@ -42,21 +42,24 @@ class TasksFilterButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final active = activeCount > 0;
     return Material(
-      color: active ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.surfaceContainerHigh,
+      color: active
+          ? Theme.of(context).colorScheme.primary
+          : Theme.of(context).colorScheme.surfaceContainerHigh,
       borderRadius: BorderRadius.circular(24),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(24),
         child: Padding(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 Icons.tune,
                 size: 18,
-                color: active ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.onSurface,
+                color: active
+                    ? Theme.of(context).colorScheme.onPrimary
+                    : Theme.of(context).colorScheme.onSurface,
               ),
               const SizedBox(width: 8),
               Text(
@@ -64,14 +67,16 @@ class TasksFilterButton extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: active ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.onSurface,
+                  color: active
+                      ? Theme.of(context).colorScheme.onPrimary
+                      : Theme.of(context).colorScheme.onSurface,
                 ),
               ),
               if (activeCount > 0) ...[
                 const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 6, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.onPrimary,
                     borderRadius: BorderRadius.circular(10),
@@ -219,20 +224,20 @@ class _TasksFilterSheetState extends State<_TasksFilterSheet> {
                 ),
               ),
               Container(
-                padding: EdgeInsets.fromLTRB(
-                    16, 12, 16, 12 + mq.padding.bottom),
+                padding:
+                    EdgeInsets.fromLTRB(16, 12, 16, 12 + mq.padding.bottom),
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.surface,
                   border: Border(
-                      top: BorderSide(color: Theme.of(context).colorScheme.outlineVariant)),
+                      top: BorderSide(
+                          color: Theme.of(context).colorScheme.outlineVariant)),
                 ),
                 child: Row(
                   children: [
                     Expanded(
                       child: OutlinedButton(
                         style: OutlinedButton.styleFrom(
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 14),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -246,10 +251,11 @@ class _TasksFilterSheetState extends State<_TasksFilterSheet> {
                       flex: 2,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Theme.of(context).colorScheme.primary,
-                          foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 14),
+                          backgroundColor:
+                              Theme.of(context).colorScheme.primary,
+                          foregroundColor:
+                              Theme.of(context).colorScheme.onPrimary,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -285,7 +291,8 @@ class _SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(icon, size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant),
+        Icon(icon,
+            size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant),
         const SizedBox(width: 8),
         Text(
           title,
@@ -379,19 +386,22 @@ class _PillChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.surfaceContainerHigh,
+      color: selected
+          ? Theme.of(context).colorScheme.primary
+          : Theme.of(context).colorScheme.surfaceContainerHigh,
       borderRadius: BorderRadius.circular(20),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(20),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 120),
-          padding:
-              const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: selected ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline,
+              color: selected
+                  ? Theme.of(context).colorScheme.primary
+                  : Theme.of(context).colorScheme.outline,
             ),
           ),
           child: Row(
@@ -399,15 +409,16 @@ class _PillChip extends StatelessWidget {
             children: [
               if (selected) ...[
                 Icon(Icons.check,
-                    size: 14,
-                    color: Theme.of(context).colorScheme.onPrimary),
+                    size: 14, color: Theme.of(context).colorScheme.onPrimary),
                 const SizedBox(width: 6),
               ],
               Text(
                 label,
                 style: TextStyle(
                   fontSize: 14,
-                  color: selected ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.onSurface,
+                  color: selected
+                      ? Theme.of(context).colorScheme.onPrimary
+                      : Theme.of(context).colorScheme.onSurface,
                   fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                 ),
               ),
@@ -458,8 +469,7 @@ class _DateRangeSelector extends StatelessWidget {
             final picked = await showDateRangePicker(
               context: context,
               firstDate: DateTime(2020),
-              lastDate:
-                  DateTime.now().add(const Duration(days: 365)),
+              lastDate: DateTime.now().add(const Duration(days: 365)),
               initialDateRange: customRange,
             );
             if (picked != null) {
@@ -506,12 +516,12 @@ class _EquipmentPickerTile extends StatelessWidget {
           }
         },
         child: Padding(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           child: Row(
             children: [
               Icon(Icons.search,
-                  size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  size: 20,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -531,12 +541,14 @@ class _EquipmentPickerTile extends StatelessWidget {
                   child: Padding(
                     padding: const EdgeInsets.all(4),
                     child: Icon(Icons.close,
-                        size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                        size: 18,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant),
                   ),
                 )
               else
                 Icon(Icons.chevron_right,
-                    size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                    size: 20,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
             ],
           ),
         ),
@@ -547,122 +559,136 @@ class _EquipmentPickerTile extends StatelessWidget {
   Future<String?> _showEquipmentPicker(
       BuildContext context, String? currentUuid) async {
     final records = GlobalState.dataProvider.inventoryRecords;
+    // Названия в нижнем регистре считаем один раз, а не на каждое нажатие
+    // клавиши: раньше при вводе весь справочник прогонялся через
+    // `toLowerCase()` заново, и на тысячах единиц ввод заметно дёргался.
+    // Тот же приём, что в поиске по каталогу ЗИП.
+    final lowered = [for (final r in records) r.name.toLowerCase()];
     final searchCtrl = TextEditingController();
-    return showModalBottomSheet<String?>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        String query = '';
-        return StatefulBuilder(
-          builder: (ctx, setSt) {
-            final filtered = query.isEmpty
-                ? records
-                : records
-                    .where((r) =>
-                        r.name.toLowerCase().contains(query.toLowerCase()))
-                    .toList();
-            return DraggableScrollableSheet(
-              initialChildSize: 0.7,
-              minChildSize: 0.4,
-              maxChildSize: 0.95,
-              expand: false,
-              builder: (_, scrollController) {
-                return Container(
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surface,
-                    borderRadius:
-                        const BorderRadius.vertical(top: Radius.circular(20)),
-                  ),
-                  child: Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(top: 10),
-                        child: Container(
-                          width: 40,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.outline,
-                            borderRadius: BorderRadius.circular(2),
+    // Освобождаем контроллер после закрытия листа: без этого он оставался
+    // висеть на каждое открытие пикера.
+    try {
+      return await showModalBottomSheet<String?>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) {
+          String query = '';
+          return StatefulBuilder(
+            builder: (ctx, setSt) {
+              final needle = query.toLowerCase();
+              final filtered = needle.isEmpty
+                  ? records
+                  : [
+                      for (var i = 0; i < records.length; i++)
+                        if (lowered[i].contains(needle)) records[i],
+                    ];
+              return DraggableScrollableSheet(
+                initialChildSize: 0.7,
+                minChildSize: 0.4,
+                maxChildSize: 0.95,
+                expand: false,
+                builder: (_, scrollController) {
+                  return Container(
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surface,
+                      borderRadius:
+                          const BorderRadius.vertical(top: Radius.circular(20)),
+                    ),
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: Container(
+                            width: 40,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.outline,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
                           ),
                         ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(
-                            16, 12, 16, 8),
-                        child: Row(
-                          children: [
-                            const Expanded(
-                              child: Text(
-                                'Выберите оборудование',
-                                style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                          child: Row(
+                            children: [
+                              const Expanded(
+                                child: Text(
+                                  'Выберите оборудование',
+                                  style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.close),
+                                onPressed: () => Navigator.of(ctx).pop(),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 4),
+                          child: TextField(
+                            controller: searchCtrl,
+                            onChanged: (v) => setSt(() => query = v),
+                            decoration: InputDecoration(
+                              hintText: 'Поиск…',
+                              prefixIcon: const Icon(Icons.search),
+                              filled: true,
+                              fillColor: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHigh,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide.none,
                               ),
                             ),
-                            IconButton(
-                              icon: const Icon(Icons.close),
-                              onPressed: () =>
-                                  Navigator.of(ctx).pop(),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 4),
-                        child: TextField(
-                          controller: searchCtrl,
-                          onChanged: (v) => setSt(() => query = v),
-                          decoration: InputDecoration(
-                            hintText: 'Поиск…',
-                            prefixIcon: const Icon(Icons.search),
-                            filled: true,
-                            fillColor: Theme.of(context).colorScheme.surfaceContainerHigh,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none,
-                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      ListTile(
-                        leading: Icon(Icons.clear_all,
-                            color: Theme.of(context).colorScheme.onSurfaceVariant),
-                        title: const Text('Любое оборудование'),
-                        selected: currentUuid == null,
-                        onTap: () =>
-                            Navigator.of(ctx).pop('__clear__'),
-                      ),
-                      const Divider(height: 1),
-                      Expanded(
-                        child: ListView.builder(
-                          controller: scrollController,
-                          itemCount: filtered.length,
-                          itemBuilder: (c, i) {
-                            final r = filtered[i];
-                            return ListTile(
-                              title: Text(r.name),
-                              selected: r.uuid == currentUuid,
-                              trailing: r.uuid == currentUuid
-                                  ? Icon(Icons.check,
-                                      color: Theme.of(context).colorScheme.primary)
-                                  : null,
-                              onTap: () =>
-                                  Navigator.of(ctx).pop(r.uuid),
-                            );
-                          },
+                        const SizedBox(height: 4),
+                        ListTile(
+                          leading: Icon(Icons.clear_all,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant),
+                          title: const Text('Любое оборудование'),
+                          selected: currentUuid == null,
+                          onTap: () => Navigator.of(ctx).pop('__clear__'),
                         ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            );
-          },
-        );
-      },
-    );
+                        const Divider(height: 1),
+                        Expanded(
+                          child: ListView.builder(
+                            controller: scrollController,
+                            itemCount: filtered.length,
+                            itemBuilder: (c, i) {
+                              final r = filtered[i];
+                              return ListTile(
+                                title: Text(r.name),
+                                selected: r.uuid == currentUuid,
+                                trailing: r.uuid == currentUuid
+                                    ? Icon(Icons.check,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary)
+                                    : null,
+                                onTap: () => Navigator.of(ctx).pop(r.uuid),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      searchCtrl.dispose();
+    }
   }
 }

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:qr_scan_industry/src/utils/go_router_ext.dart';
 import '../../global_state.dart';
 import '../../src/app_bar/app_bar.dart';
 import '../../src/model/inventory_record.dart';
@@ -28,11 +27,66 @@ class EquipmentListScreen extends StatefulWidget {
 class _EquipmentListScreenState extends State<EquipmentListScreen> {
   TasksFilterState _filter = TasksFilterState();
 
+  /// Синхронизация уже идёт — показываем тонкую полоску над списком, но сам
+  /// список не прячем.
+  bool _isSyncing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Справочники подтягиваем в фоне, а не блокируем ими экран. Раньше здесь
+    // стоял FutureBuilder на mainSync(), и «Задачи» показывали спиннер, пока
+    // не перекачаются все справочники — включая каталог ЗИП на десятки тысяч
+    // позиций. При этом всё нужное уже лежит в Hive и рисуется мгновенно.
+    _syncInBackground();
+  }
+
+  Future<void> _syncInBackground() async {
+    if (!GlobalState.allowSyncMainOnce) return;
+    setState(() => _isSyncing = true);
+    await GlobalState.syncMainOnce();
+    if (!mounted) return;
+    setState(() => _isSyncing = false);
+  }
+
   Future<void> _openFilter() async {
     final result = await showTasksFilterSheet(context, _filter);
     if (result != null) {
       setState(() => _filter = result);
     }
+  }
+
+  /// Оборудование с задачами — за один проход по задачам, а не по проходу на
+  /// каждую единицу оборудования.
+  ///
+  /// Раньше `_filteredTasksFor` дёргался и в `where`, и дважды в компараторе
+  /// сортировки, и ещё раз в `itemBuilder`; каждый вызов шёл по всем задачам
+  /// и обоим боксам сканов. На двух сотнях единиц оборудования это тысячи
+  /// полных проходов на один кадр.
+  List<(InventoryRecord, int)> _equipmentWithTasks() {
+    final equipment = GlobalState.dataProvider.inventoryRecords;
+
+    // «Осмотр оборудования или ТМЦ» — это выбор объекта для осмотра, а не
+    // список задач: здесь нужен весь справочник. Счётчик задач в этом режиме
+    // и не показывается (см. `_EquipmentTile`), а отбор по ним всё равно
+    // применялся — и обходчик видел вместо справочника случайный огрызок из
+    // тех единиц, по которым сейчас висит задача.
+    if (widget.isProblems) {
+      return [for (final item in equipment) (item, 0)];
+    }
+
+    // Сбрасываем кэш очередей на входе: внутри прохода он живёт и экономит
+    // сотни обходов, но между кадрами очередь могла измениться.
+    GlobalState.dataProvider.invalidateScanTaskCache();
+    final result = <(InventoryRecord, int)>[];
+    for (final item in equipment) {
+      final tasks = _filteredTasksFor(item);
+      if (tasks.isNotEmpty) result.add((item, tasks.length));
+    }
+    // Сортировки здесь нет намеренно: прежняя сравнивала «есть ли задачи» у
+    // элементов, которые уже отобраны по наличию задач, — то есть всегда
+    // сравнивала единицу с единицей и ничего не меняла.
+    return result;
   }
 
   List<Task> _filteredTasksFor(InventoryRecord equipment) {
@@ -45,67 +99,71 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
   Widget build(BuildContext context) {
     final isProblems = widget.isProblems;
     final isModal = widget.isModal;
-    Widget body = FutureBuilder<void>(
-        future: GlobalState.syncMainOnce(),
-        builder: (BuildContext context, AsyncSnapshot<void> snapshot) {
-          if (snapshot.connectionState == ConnectionState.done) {
-            var equipmentList = GlobalState.dataProvider.inventoryRecords;
-            equipmentList = equipmentList
-                .where((element) => _filteredTasksFor(element).length > 0)
-                .toList();
-            equipmentList.sort((a, b) {
-              var ac = _filteredTasksFor(a).length == 0 ? 0 : 1;
-              var bc = _filteredTasksFor(b).length == 0 ? 0 : 1;
-              return bc.compareTo(ac);
-            });
-            if (equipmentList.length == 0) {
-              return EmptyState(
-                icon: isProblems
-                    ? Icons.warehouse_outlined
-                    : Icons.checklist_rounded,
-                title: isProblems
-                    ? 'Нет оборудования'
-                    : 'Нет активных задач',
-                hint: isProblems
-                    ? 'Список оборудования пуст или ещё не загружен.'
-                    : 'Отсканируйте QR-код оборудования, чтобы начать осмотр или открыть задачи.',
-              );
-            }
-            return ListView.separated(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppConstants.spacingMD,
-                vertical: AppConstants.spacingMD,
-              ),
-              itemCount: equipmentList.length,
-              separatorBuilder: (_, __) =>
-                  const SizedBox(height: AppConstants.spacingSM),
-              itemBuilder: (context, index) {
-                final equipment = equipmentList[index];
-                final taskCount = _filteredTasksFor(equipment).length;
-                return _EquipmentTile(
-                  equipment: equipment,
-                  taskCount: taskCount,
-                  isProblems: isProblems,
-                  onTap: () {
-                    if (isProblems) {
-                      GoRouter.of(context).clearStackAndNavigate(
-                          '/qr_result_problems',
-                          extra: equipment);
-                    } else {
-                      GoRouter.of(context).go('/details/${equipment.id}');
-                    }
-                  },
-                );
-              },
-            );
-          }
-          return Center(
+    // Список считаем один раз на кадр, а не по разу на каждое обращение.
+    final items = _equipmentWithTasks();
+
+    Widget body;
+    if (items.isEmpty) {
+      // Пока идёт первая синхронизация, а показывать ещё нечего — спиннер.
+      // Если данные есть, он не нужен: список уже виден.
+      body = _isSyncing
+          ? Center(
               child: CircularProgressIndicator(
-            color: Theme.of(context).colorScheme.primary,
-            strokeWidth: 8,
-            constraints: const BoxConstraints(minHeight: 128, minWidth: 128),
-          ));
-        });
+                color: Theme.of(context).colorScheme.primary,
+                strokeWidth: 8,
+                constraints:
+                    const BoxConstraints(minHeight: 128, minWidth: 128),
+              ),
+            )
+          : EmptyState(
+              icon: isProblems
+                  ? Icons.warehouse_outlined
+                  : Icons.checklist_rounded,
+              title: isProblems ? 'Нет оборудования' : 'Нет активных задач',
+              hint: isProblems
+                  ? 'Список оборудования пуст или ещё не загружен.'
+                  : 'Отсканируйте QR-код оборудования, чтобы начать осмотр или открыть задачи.',
+            );
+    } else {
+      body = ListView.separated(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppConstants.spacingMD,
+          vertical: AppConstants.spacingMD,
+        ),
+        itemCount: items.length,
+        separatorBuilder: (_, __) =>
+            const SizedBox(height: AppConstants.spacingSM),
+        itemBuilder: (context, index) {
+          final (equipment, taskCount) = items[index];
+          return _EquipmentTile(
+            equipment: equipment,
+            taskCount: taskCount,
+            isProblems: isProblems,
+            onTap: () {
+              // push: список остаётся под карточкой, «назад» возвращает в него
+              // вместе с прокруткой и фильтром.
+              if (isProblems) {
+                GoRouter.of(context)
+                    .push('/qr_result_problems', extra: equipment);
+              } else {
+                GoRouter.of(context).push('/details/${equipment.id}');
+              }
+            },
+          );
+        },
+      );
+    }
+
+    // Обновление в фоне — тонкой полоской сверху, чтобы список оставался на
+    // экране и с ним можно было работать.
+    if (_isSyncing && items.isNotEmpty) {
+      body = Column(
+        children: [
+          const LinearProgressIndicator(minHeight: 2),
+          Expanded(child: body),
+        ],
+      );
+    }
 
     if (isModal) {
       return body;
@@ -117,8 +175,7 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
         children: [
           if (_kShowTasksFilter)
             Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: TasksFilterButton(
@@ -153,9 +210,7 @@ class _EquipmentTile extends StatelessWidget {
     final mod10 = n % 10;
     final mod100 = n % 100;
     if (mod10 == 1 && mod100 != 11) return '$n активная задача';
-    if (mod10 >= 2 &&
-        mod10 <= 4 &&
-        (mod100 < 10 || mod100 >= 20)) {
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
       return '$n активные задачи';
     }
     return '$n активных задач';
@@ -185,17 +240,13 @@ class _EquipmentTile extends StatelessWidget {
                 width: 48,
                 height: 48,
                 decoration: BoxDecoration(
-                  color: hasTasks
-                      ? cs.primaryContainer
-                      : cs.surfaceContainerHigh,
-                  borderRadius:
-                      BorderRadius.circular(AppConstants.radiusMD),
+                  color:
+                      hasTasks ? cs.primaryContainer : cs.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(AppConstants.radiusMD),
                 ),
                 child: Icon(
                   Icons.precision_manufacturing_outlined,
-                  color: hasTasks
-                      ? cs.onPrimaryContainer
-                      : cs.onSurfaceVariant,
+                  color: hasTasks ? cs.onPrimaryContainer : cs.onSurfaceVariant,
                   size: 24,
                 ),
               ),
@@ -216,9 +267,7 @@ class _EquipmentTile extends StatelessWidget {
                       Text(
                         subtitle,
                         style: tt.bodySmall?.copyWith(
-                          color: hasTasks
-                              ? cs.primary
-                              : cs.onSurfaceVariant,
+                          color: hasTasks ? cs.primary : cs.onSurfaceVariant,
                         ),
                       ),
                     ],

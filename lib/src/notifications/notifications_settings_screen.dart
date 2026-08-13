@@ -80,8 +80,7 @@ class _NotificationsSettingsScreenState
                   SwitchListTile(
                     title: const Text('Уведомления включены'),
                     value: s.notificationsEnabled,
-                    onChanged: (v) =>
-                        _patch({'notifications_enabled': v}),
+                    onChanged: (v) => _patch({'notifications_enabled': v}),
                   ),
                   SwitchListTile(
                     title: const Text('Мгновенные уведомления (realtime)'),
@@ -325,10 +324,17 @@ class _NotificationsSettingsScreenState
   }
 
   List<Widget> _buildTypeSwitches(NotificationSettings s) {
+    // Полный набор типов, которые сервер шлёт в мобильное приложение
+    // (`MOBILE_NOTIFICATION_TYPES`). Раньше здесь было только три из них, и
+    // выключить уведомления по ремонтам или сводку было нечем — переключатели
+    // просто отсутствовали, хотя сервер такие настройки принимает.
     const types = {
       NotificationTypes.assignedInspection: 'Назначение осмотра',
       NotificationTypes.newTask: 'Новая задача',
       NotificationTypes.overdueTask: 'Просроченная задача',
+      NotificationTypes.summaryTask: 'Сводка по задачам',
+      NotificationTypes.repairAssigned: 'Назначен ремонт',
+      NotificationTypes.repairReturnedForRework: 'Ремонт на доработку',
     };
     return types.entries.map((e) {
       final value = s.typePreferences[e.key] ?? true;
@@ -350,6 +356,7 @@ class _NotificationsSettingsScreenState
       NotificationStatuses.viewed: 'Просмотрена',
       NotificationStatuses.completed: 'Выполнена',
       NotificationStatuses.overdue: 'Просрочена',
+      NotificationStatuses.unassigned: 'Не назначена',
     };
     return statuses.entries.map((e) {
       final value = s.statusPreferences[e.key] ?? true;

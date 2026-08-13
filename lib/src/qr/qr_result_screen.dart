@@ -16,7 +16,9 @@ import '../../src/model/scan.dart';
 import '../../src/tasks/tasks.dart';
 import '../../src/utils/dialogs.dart';
 import '../../src/utils/go_router_ext.dart';
+import '../../src/widgets/controller_listener_mixin.dart';
 import '../../src/widgets/select_image_button.dart';
+import '../model/repair.dart';
 import '../model/typical_problem.dart';
 import '../model/usage_update.dart';
 import '../model/periodic_task_request.dart';
@@ -24,6 +26,10 @@ import '../update_manager.dart';
 import '../utils/any_controller.dart';
 import '../../src/onboarding/demo_equipment.dart';
 import 'result_controls.dart';
+
+/// Код состояния «В ремонте» на сервере (`EquipmentState.IN_REPAIR`).
+/// Нужен и экрану (перехват смены состояния), и списку состояний.
+const String _inRepairState = 'in_repair';
 
 class QRResultScreen extends StatefulWidget {
   final InventoryRecord machine;
@@ -87,11 +93,180 @@ class _QRResultScreenState extends State<QRResultScreen> {
         s.contains('TimeoutException');
   }
 
+  /// Оборудование уже в ремонте — вместо сырого отказа объясняем ситуацию и
+  /// даём перейти в существующий ремонт (п. 4.4.5 плана).
+  ///
+  /// По макету: круглый значок сверху,
+  /// заголовок, строка «Ремонт №N — «статус»» с цветом этого статуса,
+  /// пояснение плашкой и две кнопки в столбик.
+  void _showAlreadyInRepair(Repair repair) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    // Цвет статуса тот же, что у пилюли в списке: открытый — красный,
+    // на рассмотрении — оранжевый, закрытый — зелёный.
+    final statusColor = repair.isClosed
+        ? cs.success
+        : repair.isOpen
+            ? cs.error
+            : cs.warning;
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: cs.surfaceContainerLowest,
+        insetPadding: const EdgeInsets.all(AppConstants.spacingMD),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusXL),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(AppConstants.spacingLG),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Вся гамма окна — по статусу ремонта: открыт красным, на
+              // рассмотрении оранжевым. Обходчик должен различать «ремонт ещё
+              // идёт» и «работа сдана, ждём администратора» с одного взгляда,
+              // не вчитываясь в подпись.
+              Container(
+                width: 64,
+                height: 64,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child:
+                    Icon(Icons.handyman_rounded, size: 32, color: statusColor),
+              ),
+              const SizedBox(height: AppConstants.spacingMD),
+              Text(
+                'Оборудование в ремонте',
+                style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: AppConstants.spacingXS),
+              Text.rich(
+                TextSpan(
+                  style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+                  children: [
+                    TextSpan(text: 'Ремонт №${repair.id} — '),
+                    TextSpan(
+                      text: '«${RepairStatuses.displayName(repair.status)}»',
+                      style: TextStyle(
+                        color: statusColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: AppConstants.spacingMD),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(AppConstants.spacingMD),
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+                ),
+                child: Text(
+                  'Состояние вернётся автоматически, когда администратор '
+                  'закроет ремонт.',
+                  style: tt.bodySmall?.copyWith(color: statusColor),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: AppConstants.spacingMD),
+              SizedBox(
+                width: double.infinity,
+                height: AppConstants.buttonHeightLarge,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    GoRouter.of(context).push('/repairs/${repair.uuid}');
+                  },
+                  icon: const Icon(Icons.open_in_new_rounded, size: 20),
+                  label: const Text('Открыть ремонт'),
+                ),
+              ),
+              const SizedBox(height: AppConstants.spacingSM),
+              SizedBox(
+                width: double.infinity,
+                height: AppConstants.buttonHeightLarge,
+                child: ElevatedButton(
+                  // Вторичная кнопка серой заливкой, а не обводкой — как в
+                  // окне завершения ремонта: обе кнопки одной «плотности».
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: cs.surfaceContainer,
+                    foregroundColor: cs.onSurface,
+                    elevation: 0,
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Закрыть'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Ремонт по этому оборудованию уже заведён без связи и ждёт отправки.
+  /// Кнопка ведёт в список ремонтов — там черновик виден с пометкой
+  /// «Не отправлено» и его можно отправить вручную или удалить.
+  void _showDraftAlreadyQueued() {
+    final cs = Theme.of(context).colorScheme;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Ремонт уже создан'),
+        content: Container(
+          padding: const EdgeInsets.all(AppConstants.spacingMD),
+          // Красным, как у открытого ремонта: черновик и есть будущий
+          // «Открыт», и оборудование он занимает так же.
+          decoration: BoxDecoration(
+            color: cs.error.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.cloud_upload_outlined, size: 18, color: cs.error),
+              const SizedBox(width: AppConstants.spacingSM),
+              Expanded(
+                child: Text(
+                  'Ремонт по этому оборудованию сохранён на устройстве и '
+                  'отправится, когда появится связь. Второй заводить не нужно.',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(color: cs.error),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Закрыть'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              GoRouter.of(context).push('/repairs');
+            },
+            child: const Text('К ремонтам'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _onStateChanged() async {
     final newState = stateController.value;
-    if (newState == null ||
-        newState.isEmpty ||
-        newState == _previousState) {
+    if (newState == null || newState.isEmpty || newState == _previousState) {
       return;
     }
     const successMsg = 'Состояние оборудования успешно изменено';
@@ -103,17 +278,94 @@ class _QRResultScreenState extends State<QRResultScreen> {
       _showStateSnack(message: successMsg, ok: true);
       return;
     }
+
+    // Оборудование в ремонте — состояние не меняется вообще никак, пока
+    // ремонт не закрыт. Проверка стоит до разбора самого состояния: раньше
+    // она была только в ветке «В ремонте», и любое другое состояние
+    // («Исправно», «Неисправно») уходило на сервер, ломая логику «состояние
+    // вернётся само при закрытии ремонта».
+    final active = _activeRepairForMachine();
+    if (active != null) {
+      // Пилюлю возвращаем к прежнему значению: ничего не поменялось.
+      stateController.value = _previousState;
+      if (!mounted) return;
+      _showAlreadyInRepair(active);
+      return;
+    }
+
+    // То же самое для черновика: ремонта на сервере ещё нет, но оборудование
+    // уже считается занятым — иначе состояние уехало бы на сервер, а следом
+    // очередь создала бы по нему ремонт и снова переставила состояние.
+    final hasDraft = GlobalState.dataProvider.pendingRepairs
+        .any((draft) => draft.equipmentUuid == widget.machine.uuid);
+    if (hasDraft) {
+      stateController.value = _previousState;
+      if (!mounted) return;
+      _showDraftAlreadyQueued();
+      return;
+    }
+
+    // «В ремонте» — особый случай: состояние ставит сервер сам при создании
+    // ремонта и отклоняет создание для оборудования, которое уже в этом
+    // состоянии. Поменяем состояние сами — ремонт создать станет нельзя.
+    // Поэтому вместо смены открываем форму создания. В веб-админке так же.
+    if (newState == _inRepairState) {
+      // Возвращаем пилюлю к прежнему значению: состояние поменяется только
+      // после успешного создания ремонта, и сделает это сервер.
+      stateController.value = _previousState;
+      if (!mounted) return;
+      // push: карточка оборудования остаётся под формой, и закрытие формы
+      // возвращает обходчика ровно туда, откуда он её открыл.
+      GoRouter.of(context).push('/repair_create', extra: widget.machine);
+      return;
+    }
+
     try {
       await GlobalState.dataProvider
           .updateEquipmentState(widget.machine.uuid, newState);
       _previousState = newState;
       _showStateSnack(message: successMsg, ok: true);
     } catch (e) {
+      if (!mounted) return;
+      // Ремонт мог появиться, пока обходчик стоял на экране: локальная
+      // проверка его не увидела, а сервер отказал. Показываем то же
+      // объяснение, а не сырую ошибку (п. 4.4.5 отчёта).
+      final blocking = await _reloadBlockingRepair();
+      if (blocking != null) {
+        if (!mounted) return;
+        stateController.value = _previousState;
+        _showAlreadyInRepair(blocking);
+        return;
+      }
+      if (!mounted) return;
+      stateController.value = _previousState;
       _showStateSnack(
         message: _isOfflineError(e) ? offlineMsg : otherMsg,
         ok: false,
       );
     }
+  }
+
+  /// Активный ремонт по этому оборудованию из офлайн-кэша. Работает без сети —
+  /// в кэше лежат все активные ремонты обходчика.
+  Repair? _activeRepairForMachine() {
+    for (final repair in GlobalState.dataProvider.repairs) {
+      if (repair.equipmentUuid == widget.machine.uuid && repair.isActive) {
+        return repair;
+      }
+    }
+    return null;
+  }
+
+  /// Перечитывает ремонты с сервера и ищет тот, что занял оборудование.
+  /// Нужен после отказа: локальный кэш мог отстать.
+  Future<Repair?> _reloadBlockingRepair() async {
+    try {
+      await GlobalState.dataProvider.syncMyRepairs();
+    } catch (_) {
+      // Без связи остаёмся на том, что есть в кэше.
+    }
+    return _activeRepairForMachine();
   }
 
   Widget passport() {
@@ -193,7 +445,6 @@ class _QRResultScreenState extends State<QRResultScreen> {
       }
     }
 
-
     if (hasOtherProblem) {
       var returnEmpty = false;
       if (!hasDesc) {
@@ -222,7 +473,11 @@ class _QRResultScreenState extends State<QRResultScreen> {
 
     if ((hasDesc && hasOtherProblem && hasPriority) ||
         (hasTypicalProblem) ||
-        (hasDesc && !hasOtherProblem && !hasPriority && !hasTypicalProblem && !hasTasks)) {
+        (hasDesc &&
+            !hasOtherProblem &&
+            !hasPriority &&
+            !hasTypicalProblem &&
+            !hasTasks)) {
       result.add(Scan(
           taskUuid: '',
           resultStatus:
@@ -336,11 +591,14 @@ class _QRResultScreenState extends State<QRResultScreen> {
         }
       }
       if (!mounted) return;
-      if (GoRouter.of(context).location == '/qr_result_problems') {
-        GoRouter.of(context).clearStackAndNavigate('/problems');
-      } else {
-        GoRouter.of(context).clearStackAndNavigate('/qr_scanner');
-      }
+      // Осмотр отправлен — закрываем карточку и возвращаемся туда, откуда её
+      // открыли: к камере или в список осмотров. Запасной адрес нужен, если
+      // карточку открыли с пустым стеком.
+      GoRouter.of(context).backOr(
+        GoRouter.of(context).location == '/qr_result_problems'
+            ? '/problems'
+            : '/qr_scanner',
+      );
     }, rewriteMessage: null, desc: null);
   }
 
@@ -451,7 +709,16 @@ class _QRResultScreenState extends State<QRResultScreen> {
   @override
   void initState() {
     super.initState();
-    _previousState = widget.machine.state;
+    // Локальная пометка «В ремонте» (п. 4.5.7 отчёта): состояние ставит
+    // сервер при создании ремонта, но пока черновик лежит в очереди, сервер о
+    // нём не знает, и справочник оборудования показывал бы прежнее состояние.
+    // Отдельного хранилища пометок не заводим — очередь черновиков и есть
+    // хранилище, независимое от справочника: синхронизация перезаписывает
+    // справочник целиком, а очередь не трогает.
+    final hasDraft = GlobalState.dataProvider.pendingRepairs
+        .any((draft) => draft.equipmentUuid == widget.machine.uuid);
+    _previousState = hasDraft ? _inRepairState : widget.machine.state;
+    stateController.value = _previousState;
     stateController.valueNotifier.addListener(_onStateChanged);
     descController.addListener(_clearValidationHighlights);
     priorityController.valueNotifier.addListener(_clearValidationHighlights);
@@ -602,8 +869,8 @@ class _HeroPassport extends StatelessWidget {
           ),
           if (showDetails)
             Theme(
-              data: Theme.of(context)
-                  .copyWith(dividerColor: Colors.transparent),
+              data:
+                  Theme.of(context).copyWith(dividerColor: Colors.transparent),
               child: ExpansionTile(
                 shape: const Border(),
                 collapsedShape: const Border(),
@@ -616,8 +883,7 @@ class _HeroPassport extends StatelessWidget {
                   ),
                 ),
                 trailing: Icon(Icons.expand_more_rounded, color: cs.primary),
-                childrenPadding:
-                    const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                 children: [
                   Align(
                     alignment: Alignment.centerLeft,
@@ -682,15 +948,27 @@ class _StateChip extends StatefulWidget {
   State<_StateChip> createState() => _StateChipState();
 }
 
-class _StateChipState extends State<_StateChip> {
-  String? _value;
+class _StateChipState extends State<_StateChip> with ControllerListenerMixin {
+  @override
+  Listenable get controllerListenable => widget.controller.valueNotifier;
+
+  /// Что показывать — берём из контроллера, своей копии значения у пилюли нет.
+  ///
+  /// Экран откатывает смену состояния сразу несколькими путями: оборудование
+  /// в ремонте, черновик ремонта в очереди, отказ сервера, нет связи. Откат
+  /// возвращает в контроллер прежнее значение, и собственная копия внутри
+  /// пилюли осталась бы с выбранным — обходчик видел бы состояние, которого
+  /// на самом деле нет.
+  String? get _value {
+    final value = widget.controller.value;
+    return (value == null || value.isEmpty) ? null : value;
+  }
 
   @override
   void initState() {
     super.initState();
     final iv = widget.initialValue;
     if (iv != null && iv.isNotEmpty) {
-      _value = iv;
       widget.controller.value = iv;
     }
   }
@@ -731,22 +1009,51 @@ class _StateChipState extends State<_StateChip> {
             ),
             Divider(height: 1, color: cs.outlineVariant),
             for (final entry in eq.states.entries)
-              ListTile(
-                leading: Icon(Icons.circle, size: 12, color: cs.primary),
-                title: Text(entry.value),
-                trailing: _value == entry.key
-                    ? Icon(Icons.check_rounded, color: cs.primary)
-                    : null,
-                onTap: () => Navigator.of(ctx).pop(entry.key),
-              ),
+              // «В ремонте» — не обычный пункт списка: состояние ставит
+              // сервер при создании ремонта, а приложение вместо смены
+              // открывает форму. Поэтому строка выделена и подписана, чтобы
+              // обходчик не удивился уходу на другой экран.
+              if (entry.key == _inRepairState)
+                Container(
+                  color: cs.primaryContainer.withValues(alpha: 0.45),
+                  child: ListTile(
+                    leading: Icon(Icons.handyman_rounded, color: cs.primary),
+                    title: Text(
+                      entry.value,
+                      style: Theme.of(ctx)
+                          .textTheme
+                          .bodyLarge
+                          ?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: Text(
+                      'Откроется форма создания ремонта',
+                      style: Theme.of(ctx)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(color: cs.onSurfaceVariant),
+                    ),
+                    trailing: Icon(Icons.arrow_forward_rounded,
+                        color: cs.onSurfaceVariant),
+                    onTap: () => Navigator.of(ctx).pop(entry.key),
+                  ),
+                )
+              else
+                ListTile(
+                  leading: Icon(Icons.circle, size: 12, color: cs.primary),
+                  title: Text(entry.value),
+                  trailing: _value == entry.key
+                      ? Icon(Icons.check_rounded, color: cs.primary)
+                      : null,
+                  onTap: () => Navigator.of(ctx).pop(entry.key),
+                ),
           ],
         ),
       ),
     );
     if (selected == null) return;
-    final next = selected.isEmpty ? null : selected;
+    // Своё значение не выставляем: пилюля перерисуется от контроллера. Если
+    // экран откатит смену, она покажет прежнее состояние, а не выбранное.
     widget.controller.value = selected;
-    setState(() => _value = next);
   }
 
   @override
@@ -780,9 +1087,7 @@ class _StateChipState extends State<_StateChip> {
               Text(
                 label ?? 'Состояние',
                 style: tt.labelMedium?.copyWith(
-                  color: hasValue
-                      ? cs.onPrimaryContainer
-                      : cs.onSurfaceVariant,
+                  color: hasValue ? cs.onPrimaryContainer : cs.onSurfaceVariant,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -790,9 +1095,7 @@ class _StateChipState extends State<_StateChip> {
               Icon(
                 Icons.expand_more_rounded,
                 size: 18,
-                color: hasValue
-                    ? cs.onPrimaryContainer
-                    : cs.onSurfaceVariant,
+                color: hasValue ? cs.onPrimaryContainer : cs.onSurfaceVariant,
               ),
             ],
           ),
@@ -833,4 +1136,3 @@ class _SubmitBar extends StatelessWidget {
     );
   }
 }
-

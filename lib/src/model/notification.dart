@@ -19,6 +19,19 @@ class AppNotification {
   final bool canOpenTarget;
   final Map<String, dynamic> payload;
 
+  /// Идентификатор ремонта, если уведомление про ремонт. Сервер кладёт его в
+  /// `payload.repair.uuid` — наверху ответа (`entity_uuid`) для мобильного
+  /// списка его нет. Нужен, чтобы тап открывал сам ремонт, а не общий список
+  /// уведомлений.
+  String? get repairUuid {
+    final repair = payload['repair'];
+    if (repair is Map) {
+      final uuid = repair['uuid'];
+      if (uuid is String && uuid.isNotEmpty) return uuid;
+    }
+    return null;
+  }
+
   AppNotification({
     required this.uuid,
     required this.notificationType,
@@ -101,8 +114,21 @@ class NotificationTypes {
   static const String inspectionHighPriority = 'inspection_high_priority';
   static const String summaryTask = 'summary_task';
 
+  /// Администратор вернул ремонт на доработку. Адресуется лично
+  /// ответственному либо его должности.
+  static const String repairReturnedForRework = 'repair_returned_for_rework';
+
+  /// Ремонт назначен на обходчика или на его должность — при создании
+  /// администратором либо при смене ответственного. Как и возврат на
+  /// доработку, ведёт прямо в карточку ремонта.
+  static const String repairAssigned = 'repair_assigned';
+
   static String displayName(String type) {
     switch (type) {
+      case repairAssigned:
+        return 'Назначен ремонт';
+      case repairReturnedForRework:
+        return 'Ремонт на доработку';
       case assignedInspection:
         return 'Назначение осмотра';
       case newTask:
@@ -125,6 +151,11 @@ class NotificationStatuses {
   static const String completed = 'completed';
   static const String overdue = 'overdue';
 
+  /// У осмотра нет исполнителя: сервер выставляет этот статус уведомлению
+  /// `assigned_inspection`, когда в payload есть блок `unassigned`. Без
+  /// перевода в чипе статуса светилось английское «unassigned».
+  static const String unassigned = 'unassigned';
+
   static String displayName(String status) {
     switch (status) {
       case newStatus:
@@ -135,6 +166,8 @@ class NotificationStatuses {
         return 'Выполнена';
       case overdue:
         return 'Просрочена';
+      case unassigned:
+        return 'Не назначена';
       default:
         return status;
     }

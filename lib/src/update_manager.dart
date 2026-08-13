@@ -10,6 +10,14 @@ import 'package:open_file/open_file.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class UpdateManager {
+  /// Проверка обновлений выключена.
+  ///
+  /// Раньше это было сделано через `return;` первой строкой `checkForUpdate` —
+  /// весь код после становился недостижимым, и анализатор постоянно ругался
+  /// «dead_code». Теперь выключатель явный: механизм цел, включается сменой
+  /// этого флага на `true`.
+  static const bool enabled = false;
+
   static String get updateUrl => dotenv.env["UPDATE_URL"]!;
 
   static String get apkDownloadUrl => dotenv.env["APK_DOWNLOAD_URL"]!;
@@ -29,7 +37,7 @@ class UpdateManager {
   }
 
   static Future<void> checkForUpdate(BuildContext context) async {
-    return;
+    if (!enabled) return;
     final updateInfo = await getUpdateInfo();
     if (updateInfo != null) {
       if (await _isNewVersionAvailable(updateInfo.version)) {

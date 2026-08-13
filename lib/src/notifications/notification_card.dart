@@ -23,8 +23,7 @@ class NotificationCard extends StatelessWidget {
       notification.notificationType == NotificationTypes.overdueTask ||
       notification.status == NotificationStatuses.overdue;
   bool get _isHighPriority =>
-      notification.notificationType ==
-      NotificationTypes.inspectionHighPriority;
+      notification.notificationType == NotificationTypes.inspectionHighPriority;
   bool get _isSummary =>
       notification.notificationType == NotificationTypes.summaryTask;
 
@@ -98,9 +97,7 @@ class NotificationCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        notification.title.isEmpty
-                            ? '—'
-                            : notification.title,
+                        notification.title.isEmpty ? '—' : notification.title,
                         style: tt.titleMedium?.copyWith(
                           color: cs.onSurface,
                           fontWeight:
@@ -293,8 +290,7 @@ class _DeadlinePill extends StatelessWidget {
     final absDiff = diff.abs();
     final h = absDiff.inHours;
     final m = absDiff.inMinutes.remainder(60);
-    final text =
-        isOverdue ? 'Просрочено ${h}ч ${m}м' : 'Осталось ${h}ч ${m}м';
+    final text = isOverdue ? 'Просрочено ${h}ч ${m}м' : 'Осталось ${h}ч ${m}м';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
@@ -307,9 +303,7 @@ class _DeadlinePill extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            isOverdue
-                ? Icons.warning_amber_rounded
-                : Icons.schedule_rounded,
+            isOverdue ? Icons.warning_amber_rounded : Icons.schedule_rounded,
             size: 11,
             color: color,
           ),
@@ -318,8 +312,7 @@ class _DeadlinePill extends StatelessWidget {
             text,
             style: tt.labelSmall?.copyWith(
               color: color,
-              fontWeight:
-                  isOverdue ? FontWeight.w700 : FontWeight.w500,
+              fontWeight: isOverdue ? FontWeight.w700 : FontWeight.w500,
             ),
           ),
         ],

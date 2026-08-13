@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_scan_industry/src/update_manager.dart';
 import '../../global_state.dart';
@@ -41,23 +42,34 @@ class _QRActionsState extends State<QRActions> {
     }
   }
 
+  // Разделы открываются через push, а не сбросом стека: хаб остаётся под
+  // ними, и «назад» из любого раздела возвращает сюда сам, без явного адреса.
+
   void _onScan() {
     GlobalState.dataProvider.mainSync();
-    GoRouter.of(context).clearStackAndNavigate('/qr_scanner');
+    GoRouter.of(context).push('/qr_scanner');
   }
 
   void _onInspection() {
     GlobalState.dataProvider.mainSync();
-    GoRouter.of(context).clearStackAndNavigate('/problems');
+    GoRouter.of(context).push('/problems');
   }
 
   void _onTasks() {
     GlobalState.allowSyncMainOnce = true;
-    GoRouter.of(context).clearStackAndNavigate('/tasks');
+    GoRouter.of(context).push('/tasks');
   }
 
   void _onNotifications() {
-    GoRouter.of(context).clearStackAndNavigate('/notifications');
+    GoRouter.of(context).push('/notifications');
+  }
+
+  void _onSpareParts() {
+    GoRouter.of(context).push('/spare_parts');
+  }
+
+  void _onRepairs() {
+    GoRouter.of(context).push('/repairs');
   }
 
   Future<void> _onSync() async {
@@ -72,8 +84,13 @@ class _QRActionsState extends State<QRActions> {
         Dialogs.notify(
             context, 'Все данные и осмотры успешно синхронизированы', '');
       case SyncResult.scansFailed:
+        Dialogs.notify(context, 'Не получилось синхронизировать осмотры', '');
+      case SyncResult.repairsFailed:
         Dialogs.notify(
-            context, 'Не получилось синхронизировать осмотры', '');
+          context,
+          'Не все ремонты отправлены',
+          'Откройте раздел «Ремонты» — там видно, что помешало.',
+        );
     }
   }
 
@@ -123,6 +140,8 @@ class _QRActionsState extends State<QRActions> {
             onTap: _onScan,
           ),
           const SizedBox(height: AppConstants.spacingMD),
+          // Четыре квадратные плитки сеткой 2×2. Порядок читается слева
+          // направо, сверху вниз: Задачи, Ремонты, ЗИП, Уведомления.
           Row(
             children: [
               Expanded(
@@ -130,6 +149,31 @@ class _QRActionsState extends State<QRActions> {
                   icon: Icons.checklist_rounded,
                   label: Strings.tasks,
                   onTap: _onTasks,
+                ),
+              ),
+              const SizedBox(width: AppConstants.spacingMD),
+              Expanded(
+                child: ValueListenableBuilder<int>(
+                  valueListenable: GlobalState.dataProvider.activeRepairsCount,
+                  builder: (context, count, _) => _SecondaryActionCard(
+                    icon: Icons.handyman_outlined,
+                    label: 'Ремонты',
+                    onTap: _onRepairs,
+                    badgeCount: count,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppConstants.spacingMD),
+          Row(
+            children: [
+              Expanded(
+                child: _SecondaryActionCard(
+                  icon: Icons.inventory_2_outlined,
+                  iconAsset: 'assets/images/spare_parts.svg',
+                  label: 'ЗИП',
+                  onTap: _onSpareParts,
                 ),
               ),
               const SizedBox(width: AppConstants.spacingMD),
@@ -155,8 +199,7 @@ class _QRActionsState extends State<QRActions> {
               if (v &&
                   Settings.onboardingInProgress &&
                   Settings.onboardingStep == 5) {
-                GoRouter.of(context)
-                    .clearStackAndNavigate('/onboarding_video');
+                GoRouter.of(context).clearStackAndNavigate('/onboarding_video');
               }
             },
             items: [
@@ -225,8 +268,7 @@ class _PrimaryActionCard extends StatelessWidget {
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: cs.onPrimary.withValues(alpha: 0.15),
-                  borderRadius:
-                      BorderRadius.circular(AppConstants.radiusMD),
+                  borderRadius: BorderRadius.circular(AppConstants.radiusMD),
                 ),
                 child: Icon(icon, color: cs.onPrimary, size: 36),
               ),
@@ -271,11 +313,25 @@ class _SecondaryActionCard extends StatelessWidget {
   final VoidCallback onTap;
   final bool fullWidth;
 
+  /// Необязательный SVG вместо Material-иконки — для разделов, у которых
+  /// значок задан веб-админкой и должен совпадать с ней.
+  ///
+  /// `spare_parts.svg` — это иконка `Boxes` из lucide (ISC), ровно та же, что
+  /// стоит у пункта «ЗИП» в `sampo_smart_frontend/src/widgets/Layout/config.ts`.
+  /// Контуры скопированы из lucide-react без изменений; Material-аналога с
+  /// такой формой нет.
+  final String? iconAsset;
+
+  /// Счётчик справа (только в режиме [fullWidth]). Ноль — badge не рисуется.
+  final int badgeCount;
+
   const _SecondaryActionCard({
     required this.icon,
     required this.label,
     required this.onTap,
     this.fullWidth = false,
+    this.iconAsset,
+    this.badgeCount = 0,
   });
 
   @override
@@ -296,7 +352,7 @@ class _SecondaryActionCard extends StatelessWidget {
           child: fullWidth
               ? Row(
                   children: [
-                    _IconCircle(icon: icon),
+                    _IconCircle(icon: icon, assetPath: iconAsset),
                     const SizedBox(width: AppConstants.spacingMD),
                     Expanded(
                       child: Text(
@@ -304,6 +360,33 @@ class _SecondaryActionCard extends StatelessWidget {
                         style: tt.titleMedium,
                       ),
                     ),
+                    if (badgeCount > 0) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        constraints: const BoxConstraints(
+                          minWidth: 28,
+                          minHeight: 24,
+                        ),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: cs.primary,
+                          borderRadius: BorderRadius.circular(
+                            AppConstants.radiusFull,
+                          ),
+                        ),
+                        child: Text(
+                          '$badgeCount',
+                          style: tt.labelMedium?.copyWith(
+                            color: cs.onPrimary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: AppConstants.spacingSM),
+                    ],
                     Icon(Icons.chevron_right_rounded,
                         color: cs.onSurfaceVariant),
                   ],
@@ -311,7 +394,41 @@ class _SecondaryActionCard extends StatelessWidget {
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _IconCircle(icon: icon),
+                    // Бейдж на иконке — той же формы, что у плитки
+                    // уведомлений, чтобы квадратные плитки читались одинаково.
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        _IconCircle(icon: icon, assetPath: iconAsset),
+                        if (badgeCount > 0)
+                          Positioned(
+                            right: -4,
+                            top: -4,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              constraints: const BoxConstraints(
+                                  minWidth: 20, minHeight: 20),
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: cs.primary,
+                                borderRadius: BorderRadius.circular(
+                                    AppConstants.radiusFull),
+                                border: Border.all(color: cs.surface, width: 2),
+                              ),
+                              child: Text(
+                                badgeCount > 99 ? '99+' : '$badgeCount',
+                                style: tt.labelSmall?.copyWith(
+                                  color: cs.onPrimary,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 10,
+                                  height: 1.1,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                     const SizedBox(height: AppConstants.spacingMD),
                     Text(
                       label,
@@ -322,8 +439,7 @@ class _SecondaryActionCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       'Открыть',
-                      style: tt.bodySmall
-                          ?.copyWith(color: cs.onSurfaceVariant),
+                      style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
                     ),
                   ],
                 ),
@@ -335,11 +451,14 @@ class _SecondaryActionCard extends StatelessWidget {
 
 class _IconCircle extends StatelessWidget {
   final IconData icon;
-  const _IconCircle({required this.icon});
+  final String? assetPath;
+
+  const _IconCircle({required this.icon, this.assetPath});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final asset = assetPath;
     return Container(
       width: 44,
       height: 44,
@@ -348,7 +467,15 @@ class _IconCircle extends StatelessWidget {
         color: cs.secondaryContainer,
         borderRadius: BorderRadius.circular(AppConstants.radiusMD),
       ),
-      child: Icon(icon, color: cs.onSecondaryContainer, size: 24),
+      child: asset == null
+          ? Icon(icon, color: cs.onSecondaryContainer, size: 24)
+          : SvgPicture.asset(
+              asset,
+              width: 24,
+              height: 24,
+              colorFilter:
+                  ColorFilter.mode(cs.onSecondaryContainer, BlendMode.srcIn),
+            ),
     );
   }
 }
@@ -390,8 +517,8 @@ class _NotificationsCard extends StatelessWidget {
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           color: cs.secondaryContainer,
-                          borderRadius: BorderRadius.circular(
-                              AppConstants.radiusMD),
+                          borderRadius:
+                              BorderRadius.circular(AppConstants.radiusMD),
                         ),
                         child: Icon(
                           count > 0
@@ -416,8 +543,7 @@ class _NotificationsCard extends StatelessWidget {
                               shape: BoxShape.rectangle,
                               borderRadius: BorderRadius.circular(
                                   AppConstants.radiusFull),
-                              border:
-                                  Border.all(color: cs.surface, width: 2),
+                              border: Border.all(color: cs.surface, width: 2),
                             ),
                             child: Text(
                               count > 99 ? '99+' : '$count',
@@ -442,9 +568,7 @@ class _NotificationsCard extends StatelessWidget {
                     count > 0 ? '$count новых' : 'Нет новых',
                     style: tt.bodySmall?.copyWith(
                       color: count > 0 ? cs.error : cs.onSurfaceVariant,
-                      fontWeight: count > 0
-                          ? FontWeight.w600
-                          : FontWeight.w400,
+                      fontWeight: count > 0 ? FontWeight.w600 : FontWeight.w400,
                     ),
                   ),
                 ],
@@ -534,10 +658,8 @@ class _ServiceSection extends StatelessWidget {
                   margin: const EdgeInsets.only(top: AppConstants.spacingSM),
                   decoration: BoxDecoration(
                     color: cs.surfaceContainerLow,
-                    border: Border.all(
-                        color: cs.outlineVariant, width: 0.5),
-                    borderRadius:
-                        BorderRadius.circular(AppConstants.radiusLG),
+                    border: Border.all(color: cs.outlineVariant, width: 0.5),
+                    borderRadius: BorderRadius.circular(AppConstants.radiusLG),
                   ),
                   clipBehavior: Clip.antiAlias,
                   child: Column(
@@ -631,8 +753,8 @@ class _SettingsSheetState extends State<_SettingsSheet> {
     final tt = Theme.of(context).textTheme;
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(
-            AppConstants.spacingMD, 0, AppConstants.spacingMD, AppConstants.spacingMD),
+        padding: const EdgeInsets.fromLTRB(AppConstants.spacingMD, 0,
+            AppConstants.spacingMD, AppConstants.spacingMD),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -689,8 +811,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                   const SizedBox(height: 2),
                   Text(
                     'Палитра интерфейса и кнопок',
-                    style: tt.bodySmall
-                        ?.copyWith(color: cs.onSurfaceVariant),
+                    style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
                   ),
                   const SizedBox(height: AppConstants.spacingSM),
                   SizedBox(

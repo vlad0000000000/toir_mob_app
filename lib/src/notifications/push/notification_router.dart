@@ -20,13 +20,23 @@ class PushNotificationRouter {
 
   static bool _pendingOpen = false;
 
+  /// Ремонт, который надо открыть по тапу. Если задан — переходим прямо в
+  /// карточку, иначе на общий экран уведомлений.
+  static String? _pendingRepairUuid;
+
   /// Если приложение было запущено тапом по уведомлению — флаг ставится в
   /// `init()` и роутер при первом redirect консьюмит его, чтобы перейти
-  /// на `/notifications` после авторизации.
+  /// на нужный экран после авторизации.
   static bool get hasPendingOpen => _pendingOpen;
+
+  /// Маршрут отложенного перехода: карточка ремонта либо центр уведомлений.
+  static String get pendingLocation => _pendingRepairUuid == null
+      ? '/notifications'
+      : '/repairs/$_pendingRepairUuid';
 
   static void consumePendingOpen() {
     _pendingOpen = false;
+    _pendingRepairUuid = null;
   }
 
   static Future<void> init() async {
@@ -53,6 +63,12 @@ class PushNotificationRouter {
         if (pending == true) {
           _pendingOpen = true;
           await FlutterForegroundTask.removeData(key: 'push_tap_pending');
+          final repairUuid = await FlutterForegroundTask.getData<String>(
+              key: 'push_tap_repair');
+          if (repairUuid != null && repairUuid.isNotEmpty) {
+            _pendingRepairUuid = repairUuid;
+          }
+          await FlutterForegroundTask.removeData(key: 'push_tap_repair');
         }
       } catch (_) {}
     } catch (e) {
@@ -72,7 +88,11 @@ class PushNotificationRouter {
 
   static void _onTaskData(Object data) {
     if (data is Map && data['type'] == 'push_tap') {
-      openNotifications();
+      final repairUuid = data['repair_uuid'];
+      openNotifications(
+        repairUuid:
+            repairUuid is String && repairUuid.isNotEmpty ? repairUuid : null,
+      );
     }
   }
 
@@ -80,19 +100,23 @@ class PushNotificationRouter {
   /// при наличии живого Navigator. Если Navigator ещё не готов —
   /// откладываем переход через [_pendingOpen], его подхватит redirect
   /// в GoRouter.
-  static void openNotifications() {
+  static void openNotifications({String? repairUuid}) {
     final ctx = navigatorKey.currentContext;
     if (ctx == null) {
       _pendingOpen = true;
+      _pendingRepairUuid = repairUuid;
       return;
     }
     try {
       // go() безопаснее clearStackAndNavigate(): не дёргает pop() в момент
       // ребилда виджет-дерева и просто заменяет текущий location.
-      GoRouter.of(ctx).go('/notifications');
+      GoRouter.of(ctx).go(
+        repairUuid == null ? '/notifications' : '/repairs/$repairUuid',
+      );
     } catch (e) {
       debugPrint('[PushRouter] navigate failed: $e');
       _pendingOpen = true;
+      _pendingRepairUuid = repairUuid;
     }
   }
 }

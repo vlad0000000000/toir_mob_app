@@ -13,7 +13,11 @@ extension DataProviderRemote on DataProvider {
       for (var inventoryRecord in notAll) {
         all.add(inventoryRecord);
       }
-      if (notAll.isEmpty) {
+      // Выходим на неполной странице, а не на пустой: иначе цикл всегда
+      // делает ещё один — заведомо пустой — запрос просто чтобы узнать, что
+      // данные кончились. На шести справочниках это шесть лишних round-trip
+      // за каждую синхронизацию.
+      if (notAll.length < limit) {
         break;
       }
       offset += limit;
@@ -22,7 +26,9 @@ extension DataProviderRemote on DataProvider {
   }
 
   Future<List<TypicalProblem>> loadAllTypicalProblems() async {
-    int limit = 50;
+    // 100 — верхний предел сервера. По 50 выходило вдвое больше запросов на
+    // тот же объём.
+    int limit = 100;
     int offset = 0;
     List<TypicalProblem> all = [];
     while (true) {
@@ -31,7 +37,60 @@ extension DataProviderRemote on DataProvider {
       for (var typicalProblem in notAll) {
         all.add(typicalProblem);
       }
-      if (notAll.isEmpty) {
+      // Выходим на неполной странице, а не на пустой: иначе цикл всегда
+      // делает ещё один — заведомо пустой — запрос просто чтобы узнать, что
+      // данные кончились. На шести справочниках это шесть лишних round-trip
+      // за каждую синхронизацию.
+      if (notAll.length < limit) {
+        break;
+      }
+      offset += limit;
+    }
+    return all;
+  }
+
+  Future<List<SparePart>> loadAllSpareParts() async {
+    int limit = 100;
+    int offset = 0;
+    List<SparePart> all = [];
+    while (true) {
+      List<SparePart> notAll =
+          await api.getSpareParts(limit: limit, offset: offset);
+      for (var sparePart in notAll) {
+        all.add(sparePart);
+      }
+      // Выходим на неполной странице, а не на пустой: иначе цикл всегда
+      // делает ещё один — заведомо пустой — запрос просто чтобы узнать, что
+      // данные кончились. На шести справочниках это шесть лишних round-trip
+      // за каждую синхронизацию.
+      if (notAll.length < limit) {
+        break;
+      }
+      offset += limit;
+    }
+    return all;
+  }
+
+  /// Все активные ремонты обходчика. Сервер сам сужает выдачу по
+  /// ответственному и должности, дополнительный фильтр не нужен.
+  Future<List<Repair>> loadAllActiveRepairs() async {
+    int limit = 100;
+    int offset = 0;
+    List<Repair> all = [];
+    while (true) {
+      List<Repair> notAll = await api.getRepairs(
+        statuses: [RepairStatuses.open, RepairStatuses.underReview],
+        limit: limit,
+        offset: offset,
+      );
+      for (var repair in notAll) {
+        all.add(repair);
+      }
+      // Выходим на неполной странице, а не на пустой: иначе цикл всегда
+      // делает ещё один — заведомо пустой — запрос просто чтобы узнать, что
+      // данные кончились. На шести справочниках это шесть лишних round-trip
+      // за каждую синхронизацию.
+      if (notAll.length < limit) {
         break;
       }
       offset += limit;
@@ -58,7 +117,9 @@ extension DataProviderRemote on DataProvider {
   }
 
   Future<List<Task>> loadAllOpenTasks() async {
-    int limit = 50;
+    // 100 — верхний предел сервера. По 50 выходило вдвое больше запросов на
+    // тот же объём.
+    int limit = 100;
     int offset = 0;
     List<Task> all = [];
     while (true) {
@@ -67,7 +128,11 @@ extension DataProviderRemote on DataProvider {
       for (var task in notAll) {
         all.add(task);
       }
-      if (notAll.isEmpty) {
+      // Выходим на неполной странице, а не на пустой: иначе цикл всегда
+      // делает ещё один — заведомо пустой — запрос просто чтобы узнать, что
+      // данные кончились. На шести справочниках это шесть лишних round-trip
+      // за каждую синхронизацию.
+      if (notAll.length < limit) {
         break;
       }
       offset += limit;
@@ -76,7 +141,9 @@ extension DataProviderRemote on DataProvider {
   }
 
   Future<List<Task>> loadAllTasks() async {
-    int limit = 50;
+    // 100 — верхний предел сервера. По 50 выходило вдвое больше запросов на
+    // тот же объём.
+    int limit = 100;
     int offset = 0;
     List<Task> all = [];
     while (true) {
@@ -85,7 +152,11 @@ extension DataProviderRemote on DataProvider {
       for (var task in notAll) {
         all.add(task);
       }
-      if (notAll.isEmpty) {
+      // Выходим на неполной странице, а не на пустой: иначе цикл всегда
+      // делает ещё один — заведомо пустой — запрос просто чтобы узнать, что
+      // данные кончились. На шести справочниках это шесть лишних round-trip
+      // за каждую синхронизацию.
+      if (notAll.length < limit) {
         break;
       }
       offset += limit;

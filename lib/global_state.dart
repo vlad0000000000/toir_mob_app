@@ -5,8 +5,6 @@ import 'package:crypto/crypto.dart';
 
 // import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
-import 'package:intl/date_symbol_data_local.dart';
-import 'package:intl/intl.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../src/data/data_provider.dart';
 import '../../src/http/api.dart';
@@ -25,6 +23,9 @@ class GlobalState {
     } else {
       dataProvider.userBox.put('auth_user', user);
     }
+    // Вход или выход снимает пометку «сессия истекла»: очередь поднимет её
+    // снова, если новый токен окажется таким же негодным.
+    dataProvider.authExpired.value = false;
   }
 
   static User? get authUser {
@@ -64,39 +65,6 @@ class GlobalState {
   //   return false;
   // }
 
-  static Future<void> updateDebugInventory() async {
-    String serverAccess = "доступен";
-    if (!(await GlobalState.hasConnectionToServer)) {
-      serverAccess = "не доступен";
-    }
-    String pendingChecks = dataProvider.scanBox.values.length.toString();
-    String db =
-        "Локальные данные: (активы: ${dataProvider.inventoryRecords.length.toString()}, осмотры: ${pendingChecks})";
-    String loggedUser = "";
-    if (GlobalState.isAuthorized) {
-      loggedUser = GlobalState.authUser!.username;
-    }
-
-    try {
-      await dataProvider.syncCurrentSession();
-    } catch (_) {}
-    String sessionStatus = 'завершена';
-    if (dataProvider.currentSession != null &&
-        dataProvider.currentSession!.isActive()) {
-      // Then somewhere in your code:
-      String date = await initializeDateFormatting('ru_RU', null).then((_) {
-        final dateTime =
-            DateTime.parse(dataProvider.currentSession!.startTime + 'Z')
-                .toLocal();
-        return DateFormat('dd MMMM yyyy в HH:mm', 'ru_RU').format(dateTime);
-      });
-      sessionStatus = 'активна (от ' + date + ')';
-    }
-
-    GlobalState.debug.value =
-        "Сервер: ${serverAccess}  |  ${db}\nПользователь: ${loggedUser}  |  Инвентаризация: ${sessionStatus}";
-  }
-
   static Future<String> buildInfo() async {
     PackageInfo packageInfo = await PackageInfo.fromPlatform();
 
@@ -123,12 +91,25 @@ class GlobalState {
 
     var lastSyncDate = dataProvider.getLastSyncDate();
 
+    // Ремонты: черновики создания и неотправленные правки. Очередь работает в
+    // фоне, поэтому «Сервис» — единственное место, где видно её состояние
+    // целиком, включая истёкший токен.
+    String pendingRepairs = dataProvider.pendingRepairBox.length.toString();
+    String pendingRepairEdits =
+        dataProvider.pendingRepairUpdateBox.length.toString();
+    String authState = dataProvider.authExpired.value
+        ? "сессия истекла, нужно войти заново"
+        : "в порядке";
+
     return """
 ## Информация
 
 - **Сервер**: ${serverAccess}
 - **Осмотров не отправлено**: ${pendingScans}
 - **Наработок не отправлено**: ${pendingUsageUpdates}
+- **Ремонтов не отправлено**: ${pendingRepairs}
+- **Правок ремонтов не отправлено**: ${pendingRepairEdits}
+- **Авторизация**: ${authState}
 - **ТМЦ/Оборудование**: ${inventory}
 - **Пользователь**: ${loggedUser}
 - **Дата последней синхронизации**: ${lastSyncDate}

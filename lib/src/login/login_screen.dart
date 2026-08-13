@@ -37,12 +37,21 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   @override
+  void dispose() {
+    loginController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final dataProvider = context.watch<DataProvider>();
 
-    WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
-      UpdateManager.checkForUpdate(context);
-    },);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (timeStamp) {
+        UpdateManager.checkForUpdate(context);
+      },
+    );
 
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
@@ -68,8 +77,7 @@ class _LoginScreenState extends State<LoginScreen> {
           return;
         }
         if (!mounted) return;
-        Dialogs.notify(
-            context, Strings.loginFailTitle, Strings.loginFailDesc);
+        Dialogs.notify(context, Strings.loginFailTitle, Strings.loginFailDesc);
       } on WalkerOnlyException {
         if (mounted) {
           Dialogs.notify(
@@ -77,8 +85,8 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       } on NoConnectionException {
         if (mounted) {
-          Dialogs.notify(context, Strings.noConnectionTitle,
-              Strings.noConnectionDesc);
+          Dialogs.notify(
+              context, Strings.noConnectionTitle, Strings.noConnectionDesc);
         }
       } on InvalidCredentialsException {
         if (mounted) {

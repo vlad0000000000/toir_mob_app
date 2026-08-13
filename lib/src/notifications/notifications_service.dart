@@ -6,6 +6,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import '../../global_state.dart';
+// Импорт нужен ради `syncMyRepairs`: метод объявлен в extension
+// `DataProviderSync`, а extension-методы видны только при прямом импорте
+// библиотеки, где они объявлены, — через `global_state.dart` не подтягиваются.
+import '../data/data_provider.dart';
 import '../http/api.dart';
 import '../model/notification.dart';
 import '../model/notification_settings.dart';
@@ -86,6 +90,9 @@ class NotificationsService {
     if (data is Map && data['type'] == 'sse_event') {
       refreshList();
     }
+    if (data is Map && data['type'] == 'repair_changed') {
+      _syncRepairsOnSignal();
+    }
     // Тап по пушу (`type == 'push_tap'`) обрабатывается отдельной
     // подпиской в PushNotificationRouter — независимо от того, был ли
     // позван bootstrap.
@@ -126,9 +133,8 @@ class NotificationsService {
       } else {
         final existing = notifications.value;
         final existingUuids = existing.map((e) => e.uuid).toSet();
-        final newOnes = result.items
-            .where((e) => !existingUuids.contains(e.uuid))
-            .toList();
+        final newOnes =
+            result.items.where((e) => !existingUuids.contains(e.uuid)).toList();
         final merged = [...existing, ...newOnes];
         notifications.value = _sortNotifications(merged);
         unreadCount.value = result.unreadCount;
@@ -246,8 +252,7 @@ class NotificationsService {
       if (_disposed) return;
       final silentFor = DateTime.now().difference(_lastSseActivity);
       if (silentFor > _silentDropThreshold) {
-        debugPrint(
-            'SSE silent for ${silentFor.inSeconds}s — force reconnect');
+        debugPrint('SSE silent for ${silentFor.inSeconds}s — force reconnect');
         _scheduleReconnect();
       }
     });
@@ -257,8 +262,38 @@ class NotificationsService {
 
   void _dispatchSseEvent(String event, String dataStr) {
     if (event == 'ping') return;
+    // `repair_changed` — технический сигнал «перечитай ремонты», а не запись в
+    // центре уведомлений. Раньше сервер слал его под именем `notification`, и
+    // он попадал сюда же; теперь у него собственное имя, и без этой ветки
+    // сигнал терялся бы целиком.
+    if (event == 'repair_changed') {
+      _syncRepairsOnSignal();
+      return;
+    }
     if (event != 'notification') return;
     refreshList();
+  }
+
+  Timer? _repairSyncDebounce;
+
+  /// SSE — только сигнал, источник правды REST (см.
+  /// `docs/mobile_notifications_flow.md`), поэтому перечитываем список
+  /// ремонтов целиком. Ошибку глушим: нет связи — фоновый цикл догонит через
+  /// минуту.
+  void _syncRepairsOnSignal() {
+    if (!GlobalState.isAuthorized) return;
+    // Сигнал рассылается всей компании и на каждое изменение ремонта. Правка
+    // нескольких ремонтов в админке подряд — это очередь событий, и без
+    // склейки телефон отправил бы столько же запросов списка. Секунды тишины
+    // достаточно, чтобы серия схлопнулась в один.
+    _repairSyncDebounce?.cancel();
+    _repairSyncDebounce = Timer(const Duration(seconds: 1), () async {
+      try {
+        await GlobalState.dataProvider.syncMyRepairs();
+      } catch (e) {
+        debugPrint('Failed to sync repairs on SSE signal: $e');
+      }
+    });
   }
 
   void _scheduleReconnect() {
@@ -286,6 +321,10 @@ class NotificationsService {
     _reconnectTimer?.cancel();
     _keepaliveTimer?.cancel();
     _keepaliveTimer = null;
+    // Иначе отложенная синхронизация сработала бы уже после выхода из учётной
+    // записи — с чужим (или снятым) токеном.
+    _repairSyncDebounce?.cancel();
+    _repairSyncDebounce = null;
     _disconnectStream();
     _detachForegroundListener();
   }

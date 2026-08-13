@@ -44,7 +44,7 @@ class MyAppBar {
       return AppBar(
         leading: BackButton(
           onPressed: () =>
-              GoRouter.of(context).clearStackAndNavigate('/qr_scanner'),
+              GoRouter.of(context).backOr('/qr_scanner'),
         ),
       );
     }
@@ -52,7 +52,7 @@ class MyAppBar {
       return AppBar(
         leading: BackButton(
           onPressed: () =>
-              GoRouter.of(context).clearStackAndNavigate('/problems'),
+              GoRouter.of(context).backOr('/problems'),
         ),
       );
     }
@@ -60,21 +60,43 @@ class MyAppBar {
       return AppBar(
         leading: BackButton(
           onPressed: () =>
-              GoRouter.of(context).clearStackAndNavigate('/actions'),
+              GoRouter.of(context).backOr('/actions'),
         ),
         title: const Text('Оборудование'),
       );
     }
+    // Точное совпадение проверяем до префикса: '/repairs/<uuid>' — карточка,
+    // а голый '/repairs' — список.
+    if (location == '/repairs') {
+      return AppBar(
+        leading: BackButton(
+          onPressed: () =>
+              GoRouter.of(context).backOr('/actions'),
+        ),
+        title: const Text('Ремонты'),
+      );
+    }
+    // Ветки для '/repairs/<uuid>' здесь нет намеренно: карточка ремонта
+    // строит свой AppBar — в заголовке номер ремонта, справа пилюля статуса,
+    // а таких данных ветвление по строке маршрута не знает.
+    if (location == '/spare_parts') {
+      return AppBar(
+        leading: BackButton(
+          onPressed: () =>
+              GoRouter.of(context).backOr('/actions'),
+        ),
+        title: const Text('ЗИП'),
+      );
+    }
+    // '/spare_parts/<uuid>' — по той же причине, что и карточка ремонта:
+    // карточка ЗИП строит свой AppBar (значок, название позиции и пилюля
+    // наличия) и попадает сюда через push, так что штатная кнопка «назад»
+    // работает сама.
     if (location == '/knowledge_base') {
       return AppBar(
         leading: BackButton(
-          onPressed: () {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              GoRouter.of(context).go('/login');
-            }
-          },
+          // База знаний открыта и до входа, поэтому запасной адрес — логин.
+          onPressed: () => GoRouter.of(context).backOr('/login'),
         ),
         title: const Text('Помощь'),
         actions: [
@@ -89,7 +111,7 @@ class MyAppBar {
     if (location.startsWith('/details')) {
       return AppBar(
         leading: BackButton(
-          onPressed: () => GoRouter.of(context).clearStackAndNavigate('/tasks'),
+          onPressed: () => GoRouter.of(context).backOr('/tasks'),
         ),
         title: const Text('Задачи'),
       );
@@ -100,7 +122,7 @@ class MyAppBar {
         leading: BackButton(
           color: cs.onInverseSurface,
           onPressed: () =>
-              GoRouter.of(context).clearStackAndNavigate('/actions'),
+              GoRouter.of(context).backOr('/actions'),
         ),
         automaticallyImplyLeading: false,
         backgroundColor: cs.inverseSurface,

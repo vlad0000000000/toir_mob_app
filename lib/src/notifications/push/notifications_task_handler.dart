@@ -69,10 +69,9 @@ class NotificationsTaskHandler extends TaskHandler {
 
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
-    _baseUrl = (await FlutterForegroundTask.getData<String>(
-                key: 'sse_base_url') ??
-            '')
-        .trim();
+    _baseUrl =
+        (await FlutterForegroundTask.getData<String>(key: 'sse_base_url') ?? '')
+            .trim();
     _jwt = (await FlutterForegroundTask.getData<String>(key: 'sse_jwt') ?? '')
         .trim();
 
@@ -168,16 +167,32 @@ class NotificationsTaskHandler extends TaskHandler {
   }
 
   void _onLocalTap(NotificationResponse response) {
+    // Ремонт открываем адресно; всё остальное — как раньше, общим экраном
+    // уведомлений.
+    String? repairUuid;
+    try {
+      final payload = jsonDecode(response.payload ?? '{}');
+      if (payload is Map && payload['repair_uuid'] is String) {
+        repairUuid = payload['repair_uuid'] as String;
+      }
+    } catch (_) {}
+
     // Если main isolate жив — он сам сделает GoRouter навигацию.
     try {
-      FlutterForegroundTask.sendDataToMain({'type': 'push_tap'});
+      FlutterForegroundTask.sendDataToMain({
+        'type': 'push_tap',
+        if (repairUuid != null) 'repair_uuid': repairUuid,
+      });
     } catch (_) {}
     // Подстраховка для cold-start: ставим персистентный флаг, который main
-    // при `init()` подхватит и инициирует переход на /notifications даже
-    // если активити пришлось запускать через launchApp (а не через
-    // contentIntent самого пуша).
+    // при `init()` подхватит и инициирует переход даже если активити пришлось
+    // запускать через launchApp (а не через contentIntent самого пуша).
     try {
       FlutterForegroundTask.saveData(key: 'push_tap_pending', value: true);
+      if (repairUuid != null) {
+        FlutterForegroundTask.saveData(
+            key: 'push_tap_repair', value: repairUuid);
+      }
     } catch (_) {}
     try {
       FlutterForegroundTask.launchApp('/notifications');
@@ -191,8 +206,8 @@ class NotificationsTaskHandler extends TaskHandler {
     final client = http.Client();
     _client = client;
 
-    final request = http.Request('GET',
-        Uri.parse('$_baseUrl/v1/company/notifications/mobile/stream'));
+    final request = http.Request(
+        'GET', Uri.parse('$_baseUrl/v1/company/notifications/mobile/stream'));
     request.headers['Authorization'] = 'Bearer $_jwt';
     request.headers['Accept'] = 'text/event-stream';
     request.headers['Cache-Control'] = 'no-cache';
@@ -278,6 +293,20 @@ class NotificationsTaskHandler extends TaskHandler {
   }
 
   Future<void> _dispatchEvent(String event, String dataStr) async {
+    // `repair_changed` — сигнал перечитать ремонты, а не запись центра
+    // уведомлений: пуш по нему не показываем, только будим main-изолят.
+    // Раньше сервер слал его под именем `notification`, и он приходил сюда
+    // же; теперь у события собственное имя, и без этой ветки сигнал бы
+    // отбрасывался.
+    if (event == 'repair_changed') {
+      try {
+        FlutterForegroundTask.sendDataToMain({
+          'type': 'repair_changed',
+          'data': jsonDecode(dataStr),
+        });
+      } catch (_) {}
+      return;
+    }
     if (event != 'notification') return;
     Map<String, dynamic> data = const {};
     try {
@@ -318,8 +347,7 @@ class NotificationsTaskHandler extends TaskHandler {
     // проиндексироваться на бэке), и вторую — нормальную.
     if (notificationType == 'summary_task') {
       debugPrint('[NotifTask] summary_task — skip push, only update list');
-      FlutterForegroundTask.sendDataToMain(
-          {'type': 'sse_event', 'data': data});
+      FlutterForegroundTask.sendDataToMain({'type': 'sse_event', 'data': data});
       return;
     }
 
@@ -377,11 +405,24 @@ class NotificationsTaskHandler extends TaskHandler {
     final id = (uuid != null && uuid.isNotEmpty)
         ? uuid.hashCode & 0x7FFFFFFF
         : _nextNotificationId++;
+    // repair_uuid кладём отдельным полем: тап по пушу должен открывать саму
+    // карточку ремонта, а не общий экран уведомлений. Наверху ответа его нет,
+    // он лежит в payload.repair.uuid.
+    String? repairUuid;
+    final itemPayload = item['payload'];
+    if (itemPayload is Map) {
+      final repair = itemPayload['repair'];
+      if (repair is Map && repair['uuid'] is String) {
+        repairUuid = repair['uuid'] as String;
+      }
+    }
+
     final payload = jsonEncode({
       'uuid': item['uuid'],
       'notification_type': item['notification_type'],
       'equipment_uuid': item['equipment_uuid'],
       'inspection_uuid': item['inspection_uuid'],
+      'repair_uuid': repairUuid,
     });
 
     const androidDetails = AndroidNotificationDetails(

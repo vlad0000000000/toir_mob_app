@@ -64,9 +64,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: BackButton(
-          onPressed: () {
-            GoRouter.of(context).clearStackAndNavigate('/actions');
-          },
+          // На экран попадают и с главной, и тапом по пуш-уведомлению — во
+          // втором случае возвращаться некуда, поэтому запасной адрес.
+          onPressed: () => GoRouter.of(context).backOr('/actions'),
         ),
         title: const Text('Уведомления'),
         actions: [
@@ -128,9 +128,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     required bool loading,
     required bool loadedOnce,
   }) {
-    final items = _hideRead
-        ? allItems.where((n) => !n.isRead).toList()
-        : allItems;
+    final items =
+        _hideRead ? allItems.where((n) => !n.isRead).toList() : allItems;
     // Пока сервер не ответил хоть раз — spinner, а не EmptyState.
     // Также показываем spinner, если запрос вышел в полёт, но
     // список ещё пустой (ручной pull-to-refresh с нуля).
@@ -148,9 +147,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               icon: _hideRead
                   ? Icons.mark_email_read_outlined
                   : Icons.notifications_none_rounded,
-              title: _hideRead
-                  ? 'Всё прочитано'
-                  : 'Уведомлений пока нет',
+              title: _hideRead ? 'Всё прочитано' : 'Уведомлений пока нет',
               hint: _hideRead
                   ? 'Здесь будут появляться новые уведомления о задачах и осмотрах.'
                   : 'Уведомления о задачах и осмотрах появятся здесь.',
@@ -166,8 +163,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         builder: (context, loadingMore, ___) {
           return ListView.separated(
             controller: _scrollController,
-            padding: const EdgeInsets.symmetric(
-                horizontal: 12, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             itemCount: items.length + (loadingMore ? 1 : 0),
             separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (context, i) {
@@ -194,6 +190,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       await _service.markRead(n.uuid);
     }
     if (!mounted) return;
+    // Уведомление про ремонт ведёт прямо в карточку ремонта: показывать
+    // вместо неё сводку было бы лишним шагом — обходчику нужно доработать
+    // ремонт, а не прочитать о нём.
+    final repairUuid = n.repairUuid;
+    if (repairUuid != null) {
+      // push: экран уведомлений остаётся под карточкой, «назад» вернёт к
+      // списку, а не выбросит на главную.
+      GoRouter.of(context).push('/repairs/$repairUuid');
+      return;
+    }
     _showDetail(n);
   }
 
@@ -227,11 +233,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           child: ConstrainedBox(
             constraints: BoxConstraints(maxHeight: maxHeight),
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(
-                  AppConstants.spacingMD,
-                  0,
-                  AppConstants.spacingMD,
-                  AppConstants.spacingMD),
+              padding: const EdgeInsets.fromLTRB(AppConstants.spacingMD, 0,
+                  AppConstants.spacingMD, AppConstants.spacingMD),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -259,8 +262,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         NotificationFormatters.effectiveDescription(n);
                     if (desc.isEmpty) return const SizedBox.shrink();
                     return Padding(
-                      padding: const EdgeInsets.only(
-                          bottom: AppConstants.spacingMD),
+                      padding:
+                          const EdgeInsets.only(bottom: AppConstants.spacingMD),
                       child: Text(desc, style: tt.bodyMedium),
                     );
                   }),
@@ -268,8 +271,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     spacing: AppConstants.spacingSM,
                     runSpacing: AppConstants.spacingSM,
                     children: [
-                      if (n.notificationType !=
-                          NotificationTypes.summaryTask)
+                      if (n.notificationType != NotificationTypes.summaryTask)
                         _statusChip(n),
                       if (n.priorityDisplay != null &&
                           n.priorityDisplay!.isNotEmpty)
@@ -391,9 +393,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         children: [
           Icon(icon, size: 14, color: cs.onSurfaceVariant),
           const SizedBox(width: 4),
-          Text(label,
-              style: tt.labelSmall
-                  ?.copyWith(color: cs.onSurface)),
+          Text(label, style: tt.labelSmall?.copyWith(color: cs.onSurface)),
         ],
       ),
     );
@@ -552,17 +552,17 @@ class _HeaderRow extends StatelessWidget {
                   if (count <= 0) {
                     return Text(
                       'Все прочитаны',
-                      style: tt.labelMedium
-                          ?.copyWith(color: cs.onSurfaceVariant),
+                      style:
+                          tt.labelMedium?.copyWith(color: cs.onSurfaceVariant),
                     );
                   }
                   return Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
                       color: cs.primaryContainer,
-                      borderRadius: BorderRadius.circular(
-                          AppConstants.radiusFull),
+                      borderRadius:
+                          BorderRadius.circular(AppConstants.radiusFull),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
