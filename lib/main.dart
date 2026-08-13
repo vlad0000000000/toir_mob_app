@@ -522,7 +522,9 @@ class MyApp extends StatelessWidget {
                   // требует intl 0.19, а понижение с 0.20 тянет за собой
                   // collection и vector_math до версий, с которыми не
                   // собирается уже сам Flutter. Русские дата и время делаются
-                  // своими листами выбора — см. `_DateWheelSheet`.
+                  // своими листами выбора — см. `showSingleDateSheet` и
+                  // `showDateRangeSheet` в `widgets/date_range_sheet.dart`,
+                  // а также `_TimeWheelSheet` в форме создания ремонта.
                   routeInformationProvider: _router.routeInformationProvider,
                   routeInformationParser: _router.routeInformationParser,
                   routerDelegate: _router.routerDelegate,

@@ -83,7 +83,13 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
       _applyRepair(_draftRepair());
       return;
     }
-    _applyRepair(widget.initial);
+    // Рисуем сразу то, что уже есть: переданный из списка объект, а если его
+    // не передали — запись из офлайн-кэша. Кэш читался и раньше, но только в
+    // `catch` у [_load], то есть уже **после** отказа сети: без связи экран
+    // висел со спиннером все 15 секунд таймаута и лишь потом показывал ремонт,
+    // который всё это время лежал в Hive. Теперь запрос к серверу лишь
+    // обновляет уже показанную карточку.
+    _applyRepair(widget.initial ?? _cachedRepair());
     // Неотправленную правку накладываем сразу: если она есть, форма должна
     // открыться с цифрами обходчика, а не с серверными.
     _applyPendingUpdate();
@@ -877,9 +883,10 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
       children: [
         ..._buildPendingBanner(repair),
         if (_failed) ...[
+          // Без значка и по центру — как остальные полосы про отсутствие связи.
           _Banner(
-            icon: Icons.cloud_off_rounded,
             text: RepairCardStrings.staleDataBanner,
+            centered: true,
           ),
           const SizedBox(height: AppConstants.spacingMD),
         ],
@@ -2230,10 +2237,13 @@ class _SubmitConfirmDialog extends StatelessWidget {
             ],
             const SizedBox(height: AppConstants.spacingMD),
             if (offline) ...[
+              // Без значка и по центру: в диалоге уже отцентрованы заголовок,
+              // пояснение и плитки сводки, и полоса со значком слева ломала
+              // бы этот ряд.
               _Banner(
-                icon: Icons.cloud_off_rounded,
                 text: RepairCardStrings.finishOffline,
                 warning: true,
+                centered: true,
               ),
               const SizedBox(height: AppConstants.spacingSM),
             ],
@@ -2263,38 +2273,47 @@ class _SubmitConfirmDialog extends StatelessWidget {
                 ],
               ),
             const SizedBox(height: AppConstants.spacingLG),
-            Row(
+            Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  child: SizedBox(
-                    height: AppConstants.buttonHeightLarge,
-                    child: ElevatedButton(
-                      // Вторичная кнопка в макете — заливка серым, а не
-                      // обводка: обе кнопки одинаковой «плотности».
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: cs.surfaceContainer,
-                        foregroundColor: cs.onSurface,
-                        elevation: 0,
-                      ),
-                      onPressed: () => Navigator.of(context).pop(false),
-                      child: const Text(RepairStrings.cancel),
+                // Кнопки друг под другом, а не в ряд. В ряду каждой доставалась
+                // половина ширины, и «Завершить и сохранить» со значком туда не
+                // помещалось: подпись переносилась на вторую строку, а высота
+                // кнопки фиксированная — вторую строку срезало. На всю ширину
+                // помещается любая подпись, в том числе при увеличенном
+                // системном шрифте. Так же выглядят подтверждения на других
+                // экранах: главное действие широкой кнопкой, отказ под ним.
+                SizedBox(
+                  width: double.infinity,
+                  height: AppConstants.buttonHeightLarge,
+                  child: ElevatedButton.icon(
+                    onPressed: () => Navigator.of(context).pop(true),
+                    icon: Icon(
+                      offline ? Icons.save_outlined : Icons.send_rounded,
+                      size: 20,
+                    ),
+                    label: Text(
+                      offline
+                          ? RepairCardStrings.finishAndSave
+                          : RepairCardStrings.submit,
+                      maxLines: 1,
                     ),
                   ),
                 ),
-                const SizedBox(width: AppConstants.spacingSM),
-                Expanded(
-                  child: SizedBox(
-                    height: AppConstants.buttonHeightLarge,
-                    child: ElevatedButton.icon(
-                      onPressed: () => Navigator.of(context).pop(true),
-                      icon: Icon(
-                        offline ? Icons.save_outlined : Icons.send_rounded,
-                        size: 20,
-                      ),
-                      label: Text(offline
-                          ? RepairCardStrings.finishAndSave
-                          : RepairCardStrings.submit),
+                const SizedBox(height: AppConstants.spacingSM),
+                SizedBox(
+                  width: double.infinity,
+                  height: AppConstants.buttonHeightLarge,
+                  child: ElevatedButton(
+                    // Вторичная кнопка в макете — заливка серым, а не
+                    // обводка: обе кнопки одинаковой «плотности».
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: cs.surfaceContainer,
+                      foregroundColor: cs.onSurface,
+                      elevation: 0,
                     ),
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text(RepairStrings.cancel, maxLines: 1),
                   ),
                 ),
               ],
@@ -2429,6 +2448,17 @@ class _Banner extends StatelessWidget {
   /// рассосётся.
   final bool danger;
 
+  /// Текст по центру, а не по левому краю.
+  ///
+  /// Так подаются полосы-пояснения: про отсутствие связи и про то, что данные
+  /// уйдут позже. Они идут без значка, и текст, прижатый влево, оставлял бы
+  /// справа пустое поле — полоса выглядела перекошенной.
+  ///
+  /// Полосы, у которых есть заголовок, значок или кнопка (черновик в очереди,
+  /// конфликт, нехватка ЗИП), остаются слева: там значок отличает один случай
+  /// от другого, а текст читается как обычный абзац.
+  final bool centered;
+
   const _Banner({
     required this.text,
     this.icon,
@@ -2436,6 +2466,7 @@ class _Banner extends StatelessWidget {
     this.warning = false,
     this.action,
     this.danger = false,
+    this.centered = false,
   });
 
   @override
@@ -2448,13 +2479,16 @@ class _Banner extends StatelessWidget {
             ? cs.warning
             : cs.onSurfaceVariant;
 
+    final align = centered ? TextAlign.center : TextAlign.start;
     final content = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment:
+          centered ? CrossAxisAlignment.center : CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         if (title != null) ...[
           Text(
             title!,
+            textAlign: align,
             style: tt.bodyMedium?.copyWith(
               color: color,
               fontWeight: FontWeight.w600,
@@ -2462,10 +2496,17 @@ class _Banner extends StatelessWidget {
           ),
           const SizedBox(height: 2),
         ],
-        Text(text, style: tt.bodySmall?.copyWith(color: color)),
+        Text(
+          text,
+          textAlign: align,
+          style: tt.bodySmall?.copyWith(color: color),
+        ),
         if (action != null) ...[
           const SizedBox(height: AppConstants.spacingSM),
-          Align(alignment: Alignment.centerLeft, child: action!),
+          Align(
+            alignment: centered ? Alignment.center : Alignment.centerLeft,
+            child: action!,
+          ),
         ],
       ],
     );

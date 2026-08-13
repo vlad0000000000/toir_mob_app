@@ -112,7 +112,7 @@ class _RepairConflictScreenState extends State<RepairConflictScreen> {
     // в список, а не выбросит на главную.
     final router = GoRouter.of(context);
     if (Navigator.of(context).canPop()) Navigator.of(context).pop();
-    router.push('/repairs/${target.uuid}');
+    router.push('/repairs/${target.uuid}', extra: target);
   }
 
   Future<void> _copy() async {

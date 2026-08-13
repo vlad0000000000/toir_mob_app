@@ -183,7 +183,10 @@ class _QRResultScreenState extends State<QRResultScreen> {
                 child: ElevatedButton.icon(
                   onPressed: () {
                     Navigator.of(ctx).pop();
-                    GoRouter.of(context).push('/repairs/${repair.uuid}');
+                    // Ремонт уже найден в кэше — отдаём его карточке, чтобы
+                    // та не ждала ответа сервера.
+                    GoRouter.of(context)
+                        .push('/repairs/${repair.uuid}', extra: repair);
                   },
                   icon: const Icon(Icons.open_in_new_rounded, size: 20),
                   label: const Text('Открыть ремонт'),

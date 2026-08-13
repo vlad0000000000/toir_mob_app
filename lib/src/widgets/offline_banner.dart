@@ -71,33 +71,30 @@ class _OfflineBannerState extends State<OfflineBanner> {
         color: cs.warningContainer,
         borderRadius: BorderRadius.circular(AppConstants.radiusMD),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      // Без значка и по центру. Значок дублировал заголовок «Нет связи с
+      // сервером», а прижатый влево текст оставлял справа пустое поле — полоса
+      // выглядела перекошенной. Оранжевая заливка сама по себе достаточно
+      // заметна, чтобы полосу не пропустить.
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.cloud_off_rounded, size: 20, color: cs.onWarningContainer),
-          const SizedBox(width: AppConstants.spacingSM),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  RepairStrings.noConnection,
-                  style: tt.bodyMedium?.copyWith(
-                    color: cs.onWarningContainer,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                if (hint != null && hint.isNotEmpty) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    hint,
-                    style: tt.bodySmall?.copyWith(color: cs.onWarningContainer),
-                  ),
-                ],
-              ],
+          Text(
+            RepairStrings.noConnection,
+            textAlign: TextAlign.center,
+            style: tt.bodyMedium?.copyWith(
+              color: cs.onWarningContainer,
+              fontWeight: FontWeight.w600,
             ),
           ),
+          if (hint != null && hint.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              hint,
+              textAlign: TextAlign.center,
+              style: tt.bodySmall?.copyWith(color: cs.onWarningContainer),
+            ),
+          ],
         ],
       ),
     );

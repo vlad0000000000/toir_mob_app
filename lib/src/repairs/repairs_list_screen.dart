@@ -229,7 +229,12 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
           pendingUpdate: GlobalState.dataProvider.pendingUpdateFor(repair.uuid),
           // push: список остаётся под карточкой и возвращается вместе с
           // выбранным фильтром и прокруткой.
-          onTap: () => GoRouter.of(context).push('/repairs/${repair.uuid}'),
+          //
+          // Сам ремонт передаём с собой, чтобы карточка нарисовалась сразу, не
+          // дожидаясь сервера. Для закрытых это единственный источник: в Hive
+          // они не кэшируются и живут только в памяти этого списка.
+          onTap: () => GoRouter.of(context)
+              .push('/repairs/${repair.uuid}', extra: repair),
         );
 
     final drafts = _visibleDrafts;
