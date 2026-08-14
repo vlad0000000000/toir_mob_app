@@ -63,6 +63,7 @@ extension PprApi on API {
 
       final Set<String> periodicTaskUuids = {};
       final Set<String> inspectionUuids = {};
+      final Set<String> completedInspectionUuids = {};
       for (final task in tasks) {
         // Пропускаем задачи, которые уже не входят в ППР.
         if (task['active_membership'] != true) continue;
@@ -71,19 +72,21 @@ extension PprApi on API {
         if (uuid is String && uuid.isNotEmpty) {
           periodicTaskUuids.add(uuid);
         }
-        // Осмотр задачи ППР — пока он не выполнен, его нужно показать
-        // независимо от срока.
-        if (task['is_completed'] == true) continue;
         final inspection = task['inspection'];
-        if (inspection is Map && inspection['result_status'] != 'closed') {
-          final inspectionUuid = inspection['uuid'];
-          if (inspectionUuid is String && inspectionUuid.isNotEmpty) {
-            inspectionUuids.add(inspectionUuid);
-          }
+        final inspectionUuid = inspection is Map ? inspection['uuid'] : null;
+        if (inspectionUuid is! String || inspectionUuid.isEmpty) continue;
+        // Выполненные задачи ППР нужны для счётчика прогресса, остальные —
+        // для показа: осмотр задачи ППР актуален независимо от срока.
+        if (task['is_completed'] == true ||
+            inspection['result_status'] == 'closed') {
+          completedInspectionUuids.add(inspectionUuid);
+        } else {
+          inspectionUuids.add(inspectionUuid);
         }
       }
 
-      result.add(Ppr.fromListJson(ppr, periodicTaskUuids, inspectionUuids));
+      result.add(Ppr.fromListJson(
+          ppr, periodicTaskUuids, inspectionUuids, completedInspectionUuids));
     }
 
     return result;

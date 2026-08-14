@@ -145,11 +145,49 @@ extension DataProviderSync on DataProvider {
       setActivePprs(pprs);
       await stringBox.put(DataProvider.pprCacheKey,
           jsonEncode(pprs.map((ppr) => ppr.toJson()).toList()));
+      await syncPprCompletedByMe();
     } catch (e) {
       print('Failed sync PPR: $e');
     } finally {
       _isLoading = false;
     }
+  }
+
+  /// Определяет, какие из уже выполненных задач актуальных ППР закрывал
+  /// текущий пользователь, — по ним строится счётчик «выполнено N из M»
+  /// на экране ППР. Закрытые осмотры в ящик задач не кладём: они не должны
+  /// попасть в списки, нужен только факт «эта задача была моей».
+  ///
+  /// Осмотр закрыт навсегда, поэтому проверенные uuid не перезапрашиваем.
+  Future<void> syncPprCompletedByMe() async {
+    final Set<String> known = {};
+    for (final ppr in activePprs) {
+      known.addAll(ppr.completedInspectionUuids);
+    }
+    // Осмотры закрытых ППР из кэша выкидываем, чтобы он не рос вечно.
+    final Set<String> mine = _pprCompletedByMe.intersection(known);
+    final Set<String> checked = _pprCompletedByMeChecked.intersection(known);
+
+    for (final uuid in known.difference(checked)) {
+      try {
+        final task = await api.getTaskByUuid(uuid);
+        checked.add(uuid);
+        if (task != null && isTaskMine(task)) {
+          mine.add(uuid);
+        }
+      } catch (e) {
+        print('Failed to load completed PPR inspection $uuid: $e');
+      }
+    }
+
+    _pprCompletedByMe = mine;
+    _pprCompletedByMeChecked = checked;
+    await stringBox.put(
+        DataProvider.pprCompletedByMeCacheKey,
+        jsonEncode({
+          'mine': mine.toList(),
+          'checked': checked.toList(),
+        }));
   }
 
   /// Осмотры задач актуальных ППР, которых нет среди уже загруженных [have].

@@ -79,6 +79,20 @@ class DataProvider {
   /// Восстанавливает актуальные ППР из кэша (`stringBox`), чтобы кнопка
   /// «ППР» и группа «ППР» работали до первой синхронизации и офлайн.
   void _loadCachedPprs() {
+    final completed = stringBox.get(pprCompletedByMeCacheKey);
+    if (completed != null && completed.isNotEmpty) {
+      try {
+        final raw = jsonDecode(completed) as Map<String, dynamic>;
+        Set<String> read(String key) =>
+            ((raw[key] as List<dynamic>?) ?? const [])
+                .map((e) => e as String)
+                .toSet();
+        _pprCompletedByMe = read('mine');
+        _pprCompletedByMeChecked = read('checked');
+      } catch (e) {
+        print('Failed to read PPR progress cache: $e');
+      }
+    }
     final cached = stringBox.get(pprCacheKey);
     if (cached == null || cached.isEmpty) return;
     try {
@@ -104,6 +118,9 @@ class DataProvider {
   /// Ключ кэша актуальных ППР в `stringBox`.
   static const String pprCacheKey = 'ppr_active';
 
+  /// Ключ кэша осмотров ППР, закрытых текущим пользователем.
+  static const String pprCompletedByMeCacheKey = 'ppr_completed_by_me';
+
   /// Актуальные (незакрытые) ППР. Наполняются в [syncPpr], кэшируются в
   /// `stringBox` для офлайна.
   List<Ppr> _activePprs = [];
@@ -111,6 +128,18 @@ class DataProvider {
   /// UUID периодических задач всех актуальных ППР — производное от
   /// [_activePprs], чтобы не пересобирать множество на каждую задачу списка.
   Set<String> _pprPeriodicTaskUuids = {};
+
+  /// UUID осмотров всех актуальных ППР. Принадлежность задачи к ППР считаем
+  /// именно по осмотру: у одной периодической задачи может быть и осмотр из
+  /// состава ППР, и обычный периодический — второй в ППР не показываем.
+  Set<String> _pprInspectionUuids = {};
+
+  /// Осмотры выполненных задач ППР, закрытые текущим пользователем, и
+  /// осмотры, по которым принадлежность уже выяснена (закрытый осмотр не
+  /// меняется, перезапрашивать его незачем). Наполняются в
+  /// [syncPprCompletedByMe], кэшируются в `stringBox`.
+  Set<String> _pprCompletedByMe = {};
+  Set<String> _pprCompletedByMeChecked = {};
 
   /// При выключенном [FeatureFlags.pprEnabled] раздел ППР не показывается
   /// вообще — даже при наличии старого кэша.
@@ -124,22 +153,17 @@ class DataProvider {
   /// выполнены) в списке не нужны.
   List<Ppr> pprsWithTasks() {
     final pprs = activePprs;
-    if (pprs.isEmpty || _pprPeriodicTaskUuids.isEmpty) {
-      return const <Ppr>[];
-    }
-    // Один проход по задачам: для каждой периодической задачи из ППР
-    // запоминаем, есть ли по ней доступный пользователю осмотр.
+    if (pprs.isEmpty) return const <Ppr>[];
+    // Один проход по задачам: собираем осмотры ППР, доступные пользователю.
     final tasksInScans = _scannedTaskUuids();
     final Set<String> available = {};
     for (final task in taskBox.values) {
-      final periodicTask = task.periodicTask;
-      if (periodicTask == null) continue;
-      if (!_pprPeriodicTaskUuids.contains(periodicTask.uuid)) continue;
+      if (!_pprInspectionUuids.contains(task.uuid)) continue;
       if (!_isTaskAvailable(task, tasksInScans)) continue;
-      available.add(periodicTask.uuid);
+      available.add(task.uuid);
     }
     return pprs
-        .where((ppr) => ppr.periodicTaskUuids.any(available.contains))
+        .where((ppr) => ppr.inspectionUuids.any(available.contains))
         .toList();
   }
 
@@ -154,6 +178,9 @@ class DataProvider {
     _pprPeriodicTaskUuids = {
       for (final ppr in pprs) ...ppr.periodicTaskUuids,
     };
+    _pprInspectionUuids = {
+      for (final ppr in pprs) ...ppr.inspectionUuids,
+    };
   }
 
   /// Входит ли периодическая задача в актуальный ППР. При выключенном
@@ -163,13 +190,36 @@ class DataProvider {
       FeatureFlags.pprEnabled &&
       _pprPeriodicTaskUuids.contains(periodicTaskUuid);
 
-  /// Актуальный ППР, в который входит периодическая задача (первый найденный).
-  /// Нужен, чтобы подписать группу именем конкретного ППР.
-  Ppr? pprForPeriodicTask(String periodicTaskUuid) {
+  /// Актуальный ППР, в состав которого входит осмотр. Нужен, чтобы подписать
+  /// группу именем конкретного ППР на экране задач оборудования.
+  Ppr? pprForTask(Task task) {
+    if (!FeatureFlags.pprEnabled) return null;
+    if (!_pprInspectionUuids.contains(task.uuid)) return null;
     for (final ppr in activePprs) {
-      if (ppr.periodicTaskUuids.contains(periodicTaskUuid)) return ppr;
+      if (ppr.inspectionUuids.contains(task.uuid)) return ppr;
     }
     return null;
+  }
+
+  /// Прогресс ППР для текущего пользователя: сколько его задач выполнено
+  /// из скольких. Общий счётчик ППР обходчику бесполезен — задачи чужих
+  /// ролей он не увидит никогда.
+  ({int done, int total}) pprProgressForUser(Ppr ppr) {
+    final done =
+        ppr.completedInspectionUuids.where(_pprCompletedByMe.contains).length;
+    return (done: done, total: done + getTasksForPpr(ppr.uuid).length);
+  }
+
+  /// Задача текущего пользователя: назначенная — по ответственному,
+  /// периодическая — по роли. В отличие от [_isTaskAvailable] работает и для
+  /// закрытых осмотров (нужно для счётчика выполненных задач ППР).
+  bool isTaskMine(Task task) {
+    final user = GlobalState.authUser;
+    if (user == null) return false;
+    final responsible = task.responsibleUser;
+    if (responsible != null) return responsible.uuid == user.uuid;
+    final roles = task.periodicTask?.customRoles ?? const [];
+    return roles.any((role) => role.id == user.customRoleId);
   }
 
   List<User> get users => _users;
@@ -314,25 +364,23 @@ class DataProvider {
   /// по составу ППР (осмотры его периодических задач).
   List<Task> getTasksForPpr(String pprUuid) {
     final matched = activePprs.where((p) => p.uuid == pprUuid).toList();
-    if (matched.isEmpty || matched.first.periodicTaskUuids.isEmpty) {
+    if (matched.isEmpty || matched.first.inspectionUuids.isEmpty) {
       return [];
     }
     final ppr = matched.first;
     final tasksInScans = _scannedTaskUuids();
     final tasks = taskBox.values
-        .where((task) =>
-            task.periodicTask != null &&
-            ppr.periodicTaskUuids.contains(task.periodicTask!.uuid))
+        .where((task) => ppr.inspectionUuids.contains(task.uuid))
         .where((task) => _isTaskAvailable(task, tasksInScans))
         .toList();
     tasks.sort((a, b) {
-      final byEquipment = a.periodicTask!.equipment.name
+      final byEquipment = (a.periodicTask?.equipment.name ?? '')
           .toLowerCase()
-          .compareTo(b.periodicTask!.equipment.name.toLowerCase());
+          .compareTo((b.periodicTask?.equipment.name ?? '').toLowerCase());
       if (byEquipment != 0) return byEquipment;
-      return a.periodicTask!.title
+      return (a.periodicTask?.title ?? '')
           .toLowerCase()
-          .compareTo(b.periodicTask!.title.toLowerCase());
+          .compareTo((b.periodicTask?.title ?? '').toLowerCase());
     });
     return tasks;
   }
@@ -361,12 +409,16 @@ class DataProvider {
       return false;
     }
     if (task.resultStatus == "scheduled") {
-      return task.periodicTask!.customRoles
+      // Осмотр без периодической задачи (её удалили) ролей не несёт —
+      // показывать его некому. Раньше здесь падал `!`.
+      final periodicTask = task.periodicTask;
+      if (periodicTask == null) return false;
+      return periodicTask.customRoles
               .where((role) => role.id == GlobalState.authUser!.customRoleId)
               .length >
           0;
     } else if (task.resultStatus == "open") {
-      return task.responsibleUser!.uuid == GlobalState.authUser!.uuid;
+      return task.responsibleUser?.uuid == GlobalState.authUser!.uuid;
     } else {
       return false;
     }

@@ -69,6 +69,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
   bool get _isSelectionMode => widget.controller != null;
 
+  /// Подсказку «Выберите только одну задачу» пользователь может закрыть
+  /// крестиком — до следующего открытия окна выбора задач.
+  bool _hintHidden = false;
+
   late Equipment equipment;
 
   @override
@@ -91,13 +95,11 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     for (var task in tasks) {
       var periodName = '';
       final periodicTask = task.periodicTask;
-      final ppr = periodicTask == null
-          ? null
-          : GlobalState.dataProvider.pprForPeriodicTask(periodicTask.uuid);
+      final ppr = GlobalState.dataProvider.pprForTask(task);
       if (ppr != null) {
-        // Осмотр принадлежит периодической задаче, которая сейчас в ППР —
-        // выносим его в отдельную группу вне зависимости от статуса.
-        // У ППР может не быть названия, тогда группа называется просто «ППР».
+        // Осмотр входит в состав актуального ППР — выносим его в отдельную
+        // группу вне зависимости от статуса. У ППР может не быть названия,
+        // тогда группа называется просто «ППР».
         periodName = ppr.groupTitle;
       } else if (task.resultStatus == 'open') {
         periodName = 'Назначенные задачи';
@@ -237,7 +239,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             textAlign: TextAlign.center,
           ),
         ),
-        if (_isSelectionMode && widget.isModal)
+        if (_isSelectionMode && widget.isModal && !_hintHidden)
           Container(
             margin: const EdgeInsets.symmetric(
                 horizontal: AppConstants.spacingMD,
@@ -267,8 +269,11 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                   visualDensity: VisualDensity.compact,
                   icon: const Icon(Icons.clear_rounded),
                   color: cs.onPrimaryContainer,
-                  onPressed: _selectionController.clearSelection,
-                  tooltip: 'Снять выделение',
+                  // Крестик закрывает саму подсказку: выделение снимается
+                  // повторным тапом по задаче, а «X» на сообщении читается
+                  // как «скрыть сообщение».
+                  onPressed: () => setState(() => _hintHidden = true),
+                  tooltip: 'Скрыть подсказку',
                 ),
               ],
             ),
