@@ -90,6 +90,11 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
     // пустое — без этого вкладка осталась бы пустой до повторного нажатия
     // на чип.
     if (_needsClosed) _loadClosed();
+    // Каталог ЗИП больше не едет вместе с остальными справочниками — он
+    // слишком большой. Заводим его загрузку здесь, на входе в раздел: пока
+    // обходчик выбирает ремонт, каталог успевает подтянуться, и подбор
+    // позиции в расходе открывается уже с данными. Экран этого не ждёт.
+    GlobalState.dataProvider.ensureSparePartsLoaded();
   }
 
   Future<void> _syncRepairs() async {

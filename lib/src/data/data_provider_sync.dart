@@ -106,6 +106,21 @@ extension DataProviderSync on DataProvider {
     return started.whenComplete(() => _sparePartsSync = null);
   }
 
+  /// Подтягивает каталог ЗИП, если его ещё нет.
+  ///
+  /// Вызывают экраны, которым каталог нужен: раздел ЗИП, список ремонтов и
+  /// карточка ремонта (подбор позиций и остатки в расходе). В [mainSync]
+  /// каталога больше нет, поэтому у обходчика, который ни разу не заходил в
+  /// эти экраны, он пуст — и подобрать позицию в расходе было бы не из чего.
+  ///
+  /// Ничего не ждёт, если каталог уже загружен: это дешёвая проверка на
+  /// входе в экран, а не обновление. Освежает его фоновый цикл и жест
+  /// «потянуть вниз» в самом разделе ЗИП.
+  Future<void> ensureSparePartsLoaded() async {
+    if (spareParts.isNotEmpty) return;
+    await syncSpareParts();
+  }
+
   Future<bool> _syncSparePartsImpl() async {
     _isLoading = true;
 
@@ -197,15 +212,24 @@ extension DataProviderSync on DataProvider {
     }
   }
 
-  /// Полная синхронизация справочников.
+  /// Синхронизация оперативных справочников.
   ///
   /// Все загрузки идут параллельно, а не одна за другой: между собой они
   /// независимы — разные эндпоинты, разные боксы, ни одна не использует
-  /// результат другой. Последовательный проход складывал время всех десяти,
+  /// результат другой. Последовательный проход складывал время всех,
   /// и на медленной сети кнопка «Синхронизировать данные» думала минутами.
   ///
   /// Каждая из них уже глотает свою ошибку и логирует, так что `Future.wait`
   /// не оборвётся из-за одной неудачной — остальные догрузятся.
+  ///
+  /// **Каталога ЗИП здесь намеренно нет.** Он на порядок больше остальных
+  /// справочников (десятки тысяч позиций — это сотни последовательных
+  /// страниц), а меняется реже всех. Раньше он ехал вместе со всеми, и любое
+  /// действие обходчика — вход в «Задачи», нажатие «Сканер», отправка
+  /// осмотра — тянуло весь каталог, хотя нужен он только в разделе ЗИП и в
+  /// расходе по ремонту. Теперь его грузят те, кому он нужен:
+  /// [ensureSparePartsLoaded] на входе в эти экраны и отдельный редкий проход
+  /// в [startSyncing].
   Future mainSync() async {
     if (!GlobalState.isAuthorized) return;
     await Future.wait([
@@ -215,7 +239,6 @@ extension DataProviderSync on DataProvider {
       syncPeriodicityRules(),
       syncUsageUnitTypes(),
       syncEquipmentStates(),
-      syncSpareParts(),
       syncMyRepairs(),
       syncCompany(),
     ]);
@@ -252,13 +275,26 @@ extension DataProviderSync on DataProvider {
     });
   }
 
+  /// Как часто фоновый цикл обновляет каталог ЗИП — раз в 10 проходов, то
+  /// есть примерно раз в 10 минут.
+  ///
+  /// Каждую минуту его гонять незачем: это сотни последовательных страниц и
+  /// полная перезапись бокса ради справочника, который меняется куда реже
+  /// задач и осмотров. Совсем не обновлять тоже нельзя — остатки на складе
+  /// должны подтягиваться сами, без похода в раздел ЗИП.
+  static const int _sparePartsSyncEveryTicks = 10;
+
   void startSyncing() {
     Future.sync(() async {
+      var tick = 0;
       while (true) {
         await Future.delayed(Duration(seconds: 60));
         if (await GlobalState.hasConnectionToServer) {
           await mainSync();
-          // await syncScans();
+          tick++;
+          if (tick % _sparePartsSyncEveryTicks == 0) {
+            await syncSpareParts();
+          }
         }
       }
     });
@@ -281,6 +317,11 @@ extension DataProviderSync on DataProvider {
     final scansWas = scanBox.length;
     await Future.wait([
       mainSync(),
+      // Каталог ЗИП обновляем только здесь и в редком фоновом проходе: это
+      // единственное место, где обходчик сам попросил обновить всё и готов
+      // подождать ответа. Из `mainSync` он убран, чтобы не ехать за каждым
+      // нажатием «Сканер» и входом в «Задачи».
+      syncSpareParts(),
       if (scansWas > 0) syncScans(),
     ]);
     if (pendingRepairBox.isNotEmpty || pendingRepairUpdateBox.isNotEmpty) {

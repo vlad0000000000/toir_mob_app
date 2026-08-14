@@ -7,8 +7,25 @@ extension TaskApi on API {
       throw Exception('Not authenticated');
     }
 
-    final url = Uri.parse(
-        '${API.baseUrl}/v1/company/fault_inspections/?limit=${limit}&skip=${offset}&status=open');
+    // Отбор по ответственному делает сервер, а не телефон.
+    //
+    // Раньше запрос тянул открытые заявки **всей компании**, и лишнее
+    // отбрасывалось уже здесь, в `where` ниже. При сотне обходчиков это
+    // означало скачать в сто раз больше, чем нужно, — и так на каждой
+    // синхронизации. Фильтр у эндпоинта был всё это время, им просто не
+    // пользовались.
+    //
+    // Если uuid по какой-то причине неизвестен, фильтр не ставим и работаем
+    // как раньше: лучше лишний трафик, чем пустой список задач.
+    final userUuid = GlobalState.authUser?.uuid;
+    final url = Uri.parse('${API.baseUrl}/v1/company/fault_inspections/')
+        .replace(queryParameters: <String, dynamic>{
+      'limit': '$limit',
+      'skip': '$offset',
+      'status': 'open',
+      if (userUuid != null && userUuid.isNotEmpty)
+        'responsible_user_uuids': [userUuid],
+    });
 
     final response = await http.get(
       url,

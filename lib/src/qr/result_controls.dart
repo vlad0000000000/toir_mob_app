@@ -526,12 +526,20 @@ class _ActionRow extends StatelessWidget {
                   ),
                   const SizedBox(width: 4),
                 ],
-                if (!disabled)
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    size: 20,
-                    color: cs.onSurfaceVariant,
-                  ),
+                // Место под стрелку занято всегда, даже когда строка неактивна
+                // и стрелки нет. Иначе значение неактивной строки уезжало бы
+                // правее на её ширину, и «Нет активных» у задач не совпадало
+                // по краю с «Не выбрана» у проблемы.
+                SizedBox(
+                  width: 20,
+                  child: disabled
+                      ? null
+                      : Icon(
+                          Icons.chevron_right_rounded,
+                          size: 20,
+                          color: cs.onSurfaceVariant,
+                        ),
+                ),
               ],
             ),
             if (error != null) ...[

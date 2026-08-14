@@ -10,6 +10,9 @@ import 'package:intl/intl.dart';
 
 import '../../global_state.dart';
 import '../../strings.dart';
+// Импорт библиотеки целиком, а не part-файла: ensureSparePartsLoaded
+// объявлен в extension DataProviderSync и виден только через data_provider.dart.
+import '../data/data_provider.dart';
 import '../data/repair_photo_files.dart';
 import '../design/app_constants.dart';
 import '../design/app_theme.dart';
@@ -94,6 +97,11 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
     // открыться с цифрами обходчика, а не с серверными.
     _applyPendingUpdate();
     _load();
+    // Каталог ЗИП нужен здесь для подбора позиций и остатков в расходе, а в
+    // общей синхронизации его больше нет. В карточку попадают и напрямую —
+    // из уведомления или после скана, минуя список ремонтов, — поэтому
+    // подстраховываемся и тут. Экран загрузки не ждёт.
+    GlobalState.dataProvider.ensureSparePartsLoaded();
   }
 
   bool get _isDraft => widget.draftLocalId != null;
