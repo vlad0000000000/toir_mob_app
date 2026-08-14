@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import 'package:hive_ce/hive.dart';
 import '../../src/model/periodic_task_models.dart';
 import '../../src/model/responsible_user.dart';
 import '../../src/model/equipment_fault.dart';
+import 'spare_part_usage.dart';
 
 class Task {
   final String uuid;
@@ -15,6 +18,11 @@ class Task {
   final EquipmentFault? equipmentFault;
   final List<String> photos;
 
+  /// Настройка расхода ЗИП по этой задаче. `null` — расход не настроен, и
+  /// раздел фактического расхода при закрытии задачи показывать нельзя:
+  /// сервер такой `PATCH` отклонит.
+  final SparePartUsage? sparePartUsage;
+
   Task({
     required this.uuid,
     required this.resultStatus,
@@ -26,6 +34,7 @@ class Task {
     required this.comment,
     this.equipmentFault,
     this.photos = const [],
+    this.sparePartUsage,
   });
 
   factory Task.fromJson(Map<String, dynamic> json) {
@@ -58,6 +67,10 @@ class Task {
           ? EquipmentFault.fromJson(
               json['equipment_fault'] as Map<String, dynamic>)
           : null,
+      sparePartUsage: json['spare_part_usage'] != null
+          ? SparePartUsage.fromJson(
+              json['spare_part_usage'] as Map<String, dynamic>)
+          : null,
     );
   }
 
@@ -78,17 +91,43 @@ class TaskAdapter extends TypeAdapter<Task> {
 
   @override
   Task read(BinaryReader reader) {
+    // Поля читаются в локальные переменные, а не прямо в конструктор: только
+    // так последнее поле можно обернуть в try/catch и открыть записи,
+    // сохранённые до его появления.
+    var uuid = reader.read();
+    var resultStatus = reader.read();
+    var targetType = reader.read();
+    var periodicTask = reader.read();
+    var equipmentUuid = reader.read();
+    var roles = reader.read();
+    var responsibleUser = reader.read();
+    var comment = reader.read();
+    var equipmentFault = reader.read();
+    var photos = reader.read();
+    SparePartUsage? sparePartUsage;
+    try {
+      final raw = reader.read() as String?;
+      if (raw != null && raw.isNotEmpty) {
+        sparePartUsage =
+            SparePartUsage.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+      }
+    } catch (_) {
+      // Старые записи без поля spare_part_usage: задача остаётся рабочей,
+      // просто без раздела расхода — он появится после синхронизации.
+      sparePartUsage = null;
+    }
     return Task(
-      uuid: reader.read(),
-      resultStatus: reader.read(),
-      targetType: reader.read(),
-      periodicTask: reader.read(),
-      equipmentUuid: reader.read(),
-      roles: reader.read(),
-      responsibleUser: reader.read(),
-      comment: reader.read(),
-      equipmentFault: reader.read(),
-      photos: reader.read(),
+      uuid: uuid,
+      resultStatus: resultStatus,
+      targetType: targetType,
+      periodicTask: periodicTask,
+      equipmentUuid: equipmentUuid,
+      roles: roles,
+      responsibleUser: responsibleUser,
+      comment: comment,
+      equipmentFault: equipmentFault,
+      photos: photos,
+      sparePartUsage: sparePartUsage,
     );
   }
 
@@ -104,5 +143,11 @@ class TaskAdapter extends TypeAdapter<Task> {
     writer.write(obj.comment);
     writer.write(obj.equipmentFault);
     writer.write(obj.photos);
+    // Блок расхода кладём строкой JSON, а не отдельными адаптерами: он
+    // read-only и целиком приходит с сервера, а два новых typeId ради
+    // сквозного поля — лишний риск для формата на устройствах.
+    writer.write(obj.sparePartUsage == null
+        ? null
+        : jsonEncode(obj.sparePartUsage!.toJson()));
   }
 }

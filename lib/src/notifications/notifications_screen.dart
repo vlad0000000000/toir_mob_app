@@ -240,8 +240,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    NotificationTypes.displayName(n.notificationType)
-                        .toUpperCase(),
+                    NotificationTypes.displayNameOf(n).toUpperCase(),
                     style: tt.labelSmall?.copyWith(
                       color: cs.onSurfaceVariant,
                       letterSpacing: 0.8,

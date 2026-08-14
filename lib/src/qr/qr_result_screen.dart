@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
@@ -18,12 +18,15 @@ import '../../src/utils/dialogs.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../src/widgets/controller_listener_mixin.dart';
 import '../../src/widgets/select_image_button.dart';
+import '../../src/widgets/spare_part_consumption.dart';
+import '../../strings.dart';
 import '../model/repair.dart';
 import '../model/typical_problem.dart';
 import '../model/usage_update.dart';
 import '../model/periodic_task_request.dart';
 import '../update_manager.dart';
 import '../utils/any_controller.dart';
+import '../utils/offline_error.dart';
 import '../../src/onboarding/demo_equipment.dart';
 import 'result_controls.dart';
 
@@ -50,6 +53,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
   final problemController = AnyController<TypicalProblem>();
   final equipmentController = EquipmentDetailController();
   final usageController = AnyController<List<UsageUpdate>>();
+  final consumptionController = AnyController<List<ConsumptionLine>>();
   final stateController = AnyController<String>();
   String? _previousState;
   bool _highlightDescError = false;
@@ -83,15 +87,9 @@ class _QRResultScreenState extends State<QRResultScreen> {
     ));
   }
 
-  bool _isOfflineError(Object e) {
-    if (e is SocketException || e is HttpException) return true;
-    final s = e.toString();
-    return s.contains('SocketException') ||
-        s.contains('Failed host lookup') ||
-        s.contains('Connection refused') ||
-        s.contains('Network is unreachable') ||
-        s.contains('TimeoutException');
-  }
+  // Детект офлайна переехал в `utils/offline_error.dart`: та же проверка
+  // понадобилась очереди осмотров, а четвёртой копии в проекте быть не должно.
+  bool _isOfflineError(Object e) => isOfflineError(e);
 
   /// Оборудование уже в ремонте — вместо сырого отказа объясняем ситуацию и
   /// даём перейти в существующий ремонт (п. 4.4.5 плана).
@@ -389,8 +387,29 @@ class _QRResultScreenState extends State<QRResultScreen> {
     return result;
   }
 
+  /// Фактический расход для отправки — готовая строка поля
+  /// `actual_consumptions` формы `PATCH /v1/company/fault_inspections/{uuid}`.
+  ///
+  /// `null` — расход не заполнен. Поле тогда не отправляем вовсе: пустой
+  /// список сервер понял бы как «расхода нет» и стёр бы уже сохранённые
+  /// позиции, а списание не выполнил бы.
+  String? _consumptionsPayload() {
+    final lines = (consumptionController.value ?? const <ConsumptionLine>[])
+        .where((line) => line.quantity > 0)
+        .toList();
+    if (lines.isEmpty) return null;
+    return jsonEncode([
+      for (final line in lines)
+        {'spare_part_uuid': line.sparePartUuid, 'quantity': line.quantity},
+    ]);
+  }
+
   List<Scan>? createScans() {
     List<Scan> result = [];
+    // Считаем один раз: расход относится к единственной выбранной задаче.
+    final consumptionTask = consumptionTaskOf(equipmentController);
+    final consumptionsPayload =
+        consumptionTask == null ? null : _consumptionsPayload();
 
     var images = [
       imageData1Controller.value,
@@ -429,6 +448,8 @@ class _QRResultScreenState extends State<QRResultScreen> {
             faultUuid: '',
             closedAt: GlobalState.nowUTCDate,
             createdAt: widget.openDateTime,
+            actualConsumptions:
+                task.uuid == consumptionTask?.uuid ? consumptionsPayload : null,
             periodicTaskUuid: task.periodicTask!.uuid));
         hasTasks = true;
       }
@@ -443,6 +464,8 @@ class _QRResultScreenState extends State<QRResultScreen> {
             faultUuid: '',
             closedAt: GlobalState.nowUTCDate,
             createdAt: widget.openDateTime,
+            actualConsumptions:
+                task.uuid == consumptionTask?.uuid ? consumptionsPayload : null,
             periodicTaskUuid: ''));
         hasTasks = true;
       }
@@ -555,6 +578,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
               problemController: problemController,
               equipmentDetailController: equipmentController,
               usageController: usageController,
+              consumptionController: consumptionController,
               highlightDescError: _highlightDescError,
               highlightPriorityError: _highlightPriorityError,
             ),
@@ -582,6 +606,13 @@ class _QRResultScreenState extends State<QRResultScreen> {
           'Укажите данные обхода (комментарий, проблему, задачу или наработку)');
       return;
     }
+    // Задача с настроенным расходом закрывается без единой позиции — значит
+    // со склада ничего не спишется. Не запрещаем: ТО не всегда требует ЗИП.
+    // Но переспрашиваем — забытый расход всплыл бы только у администратора,
+    // в разъехавшихся остатках, и задним числом его уже не поправить.
+    final skipsWriteOff = consumptionTaskOf(equipmentController) != null &&
+        _consumptionsPayload() == null;
+
     Dialogs.areYouSure(context, onOk: () async {
       await addScans(scans, usageScans);
       dataProvider.mainSync();
@@ -602,7 +633,13 @@ class _QRResultScreenState extends State<QRResultScreen> {
             ? '/problems'
             : '/qr_scanner',
       );
-    }, rewriteMessage: null, desc: null);
+    },
+        rewriteMessage: skipsWriteOff
+            ? InspectionConsumptionStrings.confirmEmptyTitle
+            : null,
+        desc: skipsWriteOff
+            ? InspectionConsumptionStrings.confirmEmptyBody
+            : null);
   }
 
   void _clearValidationHighlights() {
@@ -728,6 +765,12 @@ class _QRResultScreenState extends State<QRResultScreen> {
     problemController.valueNotifier.addListener(_onProblemChanged);
     equipmentController.valueNotifier.addListener(_onTaskChanged);
 
+    // Справочник ЗИП нужен разделу фактического расхода: и для подбора
+    // позиций, и для остатков в предупреждениях о нехватке. В общей
+    // синхронизации его нет, а на карточку попадают прямо со сканера —
+    // поэтому подтягиваем здесь. Экран этого не ждёт.
+    GlobalState.dataProvider.ensureSparePartsLoaded();
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) setState(() {});
     });
@@ -746,6 +789,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
     imageData2Controller.dispose();
     imageData3Controller.dispose();
     equipmentController.dispose();
+    consumptionController.dispose();
     super.dispose();
   }
 }

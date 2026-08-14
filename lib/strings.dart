@@ -532,3 +532,78 @@ class SparePartStrings {
 
   static String shownOf(int shown, int total) => '$shown из $total';
 }
+
+/// Тексты раздела фактического расхода ЗИП на экране результата скана.
+///
+/// Отдельно от [RepairCardStrings]: сам блок общий с карточкой ремонта, но
+/// момент списания разный — у ремонта склад уменьшает администратор при
+/// закрытии, у осмотра это происходит сразу после отправки.
+class InspectionConsumptionStrings {
+  static const String writeOffNote =
+      'Указанные количества спишутся со склада сразу после отправки осмотра.';
+  static const String emptyNote =
+      'Расход не указан — списания со склада не будет.';
+
+  static const String confirmEmptyTitle = 'Расход ЗИП не заполнен';
+  static const String confirmEmptyBody =
+      'Задача закроется, но со склада ничего не спишется. Отправить осмотр '
+      'без расхода?';
+}
+
+/// Тексты очереди отправки осмотров: причины отказа и полоса на главной.
+class ScanQueueStrings {
+  static const String errorAuthExpired =
+      'Сессия истекла. Войдите в приложение заново.';
+  static const String errorNoConnection =
+      'Нет связи с сервером. Проверьте интернет и повторите.';
+  static const String errorGeneric = 'Сервер не принял осмотр';
+
+  static const String rejectedTitle = 'Осмотры не отправлены';
+  static const String rejectedAction = 'Разобраться';
+  static const String rejectedUnknownEquipment = 'Оборудование не указано';
+
+  static String rejectedCount(int count) {
+    final mod10 = count % 10;
+    final mod100 = count % 100;
+    if (mod10 == 1 && mod100 != 11) return '$count осмотр отклонён сервером';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
+      return '$count осмотра отклонено сервером';
+    }
+    return '$count осмотров отклонено сервером';
+  }
+}
+
+/// Тексты экрана разрешения конфликта при отправке осмотра.
+class ScanConflictStrings {
+  static const String title = 'Осмотр не отправлен';
+  static const String reasonLabel = 'ПРИЧИНА ОТКАЗА';
+  static const String dataLabel = 'ВАШИ ДАННЫЕ';
+  static const String shortageLabel = 'ЧЕГО НЕ ХВАТАЕТ НА СКЛАДЕ';
+  static const String commentLabel = 'Комментарий';
+  static const String consumptionLabel = 'Фактический расход ЗИП';
+  static const String noComment = 'Без комментария';
+  static const String noConsumption = 'Расход не указан';
+
+  static const String askAdminTitle = 'Обратитесь к администратору';
+  static const String askAdminBody =
+      'Попросите пополнить остатки на складе. После этого вернитесь сюда и '
+      'повторите отправку — осмотр всё это время хранится на устройстве.';
+  static const String copy = 'Скопировать список';
+  static const String copied = 'Список скопирован';
+
+  static const String retry = 'Повторить отправку';
+  static const String delete = 'Удалить осмотр';
+  static const String deleteTitle = 'Удалить осмотр?';
+  static const String deleteBody =
+      'Данные осмотра будут потеряны безвозвратно, а закрытая им задача снова '
+      'станет активной после синхронизации.';
+
+  static const String genericHint =
+      'Отправку можно повторить — например если причина уже устранена. Если '
+      'нет, осмотр придётся удалить и снять заново.';
+
+  static String needShortage(String name, String required, String available) =>
+      '$name — нужно $required, на складе $available';
+
+  static String position(String name, String quantity) => '$name — $quantity';
+}

@@ -58,24 +58,37 @@ extension ScanApi on API {
       }
     }
 
-    try {
-      final response = await request.send().timeout(API._uploadTimeout);
+    // Без обёртки try/catch вокруг всего: раньше любая ошибка превращалась в
+    // `Exception('Failed to send scan: ...')`, и очередь не могла отличить
+    // обрыв связи от отказа сервера — а с расходом ЗИП разница стала
+    // принципиальной. Сетевые исключения летят как есть, отказ сервера
+    // приходит его же текстом.
+    final response = await request.send().timeout(API._uploadTimeout);
+    final responseBody =
+        await response.stream.bytesToString().timeout(API._uploadTimeout);
 
-      final responseBody =
-          await response.stream.bytesToString().timeout(API._uploadTimeout);
-      final Map<String, dynamic> responseData = jsonDecode(responseBody);
-
-      if (response.statusCode != 200 && response.statusCode != 201) {
-        throw Exception(
-            'Failed to send scan: ${response.statusCode} - $responseBody');
-      }
-
-      if (responseData.containsKey('uuid')) {
-        return true;
-      }
-    } catch (e) {
-      throw Exception('Failed to send scan: $e');
+    if (response.statusCode == 401) {
+      throw AuthExpiredException();
     }
-    return false;
+
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      // Код ответа приклеиваем к сообщению: по нему очередь отличает
+      // временный сбой сервера (5xx) от отказа по существу (4xx), например
+      // «Недостаточно ЗИП на складе». Из текста для обходчика метку
+      // вырезает `scanErrorMessage`.
+      throw Exception(
+        '${_detailFromBody(responseBody, 'Не удалось отправить осмотр')}'
+        ' [HTTP ${response.statusCode}]',
+      );
+    }
+
+    try {
+      final data = jsonDecode(responseBody);
+      return data is Map<String, dynamic> && data.containsKey('uuid');
+    } catch (_) {
+      // Успешный код, но тело не разобралось — считаем неудачей, осмотр
+      // останется в очереди и уйдёт следующим проходом.
+      return false;
+    }
   }
 }

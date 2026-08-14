@@ -11,10 +11,31 @@ import '../../src/model/usage_unit.dart';
 import '../../src/tasks/tasks.dart';
 import '../../src/widgets/select_image_button.dart';
 import '../../src/widgets/select_task_button.dart';
+import '../../strings.dart';
 import '../design/app_constants.dart';
+import '../model/spare_part_usage.dart';
+import '../model/task.dart';
 import '../model/typical_problem.dart';
 import '../model/usage_update.dart';
+import '../repairs/spare_part_picker_sheet.dart';
 import '../utils/any_controller.dart';
+import '../widgets/spare_part_consumption.dart';
+
+/// Задача, по которой сервер ждёт фактический расход ЗИП.
+///
+/// Условие ровно то же, что и на бэкенде: блок `spare_part_usage` приходит
+/// только у задач с настроенным расходом, а `PATCH` без такой настройки
+/// отклоняется («Для этого осмотра не настроен расход ЗИП»). Выбор задачи в
+/// приложении одиночный, поэтому берём единственную.
+///
+/// Живёт здесь, а не в модели: правило описывает поведение формы осмотра, и
+/// нужно оно двоим — самой форме и сборке осмотра на экране результата.
+Task? consumptionTaskOf(EquipmentDetailController controller) {
+  final selected = controller.selectedTasks;
+  if (selected.length != 1) return null;
+  final task = selected.first;
+  return task.sparePartUsage == null ? null : task;
+}
 
 class ResultControls extends StatefulWidget {
   final TextEditingController descController;
@@ -25,6 +46,11 @@ class ResultControls extends StatefulWidget {
   final AnyController<TypicalProblem> problemController;
   final EquipmentDetailController equipmentDetailController;
   final AnyController<List<UsageUpdate>> usageController;
+
+  /// Фактический расход ЗИП по выбранной задаче. Живёт в состоянии экрана
+  /// результата — оттуда же его забирает сборка осмотра.
+  final AnyController<List<ConsumptionLine>> consumptionController;
+
   final InventoryRecord machine;
   final bool highlightDescError;
   final bool highlightPriorityError;
@@ -40,6 +66,7 @@ class ResultControls extends StatefulWidget {
     required this.machine,
     required this.equipmentDetailController,
     required this.usageController,
+    required this.consumptionController,
     this.highlightDescError = false,
     this.highlightPriorityError = false,
   });
@@ -53,13 +80,34 @@ class _ResultControlsState extends State<ResultControls> {
 
   void _onValueChanged() => setState(() {});
 
+  /// Смена выбранной задачи обнуляет расход.
+  ///
+  /// Иначе позиции, набранные для одной задачи, уехали бы вместе с другой —
+  /// и списались бы со склада не по тому поводу. Плана у новой задачи тоже
+  /// другой, и «Норма N» в строках стала бы враньём.
+  void _onTaskChanged() {
+    final task = _consumptionTask;
+    if (task?.uuid != _lastConsumptionTaskUuid) {
+      _lastConsumptionTaskUuid = task?.uuid;
+      // Сравниваем именно uuid, а не «есть задача / нет»: при переходе с одной
+      // задачи с расходом на другую позиции тоже обязаны обнулиться.
+      if (_consumptions.isNotEmpty) {
+        widget.consumptionController.value = const [];
+      }
+    }
+    setState(() {});
+  }
+
+  /// Задача, под которую собран текущий расход.
+  String? _lastConsumptionTaskUuid;
+
   @override
   void initState() {
     super.initState();
     widget.problemController.valueNotifier.addListener(_onValueChanged);
     widget.priorityController.valueNotifier.addListener(_onValueChanged);
-    widget.equipmentDetailController.valueNotifier
-        .addListener(_onValueChanged);
+    widget.equipmentDetailController.valueNotifier.addListener(_onTaskChanged);
+    widget.consumptionController.valueNotifier.addListener(_onValueChanged);
   }
 
   @override
@@ -67,8 +115,103 @@ class _ResultControlsState extends State<ResultControls> {
     widget.problemController.valueNotifier.removeListener(_onValueChanged);
     widget.priorityController.valueNotifier.removeListener(_onValueChanged);
     widget.equipmentDetailController.valueNotifier
-        .removeListener(_onValueChanged);
+        .removeListener(_onTaskChanged);
+    widget.consumptionController.valueNotifier.removeListener(_onValueChanged);
     super.dispose();
+  }
+
+  // ── Фактический расход ЗИП ────────────────────────────────────────────
+
+  Task? get _consumptionTask =>
+      consumptionTaskOf(widget.equipmentDetailController);
+
+  List<ConsumptionLine> get _consumptions =>
+      widget.consumptionController.value ?? const [];
+
+  /// Единица измерения из локального справочника ЗИП: в плане сервер её не
+  /// присылает (`SparePartSchemaShort` — только uuid и название).
+  static String? _unitOf(String sparePartUuid) {
+    final part = GlobalState.dataProvider.sparePartByUuid(sparePartUuid);
+    final unit = part?.unitLabel ?? '';
+    return unit.isEmpty ? null : unit;
+  }
+
+  /// Плановое количество позиции — чтобы строка, добавленная руками,
+  /// показывала «Норма N» и отклонение, если такая позиция в плане есть.
+  double? _plannedQuantityOf(String sparePartUuid) {
+    for (final item in _consumptionTask?.sparePartUsage?.planned ??
+        const <SparePartUsageItem>[]) {
+      if (item.sparePartUuid == sparePartUuid) return item.quantity;
+    }
+    return null;
+  }
+
+  /// Позиции плана, которых в расходе ещё нет.
+  List<ConsumptionLine> get _missingPlanItems {
+    final existing = _consumptions.map((item) => item.sparePartUuid).toSet();
+    return [
+      for (final item in _consumptionTask?.sparePartUsage?.planned ??
+          const <SparePartUsageItem>[])
+        if (!existing.contains(item.sparePartUuid))
+          ConsumptionLine(
+            sparePartUuid: item.sparePartUuid,
+            sparePartName: item.sparePartName,
+            unitName: _unitOf(item.sparePartUuid),
+            quantity: item.quantity,
+            normQuantity: item.quantity,
+          ),
+    ];
+  }
+
+  void _fillFromPlan() {
+    final added = _missingPlanItems;
+    if (added.isEmpty) return;
+    widget.consumptionController.value = [..._consumptions, ...added];
+  }
+
+  Future<void> _addConsumptionPosition() async {
+    final picked = await showSparePartPicker(
+      context,
+      alreadyAddedUuids: _consumptions.map((item) => item.sparePartUuid).toSet(),
+    );
+    if (picked == null || !mounted) return;
+    widget.consumptionController.value = [
+      ..._consumptions,
+      ConsumptionLine(
+        sparePartUuid: picked.uuid,
+        sparePartName: picked.name,
+        unitName: picked.unitLabel.isEmpty ? null : picked.unitLabel,
+        quantity: 1,
+        normQuantity: _plannedQuantityOf(picked.uuid),
+      ),
+    ];
+  }
+
+  void _changeConsumptionQuantity(int index, double delta) {
+    final next = _consumptions[index].quantity + delta;
+    if (next < 1) return;
+    _setConsumptionQuantity(index, next);
+  }
+
+  /// Ноль и отрицательные не принимаем: позиция с нулём всё равно не списалась
+  /// бы на сервере, а в списке выглядела бы заполненной.
+  void _setConsumptionQuantity(int index, double value) {
+    if (value <= 0) return;
+    final item = _consumptions[index];
+    if (item.quantity == value) return;
+    final next = [..._consumptions];
+    next[index] = ConsumptionLine(
+      sparePartUuid: item.sparePartUuid,
+      sparePartName: item.sparePartName,
+      unitName: item.unitName,
+      quantity: value,
+      normQuantity: item.normQuantity,
+    );
+    widget.consumptionController.value = next;
+  }
+
+  void _removeConsumptionPosition(int index) {
+    widget.consumptionController.value = [..._consumptions]..removeAt(index);
   }
 
   List<UsageParameter> get _matchingUsage {
@@ -226,6 +369,9 @@ class _ResultControlsState extends State<ResultControls> {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     final usage = _matchingUsage;
+    // Локальная переменная, а не геттер в разметке: без неё анализатор не
+    // сузит тип и `sparePartUsage!` пришлось бы писать с лишними проверками.
+    final consumptionTask = _consumptionTask;
     final selectedTasks = widget.equipmentDetailController.selectedTasks;
     final problem = widget.problemController.value;
     final priority = widget.priorityController.value;
@@ -359,6 +505,28 @@ class _ResultControlsState extends State<ResultControls> {
               widget.imageData3Controller,
             ],
           ),
+
+          // ── Фактический расход ЗИП ───────────────────────────
+          // Последним блоком формы: расход заполняют, когда работа уже
+          // описана, и в отличие от остальных секций он появляется не всегда —
+          // только под выбранную задачу с настроенным расходом. Иначе серверу
+          // этот блок отправить некуда.
+          if (consumptionTask != null) ...[
+            const SizedBox(height: AppConstants.spacingMD),
+            SparePartConsumptionSection(
+              lines: _consumptions,
+              editable: true,
+              hasNorm: consumptionTask.sparePartUsage!.hasPlan,
+              canFillFromNorm: _missingPlanItems.isNotEmpty,
+              writeOffNote: InspectionConsumptionStrings.writeOffNote,
+              emptyNote: InspectionConsumptionStrings.emptyNote,
+              onAdd: _addConsumptionPosition,
+              onFillFromNorm: _fillFromPlan,
+              onChangeQuantity: _changeConsumptionQuantity,
+              onSetQuantity: _setConsumptionQuantity,
+              onRemove: _removeConsumptionPosition,
+            ),
+          ],
           const SizedBox(height: AppConstants.spacingMD),
         ],
       ),

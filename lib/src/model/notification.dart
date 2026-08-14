@@ -32,6 +32,20 @@ class AppNotification {
     return null;
   }
 
+  /// Ремонт назначен на должность, а исполнителя у него нет — такой может
+  /// взять в работу любой обходчик этой должности.
+  ///
+  /// Сервер шлёт оба случая одним типом `repair_assigned`, различая их только
+  /// заголовком: «Вам назначен ремонт: …» против «Свободный ремонт, можно
+  /// взять в работу: …». Признак тот же, по которому он выбирает шаблон, —
+  /// пустой `responsible_user` в payload.
+  bool get isFreeRepair {
+    if (notificationType != NotificationTypes.repairAssigned) return false;
+    final user = payload['responsible_user'];
+    final uuid = user is Map ? user['uuid'] : null;
+    return uuid == null || (uuid is String && uuid.isEmpty);
+  }
+
   AppNotification({
     required this.uuid,
     required this.notificationType,
@@ -122,6 +136,16 @@ class NotificationTypes {
   /// администратором либо при смене ответственного. Как и возврат на
   /// доработку, ведёт прямо в карточку ремонта.
   static const String repairAssigned = 'repair_assigned';
+
+  /// Подпись типа с учётом содержимого уведомления.
+  ///
+  /// Нужна там, где одного `notification_type` не хватает: `repair_assigned`
+  /// приходит и на «вам назначен», и на «свободный, можно взять» — чип с
+  /// одинаковой подписью противоречил бы заголовку.
+  static String displayNameOf(AppNotification notification) =>
+      notification.isFreeRepair
+          ? 'Свободный ремонт'
+          : displayName(notification.notificationType);
 
   static String displayName(String type) {
     switch (type) {

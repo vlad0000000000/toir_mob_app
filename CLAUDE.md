@@ -28,8 +28,10 @@ These break user data or the build if ignored. Full detail lives in the skill.
 - **Hive adapters are hand-written, no codegen.** `read()` must mirror `write()`
   field-for-field. Add new fields only at the end, guarded by `try/catch` on
   read. Never change an existing field's type. Never reuse a `typeId`.
-- **Changing `APP_VERSION_*` in `.env` wipes the local Hive database** — the
-  storage path is an md5 of the app version.
+- **The Hive storage path no longer depends on the app version** — it is an md5
+  of appName|packageName, computed by `HiveStorageLocation.resolve`. Do not put
+  the version back into it: that is what used to wipe unsent inspections on
+  every release.
 - **Do not run `build_runner`** — it would overwrite the hand-written adapters.
 - **Do not run `dart format` over the whole project** — 38 of 95 files are
   currently unformatted. Format only the files you touch.
@@ -38,7 +40,7 @@ These break user data or the build if ignored. Full detail lives in the skill.
 
 ```bash
 flutter pub get
-flutter analyze     # baseline: exactly 2 warnings; a 3rd is your regression
+flutter analyze     # baseline: exactly 1 warning; a 2nd is your regression
 flutter run -d <device>
 ```
 

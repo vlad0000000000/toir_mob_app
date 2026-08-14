@@ -1,6 +1,5 @@
-import 'dart:io';
-
 import '../exceptions/app_exceptions.dart';
+import '../utils/offline_error.dart';
 
 /// Человекочитаемое сообщение об ошибке для экранов ремонтов и карточки ЗИП.
 ///
@@ -13,7 +12,7 @@ String repairErrorMessage(Object error) {
   if (error is AuthExpiredException) {
     return 'Сессия истекла. Войдите в приложение заново.';
   }
-  if (_isOfflineError(error)) {
+  if (isOfflineError(error)) {
     return 'Нет связи с сервером. Проверьте интернет и повторите.';
   }
   final raw = _stripExceptionPrefix(error.toString()).trim();
@@ -62,23 +61,11 @@ const String _storageTemporarilyUnavailable =
 /// идемпотентности (наш же предыдущий запрос ещё не закоммитился — отдельно
 /// для создания ремонта и для загрузки снимка); файловое хранилище прилегло.
 bool isRetryableRepairError(Object error) {
-  if (_isOfflineError(error)) return true;
+  if (isOfflineError(error)) return true;
   final text = error.toString();
   return text.contains(_idempotencyInFlight) ||
       text.contains(_photoIdempotencyInFlight) ||
       text.contains(_storageTemporarilyUnavailable);
-}
-
-/// Тот же набор проверок, что и в `qr_result_screen._isOfflineError` —
-/// единого детекта офлайна в проекте нет.
-bool _isOfflineError(Object error) {
-  if (error is SocketException || error is HttpException) return true;
-  final text = error.toString();
-  return text.contains('SocketException') ||
-      text.contains('Failed host lookup') ||
-      text.contains('Connection refused') ||
-      text.contains('Network is unreachable') ||
-      text.contains('TimeoutException');
 }
 
 /// Ключи — точные строки из `backend/api/v1/repair.py` и

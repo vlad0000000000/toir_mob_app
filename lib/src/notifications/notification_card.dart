@@ -72,8 +72,7 @@ class NotificationCard extends StatelessWidget {
                         children: [
                           Expanded(
                             child: Text(
-                              NotificationTypes.displayName(
-                                      notification.notificationType)
+                              NotificationTypes.displayNameOf(notification)
                                   .toUpperCase(),
                               style: tt.labelSmall?.copyWith(
                                 color: cs.onSurfaceVariant,

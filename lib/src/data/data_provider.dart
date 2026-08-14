@@ -25,6 +25,7 @@ import '../../src/model/periodic_task_request.dart';
 import '../model/usage_update.dart';
 import '../exceptions/app_exceptions.dart';
 import '../../strings.dart';
+import '../qr/scan_error_messages.dart';
 import '../repairs/repair_error_messages.dart';
 import 'repair_photo_files.dart';
 
@@ -84,6 +85,7 @@ class DataProvider {
     _rebuildSparePartIndex();
     _repairs = repairBox.values.toList();
     _refreshActiveRepairsCount();
+    refreshRejectedScansCount();
     _users = userBox.values.toList();
     _inventoryRecords = inventoryBox.values.toList();
     _typicalProblems = typicalProblemBox.values.toList();
@@ -159,6 +161,20 @@ class DataProvider {
   /// «Сервис» его показывают. Данные при этом не трогаются: после повторного
   /// входа отправка продолжится с того же места.
   final ValueNotifier<bool> authExpired = ValueNotifier<bool>(false);
+
+  /// Сколько осмотров сервер отклонил и повторять их сам никто не будет.
+  ///
+  /// [ValueNotifier] по той же причине, что и [activeRepairsCount]: очередь
+  /// работает в фоне, экранам нужно узнать об отказе без своей перерисовки.
+  final ValueNotifier<int> rejectedScansCount = ValueNotifier<int>(0);
+
+  /// Отклонённые осмотры — для полосы на главной и диалога с причинами.
+  List<Scan> get rejectedScans =>
+      scanBox.values.where((scan) => scan.isRejected).toList();
+
+  void refreshRejectedScansCount() {
+    rejectedScansCount.value = rejectedScans.length;
+  }
 
   void _refreshActiveRepairsCount() {
     // Черновики тоже активные ремонты — просто ещё не доехавшие. Не считать их

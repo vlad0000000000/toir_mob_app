@@ -14,6 +14,7 @@ import '../../src/utils/go_router_ext.dart';
 import '../../strings.dart';
 import '../../settings.dart';
 import '../widgets/app_bottom_sheet.dart';
+import 'scan_conflict_screen.dart';
 
 /// Главный hub-экран: hero-карточка «Сканировать», ряд вторичных действий,
 /// сворачиваемый раздел «Сервис» для редко используемых операций.
@@ -27,9 +28,18 @@ class QRActions extends StatefulWidget {
 class _QRActionsState extends State<QRActions> {
   bool _serviceExpanded = false;
 
+  /// Экран разрешения конфликта уже открыт — второй поверх не открываем.
+  bool _conflictOpen = false;
+
+  /// Осмотры, разбор которых обходчик уже открывал и закрыл не решив.
+  /// Хранится за сессию экрана: после перезапуска конфликт покажется снова.
+  final Set<String> _seenConflicts = {};
+
   @override
   void initState() {
     super.initState();
+    GlobalState.dataProvider.rejectedScansCount
+        .addListener(_onRejectedCountChanged);
     if (GlobalState.isAuthorized) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         NotificationsService.instance.bootstrap();
@@ -38,8 +48,18 @@ class _QRActionsState extends State<QRActions> {
         // и т. п.). На /actions точно есть стабильный UI — поднимаем
         // сервис, если он не запущен.
         PushNotificationsController.instance.ensureRunning();
+        // Отказ мог прийти, пока приложение было закрыто или обходчик был в
+        // другом разделе: очередь сохранила причину в Hive.
+        _openConflict();
       });
     }
+  }
+
+  @override
+  void dispose() {
+    GlobalState.dataProvider.rejectedScansCount
+        .removeListener(_onRejectedCountChanged);
+    super.dispose();
   }
 
   // Разделы открываются через push, а не сбросом стека: хаб остаётся под
@@ -47,29 +67,29 @@ class _QRActionsState extends State<QRActions> {
 
   void _onScan() {
     GlobalState.dataProvider.mainSync();
-    GoRouter.of(context).push('/qr_scanner');
+    _openSection('/qr_scanner');
   }
 
   void _onInspection() {
     GlobalState.dataProvider.mainSync();
-    GoRouter.of(context).push('/problems');
+    _openSection('/problems');
   }
 
   void _onTasks() {
     GlobalState.allowSyncMainOnce = true;
-    GoRouter.of(context).push('/tasks');
+    _openSection('/tasks');
   }
 
   void _onNotifications() {
-    GoRouter.of(context).push('/notifications');
+    _openSection('/notifications');
   }
 
   void _onSpareParts() {
-    GoRouter.of(context).push('/spare_parts');
+    _openSection('/spare_parts');
   }
 
   void _onRepairs() {
-    GoRouter.of(context).push('/repairs');
+    _openSection('/repairs');
   }
 
   Future<void> _onSync() async {
@@ -97,8 +117,59 @@ class _QRActionsState extends State<QRActions> {
   Future<void> _onResetScans() async {
     await GlobalState.dataProvider.scanBox.clear();
     await GlobalState.dataProvider.scanPendingBox.clear();
+    GlobalState.dataProvider.refreshRejectedScansCount();
     if (!mounted) return;
     Dialogs.notify(context, 'Осмотры успешно сброшены', '');
+  }
+
+  /// Разбор отклонённого осмотра по тапу на полосе. Показывает даже то, что
+  /// обходчик уже закрывал не решив, — в отличие от автоматического показа.
+  Future<void> _onRejectedScans() => _openConflict(force: true);
+
+  void _onRejectedCountChanged() => _openConflict();
+
+  /// Открывает разбор конфликта, если он есть и мы сейчас на главной.
+  ///
+  /// Только на главной: отказ приходит из фоновой очереди в произвольный
+  /// момент, и экран, всплывший поверх формы осмотра, стёр бы уже введённое
+  /// или сбил сканирование. Пока обходчик в другом разделе, конфликт ждёт
+  /// полосой наверху и откроется, как только тот вернётся сюда.
+  ///
+  /// [force] — открыть по явному тапу, минуя [_seenConflicts].
+  Future<void> _openConflict({bool force = false}) async {
+    if (!mounted || _conflictOpen) return;
+    final route = ModalRoute.of(context);
+    if (route == null || !route.isCurrent) return;
+
+    final rejected = GlobalState.dataProvider.rejectedScans;
+    // Закрытый без решения конфликт сам больше не всплывает: иначе экран
+    // открывался бы заново сразу после «назад», и выйти было бы нельзя.
+    // Полоса при этом остаётся, и по ней он открывается снова.
+    final pending = force
+        ? rejected
+        : rejected
+            .where((scan) => !_seenConflicts.contains(scan.key()))
+            .toList();
+    if (pending.isEmpty) return;
+
+    final scan = pending.first;
+    _seenConflicts.add(scan.key());
+    _conflictOpen = true;
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ScanConflictScreen(scan: scan),
+    ));
+    _conflictOpen = false;
+    if (!mounted) return;
+    // Отклонённых могло накопиться несколько — разбираем по одному.
+    _openConflict();
+  }
+
+  /// Переход в раздел с проверкой конфликта на обратном пути: пока обходчик
+  /// был в сканере, очередь могла получить отказ.
+  Future<void> _openSection(String location) async {
+    await GoRouter.of(context).push(location);
+    if (!mounted) return;
+    _openConflict();
   }
 
   Future<void> _onInfo() async {
@@ -133,6 +204,22 @@ class _QRActionsState extends State<QRActions> {
           AppConstants.spacingXL,
         ),
         children: [
+          // Полоса стоит первой намеренно: отклонённый осмотр больше никто
+          // не отправит сам, и обходчик должен увидеть это до того, как уйдёт
+          // сканировать следующее оборудование.
+          ValueListenableBuilder<int>(
+            valueListenable: GlobalState.dataProvider.rejectedScansCount,
+            builder: (context, count, _) => count == 0
+                ? const SizedBox.shrink()
+                : Padding(
+                    padding:
+                        const EdgeInsets.only(bottom: AppConstants.spacingMD),
+                    child: _RejectedScansBanner(
+                      count: count,
+                      onTap: _onRejectedScans,
+                    ),
+                  ),
+          ),
           _PrimaryActionCard(
             icon: Icons.qr_code_scanner_rounded,
             title: Strings.scanner,
@@ -859,6 +946,70 @@ class _SettingsSheetState extends State<_SettingsSheet> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Отклонённые осмотры
+// ─────────────────────────────────────────────────────────────────────────
+/// Полоса на главной: сервер отказался принять осмотры, сами они не уйдут.
+///
+/// Оформление — как у `_Banner` в карточке ремонта: заливка цветом на 12%,
+/// заголовок и пояснение тем же цветом. Красная, а не оранжевая: это не
+/// «подождите», а «без вас не решится».
+class _RejectedScansBanner extends StatelessWidget {
+  final int count;
+  final VoidCallback onTap;
+
+  const _RejectedScansBanner({required this.count, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return Material(
+      color: cs.error.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(AppConstants.spacingMD),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.error_outline_rounded, size: 18, color: cs.error),
+              const SizedBox(width: AppConstants.spacingSM),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      ScanQueueStrings.rejectedTitle,
+                      style: tt.bodyMedium?.copyWith(
+                        color: cs.error,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      ScanQueueStrings.rejectedCount(count),
+                      style: tt.bodySmall?.copyWith(color: cs.error),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppConstants.spacingSM),
+              Text(
+                ScanQueueStrings.rejectedAction,
+                style: tt.labelLarge?.copyWith(color: cs.error),
+              ),
+            ],
+          ),
         ),
       ),
     );

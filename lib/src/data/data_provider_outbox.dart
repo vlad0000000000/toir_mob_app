@@ -451,6 +451,11 @@ extension DataProviderOutbox on DataProvider {
     // Обрабатываем сканы из scanBox
     final scans = scanBox.values.toList();
     for (final scan in scans) {
+      // Отклонённые сервером не долбим на каждом проходе: причина сама не
+      // изменится («Недостаточно ЗИП на складе»), а обходчик увидит её на
+      // главной и решит — повторить или сбросить. Тот же приём, что у
+      // черновиков ремонта.
+      if (scan.isRejected) continue;
       final taskUuid = scan.taskUuid;
       final isMaintenancePeriodicTask = taskUuid != null &&
           taskUuid.isNotEmpty &&
@@ -472,13 +477,13 @@ extension DataProviderOutbox on DataProvider {
           continue;
         }
       }
+      final timestampKey = 'scan_pending_${scan.key()}';
       try {
         // Перемещаем скан в pending перед отправкой
         await scanBox.delete(scan.key());
         await scanPendingBox.put(scan.key(), scan);
 
         // Сохраняем timestamp текущей попытки
-        final timestampKey = 'scan_pending_${scan.key()}';
         await stringBox.put(timestampKey, now.toString());
 
         // Пытаемся отправить
@@ -490,18 +495,78 @@ extension DataProviderOutbox on DataProvider {
             await stringBox.delete('maintenance_task_${scan.taskUuid}');
           }
         } else {
-          // Неуспешно - оставляем в pending с timestamp, вернется через 60 секунд
+          // Неуспешно - оставляем в pending с timestamp, вернется через 120 секунд
           // Ничего не делаем, скан уже в scanPendingBox с timestamp
         }
       } catch (e) {
-        // При ошибке также оставляем в pending с timestamp
-        // Убеждаемся, что скан в scanPendingBox и timestamp сохранен
+        if (e is AuthExpiredException) {
+          // Токен протух. Осмотр не виноват: возвращаем его в основной бокс
+          // без пометки об отказе — после повторного входа уйдёт сам.
+          await scanPendingBox.delete(scan.key());
+          await stringBox.delete(timestampKey);
+          await scanBox.put(scan.key(), scan);
+          authExpired.value = true;
+          continue;
+        }
+        if (isScanAlreadyDelivered(e)) {
+          // Сервер отвечает «Закрытый осмотр нельзя изменить» — значит наш
+          // предыдущий запрос дошёл, а ответ на него потерялся. Осмотр на
+          // месте: убираем из очереди ровно так же, как при успехе, иначе
+          // обходчик увидел бы ошибку по благополучно закрытой задаче.
+          await scanPendingBox.delete(scan.key());
+          await stringBox.delete(timestampKey);
+          if (scan.taskUuid != null) {
+            await stringBox.delete('maintenance_task_${scan.taskUuid}');
+          }
+          continue;
+        }
+        if (!isRetryableScanError(e)) {
+          // Сервер ответил и отказал — например «Недостаточно ЗИП на складе».
+          // Повторять бессмысленно: до правки данных ответ будет тот же, а
+          // осмотр иначе крутился бы в очереди вечно, никак этого не
+          // показывая. Запоминаем причину по-русски и ждём решения обходчика.
+          scan.lastError = scanErrorMessage(e);
+          await scanPendingBox.delete(scan.key());
+          await stringBox.delete(timestampKey);
+          await scanBox.put(scan.key(), scan);
+          refreshRejectedScansCount();
+          print('Scan rejected by server: ${scan.lastError}');
+          continue;
+        }
+        // Временный сбой: оставляем в pending с timestamp, вернётся сам.
         await scanPendingBox.put(scan.key(), scan);
-        final timestampKey = 'scan_pending_${scan.key()}';
         await stringBox.put(timestampKey, now.toString());
         print('Error syncing data: $e');
       }
     }
+  }
+
+  /// Снимает отметку об отказе — обходчик решил повторить отправку.
+  ///
+  /// Осмысленно после того, как причина устранена: администратор пополнил
+  /// склад. Если нет, сервер откажет тем же текстом, и экран разрешения
+  /// конфликта откроется снова.
+  Future<void> retryRejectedScan(String key) async {
+    final scan = scanBox.get(key);
+    if (scan == null || !scan.isRejected) return;
+    scan.lastError = null;
+    await scanBox.put(key, scan);
+    refreshRejectedScansCount();
+    await syncScans();
+  }
+
+  /// Выбрасывает отклонённый осмотр. Отдельно от «Сбросить осмотры»:
+  /// та кнопка сносит очередь целиком, включая те, что ещё уйдут сами.
+  Future<void> deleteRejectedScan(String key) async {
+    final scan = scanBox.get(key);
+    if (scan == null) return;
+    await scanBox.delete(key);
+    if (scan.taskUuid != null) {
+      // Пометка «ждать наработку» больше не нужна: осмотра, которого она
+      // касалась, нет.
+      await stringBox.delete('maintenance_task_${scan.taskUuid}');
+    }
+    refreshRejectedScansCount();
   }
 
   Future<void> syncPeriodicTasks() async {
