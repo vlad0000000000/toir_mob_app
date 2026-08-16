@@ -526,6 +526,12 @@ extension DataProviderOutbox on DataProvider {
           // осмотр иначе крутился бы в очереди вечно, никак этого не
           // показывая. Запоминаем причину по-русски и ждём решения обходчика.
           scan.lastError = scanErrorMessage(e);
+          // Нехватку ЗИП сервер описывает точными числами — сохраняем их
+          // вместе с осмотром: экран разрешения конфликта откроют позже и,
+          // возможно, без связи.
+          scan.lastShortages = e is InsufficientStockException
+              ? jsonEncode([for (final item in e.shortages) item.toJson()])
+              : null;
           await scanPendingBox.delete(scan.key());
           await stringBox.delete(timestampKey);
           await scanBox.put(scan.key(), scan);

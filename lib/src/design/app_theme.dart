@@ -881,11 +881,14 @@ extension AppSemanticColors on ColorScheme {
   Color get warningContainer => const Color(0xFFFEDD9C);
   Color get onWarningContainer => const Color(0xFF7C2D12);
 
-  /// Информация (нейтральные подсказки).
-  Color get info => secondary;
-  Color get onInfo => onSecondary;
-  Color get infoContainer => secondaryContainer;
-  Color get onInfoContainer => onSecondaryContainer;
+  /// Информация / «прочитано-просмотрено» — всегда синий, независимо от темы.
+  /// Раньше маппился на `secondary`, который в теме Fresh зелёный, из-за чего
+  /// прочитанные уведомления сливались с зелёными «новыми». Заказчик просил
+  /// вернуть синий индикатор/статус для прочитанных — фиксируем явный blue.
+  Color get info => const Color(0xFF2563EB);
+  Color get onInfo => const Color(0xFFFFFFFF);
+  Color get infoContainer => const Color(0xFFDBEAFE);
+  Color get onInfoContainer => const Color(0xFF1E3A8A);
 
   /// Приоритеты задач — единая семантика для всех badge.
   Color get priorityHigh => error;

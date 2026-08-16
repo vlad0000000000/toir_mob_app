@@ -137,16 +137,9 @@ class NotificationTypes {
   /// доработку, ведёт прямо в карточку ремонта.
   static const String repairAssigned = 'repair_assigned';
 
-  /// Подпись типа с учётом содержимого уведомления.
-  ///
-  /// Нужна там, где одного `notification_type` не хватает: `repair_assigned`
-  /// приходит и на «вам назначен», и на «свободный, можно взять» — чип с
-  /// одинаковой подписью противоречил бы заголовку.
-  static String displayNameOf(AppNotification notification) =>
-      notification.isFreeRepair
-          ? 'Свободный ремонт'
-          : displayName(notification.notificationType);
-
+  /// Подпись типа, зависящую от содержимого уведомления, собирает
+  /// [NotificationFormatters.typeLabel]: там же живёт случай снятия с осмотра,
+  /// и обе поправки к «сырому» типу должны быть в одном месте.
   static String displayName(String type) {
     switch (type) {
       case repairAssigned:
@@ -175,10 +168,18 @@ class NotificationStatuses {
   static const String completed = 'completed';
   static const String overdue = 'overdue';
 
-  /// У осмотра нет исполнителя: сервер выставляет этот статус уведомлению
-  /// `assigned_inspection`, когда в payload есть блок `unassigned`. Без
-  /// перевода в чипе статуса светилось английское «unassigned».
+  /// Осмотр сняли с исполнителя: сервер шлёт это в поле `status` того же
+  /// уведомления `assigned_inspection` (тип не меняется). Намеренно НЕ входит
+  /// в [known] — для бейджа статуса мы показываем read-state (Новая/
+  /// Просмотрена), а сам факт снятия выносим в тег типа (см.
+  /// [NotificationFormatters.typeLabel]).
   static const String unassigned = 'unassigned';
+
+  /// Статусы, для которых у нас есть человекочитаемое имя и цвет. Всё, что
+  /// вне этого набора (например, новый серверный тип «снят с осмотра»,
+  /// приходящий без привычного new/viewed), приводим к Новая/Просмотрена
+  /// по флагу is_read — см. [NotificationFormatters.effectiveStatus].
+  static const Set<String> known = {newStatus, viewed, completed, overdue};
 
   static String displayName(String status) {
     switch (status) {

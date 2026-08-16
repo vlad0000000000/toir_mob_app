@@ -8,6 +8,7 @@ import '../../strings.dart';
 import '../data/data_provider.dart';
 import '../design/app_constants.dart';
 import '../design/app_theme.dart';
+import '../exceptions/app_exceptions.dart';
 import '../model/scan.dart';
 import '../widgets/spare_part_consumption.dart';
 
@@ -42,10 +43,12 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
 
   /// Отказ именно из-за остатков — тогда показываем, чего и сколько не хватает.
   ///
-  /// Проверяем по началу серверного сообщения, а не разбираем его целиком:
-  /// список позиций собираем сами из расхода и локального справочника. Так
-  /// разметка не сломается, если на сервере поменяют формулировку хвоста.
-  bool get _isStockShortage => _reason.contains('Недостаточно ЗИП на складе');
+  /// Признаком считаем наличие серверного списка нехватки; текст проверяем
+  /// только как запасной вариант — для осмотров, отклонённых до того, как
+  /// бэкенд начал отдавать `shortages`.
+  bool get _isStockShortage =>
+      (_scan.lastShortages ?? '').isNotEmpty ||
+      _reason.contains('Недостаточно ЗИП на складе');
 
   String _equipmentName() {
     final uuid = _scan.equipmentUuid;
@@ -91,12 +94,20 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
 
   /// Чего не хватает: позиция, сколько нужно, сколько есть.
   ///
-  /// Остаток берём из локального справочника — того же, по которому форма
-  /// предупреждала о нехватке. Он может отставать от сервера, но именно его
-  /// обходчик и видел, когда заполнял расход.
+  /// Числа берём **от сервера** (`shortages` из ответа 409) — он единственный
+  /// знает остаток на момент отказа. Названия и единицы подставляем из
+  /// локального справочника: в отказе их нет, только uuid.
+  ///
+  /// Запасной путь — расчёт по локальному справочнику. Нужен для осмотров,
+  /// отклонённых до появления серверного формата, и на случай, если тело
+  /// отказа пришло без `shortages`. Он менее точен: справочник между
+  /// синхронизациями отстаёт.
   List<(String, double, double, String)> _shortages(
     List<ConsumptionLine> consumptions,
   ) {
+    final fromServer = _serverShortages(consumptions);
+    if (fromServer != null) return fromServer;
+
     final result = <(String, double, double, String)>[];
     for (final line in consumptions) {
       final part = GlobalState.dataProvider.sparePartByUuid(line.sparePartUuid);
@@ -111,6 +122,39 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
       }
     }
     return result;
+  }
+
+  /// Нехватка по данным сервера. `null` — их нет, считаем сами.
+  List<(String, double, double, String)>? _serverShortages(
+    List<ConsumptionLine> consumptions,
+  ) {
+    final raw = _scan.lastShortages;
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List || decoded.isEmpty) return null;
+      final names = {
+        for (final line in consumptions) line.sparePartUuid: line,
+      };
+      return [
+        for (final item in decoded)
+          if (item is Map<String, dynamic>)
+            () {
+              final parsed = InsufficientStockItem.fromJson(item);
+              final line = names[parsed.sparePartUuid];
+              final part = GlobalState.dataProvider
+                  .sparePartByUuid(parsed.sparePartUuid);
+              return (
+                line?.sparePartName ?? part?.name ?? parsed.sparePartUuid,
+                parsed.required,
+                parsed.available,
+                line?.unitName ?? part?.unitLabel ?? '',
+              );
+            }(),
+      ];
+    } catch (_) {
+      return null;
+    }
   }
 
   String _shortageText(List<(String, double, double, String)> shortages) {

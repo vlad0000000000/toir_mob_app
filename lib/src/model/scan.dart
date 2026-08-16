@@ -41,6 +41,14 @@ class Scan {
   /// запись потеряется в боксе.
   String? lastError;
 
+  /// Позиции, которых не хватило на складе, — строкой JSON, как их прислал
+  /// сервер (`shortages` из ответа 409).
+  ///
+  /// Храним вместе с осмотром, а не пересчитываем: экран разрешения конфликта
+  /// открывается и через сутки, и без связи, а локальный справочник ЗИП к
+  /// тому моменту уже другой. `null` — отказ по другой причине.
+  String? lastShortages;
+
   bool get isRejected => (lastError ?? '').isNotEmpty;
 
   String key() {
@@ -80,7 +88,8 @@ class Scan {
       this.createdAt,
       this.closedAt,
       this.actualConsumptions,
-      this.lastError});
+      this.lastError,
+      this.lastShortages});
 
   Map<String, dynamic> toJson() {
     var result = <String, dynamic>{
@@ -139,6 +148,12 @@ class ScanAdapter extends TypeAdapter<Scan> {
     } catch (_) {
       lastError = null; // записи до появления отметки об отказе
     }
+    String? lastShortages;
+    try {
+      lastShortages = reader.read() as String?;
+    } catch (_) {
+      lastShortages = null; // записи до появления серверных данных о нехватке
+    }
     return Scan(
       files: files,
       periodicTaskUuid: periodicTaskUuid,
@@ -153,6 +168,7 @@ class ScanAdapter extends TypeAdapter<Scan> {
       isOtherFault: isOtherFault,
       actualConsumptions: actualConsumptions,
       lastError: lastError,
+      lastShortages: lastShortages,
     );
   }
 
@@ -172,5 +188,6 @@ class ScanAdapter extends TypeAdapter<Scan> {
     // Новые поля — строго в конец и в этом порядке: read() читает их так же.
     writer.write(obj.actualConsumptions);
     writer.write(obj.lastError);
+    writer.write(obj.lastShortages);
   }
 }

@@ -3,12 +3,20 @@ import '../../global_state.dart';
 import '../../src/app_bar/app_bar.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/task.dart';
-import '../widgets/app_bottom_sheet.dart';
 import '../design/app_constants.dart';
 import 'task_models.dart';
 import 'equipment_detail_controller.dart';
+import 'periodic_task_card.dart';
+
+/// Имя группы ППР. Осмотры периодических задач, входящих в актуальный ППР,
+/// собираются под ним и показываются в самом верху списка.
+const String kPprGroupName = 'ППР';
+
+/// Цвет раздела ППР — тот же на экране задач оборудования и на экране ППР.
+const Color pprGroupColor = Colors.deepPurple;
 
 final Map<String, Color> periodColors = {
+  kPprGroupName: pprGroupColor,
   'Назначенные задачи': Colors.red,
   'Однократно': Colors.red,
   'Ежедневно (каждые 2.5 часа)': Colors.red,
@@ -26,6 +34,17 @@ final Map<String, Color> periodColors = {
   '1 раз в 3 года': Colors.grey,
   'Автоматический счетчик обслуживания': Colors.green,
 };
+
+final List<String> _periodOrderNames = periodColors.keys.toList();
+
+/// Порядок групп в списке. Группы ППР («ППР» и «ППР · Название») всегда
+/// наверху: имена конкретных ППР заранее не известны и в [periodColors] их нет.
+int _periodOrder(String period) =>
+    period.startsWith(kPprGroupName) ? -1 : _periodOrderNames.indexOf(period);
+
+/// Цвет полосы группы — с той же поправкой на именованные группы ППР.
+Color? periodColorFor(String period) =>
+    period.startsWith(kPprGroupName) ? pprGroupColor : periodColors[period];
 
 class EquipmentDetailScreen extends StatefulWidget {
   final InventoryRecord machine;
@@ -50,6 +69,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
   bool get _isSelectionMode => widget.controller != null;
 
+  /// Подсказку «Выберите только одну задачу» пользователь может закрыть
+  /// крестиком — до следующего открытия окна выбора задач.
+  bool _hintHidden = false;
+
   late Equipment equipment;
 
   @override
@@ -69,13 +92,19 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     List<Task> tasks =
         GlobalState.dataProvider.getTasksForMachine(machine.uuid);
     Map<String, List<Task>> byPeriod = {};
-    var periodOrder = periodColors.keys.toList();
     for (var task in tasks) {
       var periodName = '';
-      if (task.resultStatus == 'open') {
+      final periodicTask = task.periodicTask;
+      final ppr = GlobalState.dataProvider.pprForTask(task);
+      if (ppr != null) {
+        // Осмотр входит в состав актуального ППР — выносим его в отдельную
+        // группу вне зависимости от статуса. У ППР может не быть названия,
+        // тогда группа называется просто «ППР».
+        periodName = ppr.groupTitle;
+      } else if (task.resultStatus == 'open') {
         periodName = 'Назначенные задачи';
       } else {
-        periodName = task.periodicTask!.periodicityRuleDisplay;
+        periodName = periodicTask!.periodicityRuleDisplay;
       }
       if (periodName.length == 0) {
         continue;
@@ -89,8 +118,11 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     for (var periodName in byPeriod.keys) {
       checklists.add(Checklist(periodName, byPeriod[periodName]!));
     }
-    checklists.sort((a, b) =>
-        periodOrder.indexOf(a.period).compareTo(periodOrder.indexOf(b.period)));
+    checklists.sort((a, b) {
+      final byOrder = _periodOrder(a.period).compareTo(_periodOrder(b.period));
+      if (byOrder != 0) return byOrder;
+      return a.period.compareTo(b.period);
+    });
     return Equipment(machine, checklists);
   }
 
@@ -128,7 +160,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                 bottom: 0,
                 child: Container(
                   width: 4,
-                  color: periodColors[checklist.period],
+                  color: periodColorFor(checklist.period),
                 ),
               ),
               Padding(
@@ -207,7 +239,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             textAlign: TextAlign.center,
           ),
         ),
-        if (_isSelectionMode && widget.isModal)
+        if (_isSelectionMode && widget.isModal && !_hintHidden)
           Container(
             margin: const EdgeInsets.symmetric(
                 horizontal: AppConstants.spacingMD,
@@ -237,8 +269,11 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                   visualDensity: VisualDensity.compact,
                   icon: const Icon(Icons.clear_rounded),
                   color: cs.onPrimaryContainer,
-                  onPressed: _selectionController.clearSelection,
-                  tooltip: 'Снять выделение',
+                  // Крестик закрывает саму подсказку: выделение снимается
+                  // повторным тапом по задаче, а «X» на сообщении читается
+                  // как «скрыть сообщение».
+                  onPressed: () => setState(() => _hintHidden = true),
+                  tooltip: 'Скрыть подсказку',
                 ),
               ],
             ),
@@ -267,7 +302,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             icon: const Icon(Icons.info_outline_rounded),
             visualDensity: VisualDensity.compact,
             color: cs.onSurfaceVariant,
-            onPressed: () => _showPeriodicTaskCard(context, task),
+            onPressed: () => showPeriodicTaskCard(context, task.periodicTask!),
             tooltip: 'Карточка периодической задачи',
           )
         : const SizedBox.shrink();
@@ -320,132 +355,6 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     );
   }
 
-  void _showPeriodicTaskCard(BuildContext context, Task task) {
-    final pt = task.periodicTask!;
-    final tt = Theme.of(context).textTheme;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.6,
-        minChildSize: 0.3,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (context, scrollController) => SingleChildScrollView(
-          controller: scrollController,
-          padding: const EdgeInsets.fromLTRB(
-              AppConstants.spacingMD,
-              0,
-              AppConstants.spacingMD,
-              AppConstants.spacingMD),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                pt.title,
-                style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              if (pt.node != null && pt.node!.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                _buildDetailRow('Узел:', pt.node!),
-              ],
-              if (pt.description != null && pt.description!.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                _buildDetailRow('Описание:', pt.description!),
-              ],
-              const SizedBox(height: 8),
-              if (pt.photos.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Text(
-                  'ФОТО',
-                  style: tt.labelSmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    letterSpacing: 0.6,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: pt.photos
-                      .map(
-                        (photo) => InkWell(
-                          onTap: () {
-                            showAppModalSheet(
-                              context,
-                              isDismissible: true,
-                              enableDrag: true,
-                              child: SafeArea(
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: AppConstants.spacingMD,
-                                      vertical: AppConstants.spacingSM,
-                                    ),
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Expanded(
-                                          child: ClipRRect(
-                                            borderRadius:
-                                                BorderRadius.circular(AppConstants.radiusMD),
-                                            child: Image.network(
-                                              photo.url,
-                                              fit: BoxFit.contain,
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(
-                                            height: AppConstants.spacingSM),
-                                        SizedBox(
-                                          width: double.infinity,
-                                          height: 48,
-                                          child: FilledButton.tonal(
-                                            onPressed: () =>
-                                                Navigator.of(context).pop(),
-                                            child: const Text('Закрыть'),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                            );
-                          },
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(AppConstants.radiusSM),
-                            child: SizedBox(
-                              width: 64,
-                              height: 64,
-                              child: Image.network(
-                                photo.url,
-                                fit: BoxFit.cover,
-                              ),
-                            ),
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
-              ],
-              const SizedBox(height: AppConstants.spacingLG),
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: FilledButton.tonal(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Закрыть'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     Widget body = buildBody(equipment);
@@ -457,28 +366,6 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     return Scaffold(
       appBar: MyAppBar.build(context) as AppBar,
       body: body,
-    );
-  }
-
-  Widget _buildDetailRow(String label, String value) {
-    final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label.replaceAll(':', '').toUpperCase(),
-            style: tt.labelSmall?.copyWith(
-              color: cs.onSurfaceVariant,
-              letterSpacing: 0.4,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(value, style: tt.bodyMedium),
-        ],
-      ),
     );
   }
 }

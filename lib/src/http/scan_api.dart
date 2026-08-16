@@ -72,10 +72,16 @@ extension ScanApi on API {
     }
 
     if (response.statusCode != 200 && response.statusCode != 201) {
+      // Нехватку ЗИП сервер отдаёт машиночитаемо (409 + detail_code +
+      // shortages) — разбираем её в типизированное исключение, чтобы экран
+      // разрешения конфликта показал серверные числа, а не считал их по
+      // локальному справочнику, который между синхронизациями отстаёт.
+      final stockError = _parseInsufficientStock(responseBody);
+      if (stockError != null) throw stockError;
+
       // Код ответа приклеиваем к сообщению: по нему очередь отличает
-      // временный сбой сервера (5xx) от отказа по существу (4xx), например
-      // «Недостаточно ЗИП на складе». Из текста для обходчика метку
-      // вырезает `scanErrorMessage`.
+      // временный сбой сервера (5xx) от отказа по существу (4xx). Из текста
+      // для обходчика метку вырезает `scanErrorMessage`.
       throw Exception(
         '${_detailFromBody(responseBody, 'Не удалось отправить осмотр')}'
         ' [HTTP ${response.statusCode}]',
@@ -89,6 +95,30 @@ extension ScanApi on API {
       // Успешный код, но тело не разобралось — считаем неудачей, осмотр
       // останется в очереди и уйдёт следующим проходом.
       return false;
+    }
+  }
+
+  /// Разбирает тело отказа по нехватке ЗИП. `null` — отказ по другой причине.
+  ///
+  /// Опознаём по `detail_code`, а не по тексту: формулировка `detail` на
+  /// сервере может меняться, код — нет.
+  InsufficientStockException? _parseInsufficientStock(String body) {
+    try {
+      final data = jsonDecode(body);
+      if (data is! Map<String, dynamic>) return null;
+      if (data['detail_code'] != 'insufficient_stock') return null;
+      final raw = data['shortages'];
+      return InsufficientStockException(
+        data['detail'] as String? ?? 'Недостаточно ЗИП на складе',
+        [
+          if (raw is List)
+            for (final item in raw)
+              if (item is Map<String, dynamic>)
+                InsufficientStockItem.fromJson(item),
+        ],
+      );
+    } catch (_) {
+      return null;
     }
   }
 }

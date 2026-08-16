@@ -10,6 +10,7 @@ import '../model/notification.dart';
 import '../model/task.dart';
 import '../utils/go_router_ext.dart';
 import '../design/app_constants.dart';
+import '../design/app_theme.dart';
 import '../widgets/empty_state.dart';
 import 'notifications_service.dart';
 import 'notification_card.dart';
@@ -240,7 +241,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    NotificationTypes.displayNameOf(n).toUpperCase(),
+                    NotificationFormatters.typeLabel(n).toUpperCase(),
                     style: tt.labelSmall?.copyWith(
                       color: cs.onSurfaceVariant,
                       letterSpacing: 0.8,
@@ -255,8 +256,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   ),
                   const SizedBox(height: AppConstants.spacingMD),
                   Builder(builder: (_) {
-                    final summary =
-                        NotificationFormatters.summaryDescription(n);
+                    final summary = NotificationFormatters.summaryDescription(
+                        n,
+                        multiline: true);
                     final desc = summary ??
                         NotificationFormatters.effectiveDescription(n);
                     if (desc.isEmpty) return const SizedBox.shrink();
@@ -270,19 +272,18 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     spacing: AppConstants.spacingSM,
                     runSpacing: AppConstants.spacingSM,
                     children: [
-                      if (n.notificationType != NotificationTypes.summaryTask)
-                        _statusChip(n),
+                      _statusChip(n),
                       if (n.priorityDisplay != null &&
                           n.priorityDisplay!.isNotEmpty)
-                        _infoChip(
-                          icon: Icons.priority_high_rounded,
-                          label: n.priorityDisplay!,
-                        ),
+                        _priorityChip(n),
                     ],
                   ),
                   const SizedBox(height: AppConstants.spacingMD),
-                  _metaRow(Icons.person_outline,
-                      NotificationFormatters.executorLabel(n)),
+                  // «Исполнитель» в сводке по задачам не имеет смысла —
+                  // скрываем по просьбе заказчика.
+                  if (n.notificationType != NotificationTypes.summaryTask)
+                    _metaRow(Icons.person_outline,
+                        NotificationFormatters.executorLabel(n)),
                   Builder(builder: (_) {
                     // Для уведомлений о назначении осмотра: показываем дату
                     // создания самого осмотра (приходит в payload), а ниже
@@ -378,21 +379,33 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  Widget _infoChip({required IconData icon, required String label}) {
+  /// Чип приоритета в детальной карточке — тот же цветной стиль, что и в
+  /// общем списке (`_PriorityPill`): цвет помогает быстро сориентироваться,
+  /// а раньше тут был нейтральный серый и сбивал с толку.
+  Widget _priorityChip(AppNotification n) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
+    final color = switch (n.priority) {
+      'high' => cs.priorityHigh,
+      'medium' => cs.priorityMedium,
+      'low' => cs.priorityLow,
+      _ => cs.onSurfaceVariant,
+    };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: cs.surfaceContainerHigh,
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(AppConstants.radiusSM),
+        border: Border.all(color: color.withValues(alpha: 0.4), width: 0.5),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: cs.onSurfaceVariant),
+          Icon(Icons.flag_rounded, size: 14, color: color),
           const SizedBox(width: 4),
-          Text(label, style: tt.labelSmall?.copyWith(color: cs.onSurface)),
+          Text(n.priorityDisplay ?? '',
+              style: tt.labelSmall
+                  ?.copyWith(color: color, fontWeight: FontWeight.w600)),
         ],
       ),
     );
@@ -482,8 +495,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   Widget _statusChip(AppNotification n) {
     final tt = Theme.of(context).textTheme;
-    final color = NotificationFormatters.statusColor(context, n.status);
-    final label = NotificationStatuses.displayName(n.status);
+    final status = NotificationFormatters.effectiveStatus(n);
+    final color = NotificationFormatters.statusColor(context, status);
+    final label = NotificationStatuses.displayName(status);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(

@@ -22,9 +22,11 @@ import '../../src/model/usage_unit.dart';
 import '../../src/model/user.dart';
 import '../../src/model/equipment_state.dart';
 import '../../src/model/periodic_task_request.dart';
+import '../../src/model/ppr.dart';
 import '../model/usage_update.dart';
 import '../exceptions/app_exceptions.dart';
 import '../../strings.dart';
+import '../feature_flags.dart';
 import '../qr/scan_error_messages.dart';
 import '../repairs/repair_error_messages.dart';
 import 'repair_photo_files.dart';
@@ -94,6 +96,36 @@ class DataProvider {
     _company = companyBox.get('company');
     _currentSession = sessionBox.get('current_session');
     _equipmentState = equipmentStateBox.get('equipment_state');
+    _loadCachedPprs();
+  }
+
+  /// Восстанавливает актуальные ППР из кэша (`stringBox`), чтобы кнопка
+  /// «ППР» и группа «ППР» работали до первой синхронизации и офлайн.
+  void _loadCachedPprs() {
+    final completed = stringBox.get(pprCompletedByMeCacheKey);
+    if (completed != null && completed.isNotEmpty) {
+      try {
+        final raw = jsonDecode(completed) as Map<String, dynamic>;
+        Set<String> read(String key) =>
+            ((raw[key] as List<dynamic>?) ?? const [])
+                .map((e) => e as String)
+                .toSet();
+        _pprCompletedByMe = read('mine');
+        _pprCompletedByMeChecked = read('checked');
+      } catch (e) {
+        print('Failed to read PPR progress cache: $e');
+      }
+    }
+    final cached = stringBox.get(pprCacheKey);
+    if (cached == null || cached.isEmpty) return;
+    try {
+      final List<dynamic> raw = jsonDecode(cached);
+      setActivePprs(raw
+          .map((e) => Ppr.fromJson(e as Map<String, dynamic>))
+          .toList());
+    } catch (e) {
+      print('Failed to read PPR cache: $e');
+    }
   }
 
   List<User> _users = [];
@@ -113,6 +145,113 @@ class DataProvider {
   Future<bool>? _sparePartsSync;
   bool _isSyncingPendingRepairs = false;
   bool _isSyncingRepairUpdates = false;
+
+  /// Ключ кэша актуальных ППР в `stringBox`.
+  static const String pprCacheKey = 'ppr_active';
+
+  /// Ключ кэша осмотров ППР, закрытых текущим пользователем.
+  static const String pprCompletedByMeCacheKey = 'ppr_completed_by_me';
+
+  /// Актуальные (незакрытые) ППР. Наполняются в [syncPpr], кэшируются в
+  /// `stringBox` для офлайна.
+  List<Ppr> _activePprs = [];
+
+  /// UUID периодических задач всех актуальных ППР — производное от
+  /// [_activePprs], чтобы не пересобирать множество на каждую задачу списка.
+  Set<String> _pprPeriodicTaskUuids = {};
+
+  /// UUID осмотров всех актуальных ППР. Принадлежность задачи к ППР считаем
+  /// именно по осмотру: у одной периодической задачи может быть и осмотр из
+  /// состава ППР, и обычный периодический — второй в ППР не показываем.
+  Set<String> _pprInspectionUuids = {};
+
+  /// Осмотры выполненных задач ППР, закрытые текущим пользователем, и
+  /// осмотры, по которым принадлежность уже выяснена (закрытый осмотр не
+  /// меняется, перезапрашивать его незачем). Наполняются в
+  /// [syncPprCompletedByMe], кэшируются в `stringBox`.
+  Set<String> _pprCompletedByMe = {};
+  Set<String> _pprCompletedByMeChecked = {};
+
+  /// При выключенном [FeatureFlags.pprEnabled] раздел ППР не показывается
+  /// вообще — даже при наличии старого кэша.
+  List<Ppr> get activePprs =>
+      FeatureFlags.pprEnabled ? _activePprs : const <Ppr>[];
+
+  Set<String> get pprPeriodicTaskUuids => _pprPeriodicTaskUuids;
+
+  /// Актуальные ППР, в которых текущему пользователю есть что делать, —
+  /// то, что показывает экран ППР. Пустые ППР (все задачи чужие или уже
+  /// выполнены) в списке не нужны.
+  List<Ppr> pprsWithTasks() {
+    final pprs = activePprs;
+    if (pprs.isEmpty) return const <Ppr>[];
+    // Один проход по задачам: собираем осмотры ППР, доступные пользователю.
+    final tasksInScans = _scannedTaskUuids();
+    final Set<String> available = {};
+    for (final task in taskBox.values) {
+      if (!_pprInspectionUuids.contains(task.uuid)) continue;
+      if (!_isTaskAvailable(task, tasksInScans)) continue;
+      available.add(task.uuid);
+    }
+    return pprs
+        .where((ppr) => ppr.inspectionUuids.any(available.contains))
+        .toList();
+  }
+
+  /// Признак для кнопки «ППР» на главном экране: есть ППР «В работе» (по ТЗ)
+  /// и в нём есть задачи для текущего пользователя — иначе кнопка вела бы на
+  /// пустой экран.
+  bool get hasPprInProgressWithTasks =>
+      pprsWithTasks().any((ppr) => ppr.isInProgress);
+
+  void setActivePprs(List<Ppr> pprs) {
+    _activePprs = pprs;
+    _pprPeriodicTaskUuids = {
+      for (final ppr in pprs) ...ppr.periodicTaskUuids,
+    };
+    _pprInspectionUuids = {
+      for (final ppr in pprs) ...ppr.inspectionUuids,
+    };
+  }
+
+  /// Входит ли периодическая задача в актуальный ППР. При выключенном
+  /// [FeatureFlags.pprEnabled] всегда `false` — группа «ППР» не появляется
+  /// даже при наличии старого кэша.
+  bool isPeriodicTaskInPpr(String periodicTaskUuid) =>
+      FeatureFlags.pprEnabled &&
+      _pprPeriodicTaskUuids.contains(periodicTaskUuid);
+
+  /// Актуальный ППР, в состав которого входит осмотр. Нужен, чтобы подписать
+  /// группу именем конкретного ППР на экране задач оборудования.
+  Ppr? pprForTask(Task task) {
+    if (!FeatureFlags.pprEnabled) return null;
+    if (!_pprInspectionUuids.contains(task.uuid)) return null;
+    for (final ppr in activePprs) {
+      if (ppr.inspectionUuids.contains(task.uuid)) return ppr;
+    }
+    return null;
+  }
+
+  /// Прогресс ППР для текущего пользователя: сколько его задач выполнено
+  /// из скольких. Общий счётчик ППР обходчику бесполезен — задачи чужих
+  /// ролей он не увидит никогда.
+  ({int done, int total}) pprProgressForUser(Ppr ppr) {
+    final done =
+        ppr.completedInspectionUuids.where(_pprCompletedByMe.contains).length;
+    return (done: done, total: done + getTasksForPpr(ppr.uuid).length);
+  }
+
+  /// Задача текущего пользователя: назначенная — по ответственному,
+  /// периодическая — по роли. В отличие от [_isTaskAvailable] работает и для
+  /// закрытых осмотров (нужно для счётчика выполненных задач ППР).
+  bool isTaskMine(Task task) {
+    final user = GlobalState.authUser;
+    if (user == null) return false;
+    final responsible = task.responsibleUser;
+    if (responsible != null) return responsible.uuid == user.uuid;
+    final roles = task.periodicTask?.customRoles ?? const [];
+    return roles.any((role) => role.id == user.customRoleId);
+  }
 
   List<User> get users => _users;
 
@@ -463,18 +602,7 @@ class DataProvider {
   /// [invalidateScanTaskCache] перед проходом. Ловить каждую запись в очередь
   /// было бы хрупко: мест много, и забытое дало бы задачу-призрак, которая не
   /// исчезает после снятого осмотра.
-  Set<String?>? _scanTaskUuidsCache;
-
-  Set<String?> _taskUuidsInScans() {
-    final cached = _scanTaskUuidsCache;
-    if (cached != null) return cached;
-    final result = <String?>{
-      for (final scan in scanBox.values) scan.taskUuid,
-      for (final scan in scanPendingBox.values) scan.taskUuid,
-    };
-    _scanTaskUuidsCache = result;
-    return result;
-  }
+  Map<String, String?>? _scanTaskUuidsCache;
 
   void invalidateScanTaskCache() => _scanTaskUuidsCache = null;
 
@@ -508,27 +636,87 @@ class DataProvider {
         ),
       ];
     }
-    final tasksInScans = _taskUuidsInScans();
+    final tasksInScans = _scannedTaskUuids();
     return taskBox.values
         .where((task) => task.equipmentUuid == machineUUID)
-        .where((x) {
-      if (tasksInScans.contains(x.uuid) || closedTasks.containsKey(x.uuid)) {
-        return false;
-      }
-      if (GlobalState.authUser == null) {
-        return false;
-      }
-      if (x.resultStatus == "scheduled") {
-        return x.periodicTask!.customRoles.where((x) {
-              return x.id == GlobalState.authUser!.customRoleId;
-            }).length >
-            0;
-      } else if (x.resultStatus == "open") {
-        return x.responsibleUser!.uuid == GlobalState.authUser!.uuid;
-      } else {
-        return false;
-      }
-    }).toList();
+        .where((x) => _isTaskAvailable(x, tasksInScans))
+        .toList();
+  }
+
+  /// Задачи актуального ППР, доступные текущему пользователю. Фильтр тот же,
+  /// что и в [getTasksForMachine] — просто отбор идёт не по оборудованию, а
+  /// по составу ППР (осмотры его периодических задач).
+  List<Task> getTasksForPpr(String pprUuid) {
+    final matched = activePprs.where((p) => p.uuid == pprUuid).toList();
+    if (matched.isEmpty || matched.first.inspectionUuids.isEmpty) {
+      return [];
+    }
+    final ppr = matched.first;
+    final tasksInScans = _scannedTaskUuids();
+    final tasks = taskBox.values
+        .where((task) => ppr.inspectionUuids.contains(task.uuid))
+        .where((task) => _isTaskAvailable(task, tasksInScans))
+        .toList();
+    tasks.sort((a, b) {
+      final byEquipment = (a.periodicTask?.equipment.name ?? '')
+          .toLowerCase()
+          .compareTo((b.periodicTask?.equipment.name ?? '').toLowerCase());
+      if (byEquipment != 0) return byEquipment;
+      return (a.periodicTask?.title ?? '')
+          .toLowerCase()
+          .compareTo((b.periodicTask?.title ?? '').toLowerCase());
+    });
+    return tasks;
+  }
+
+  /// UUID осмотров, по которым уже есть скан (отправленный или в очереди) —
+  /// такие задачи в списках не показываем.
+  ///
+  /// Результат кэшируется: экран задач спрашивает задачи по каждой единице
+  /// оборудования, а экран ППР — по каждому ППР, и пересобирать набор из
+  /// двух боксов на каждый вызов значило бы проходить очереди сотни раз
+  /// подряд. Кэш живёт ровно одно построение списка — экран сбрасывает его
+  /// сам через [invalidateScanTaskCache] перед проходом. Ловить каждую запись
+  /// в очередь было бы хрупко: мест много, и забытое дало бы задачу-призрак,
+  /// которая не исчезает после снятого осмотра.
+  Map<String, String?> _scannedTaskUuids() {
+    final cached = _scanTaskUuidsCache;
+    if (cached != null) return cached;
+    final Map<String, String?> tasksInScans = {};
+    for (var scan in scanBox.values.toList()) {
+      tasksInScans[scan.taskUuid ?? ''] = scan.taskUuid;
+    }
+    for (var scan in scanPendingBox.values.toList()) {
+      tasksInScans[scan.taskUuid ?? ''] = scan.taskUuid;
+    }
+    _scanTaskUuidsCache = tasksInScans;
+    return tasksInScans;
+  }
+
+  /// Показывать ли задачу текущему пользователю: не закрыта локально,
+  /// периодическая — по его роли, назначенная — по ответственному.
+  bool _isTaskAvailable(Task task, Map<String, String?> tasksInScans) {
+    if (tasksInScans.containsKey(task.uuid) ||
+        closedTasks.containsKey(task.uuid)) {
+      return false;
+    }
+    if (GlobalState.authUser == null) {
+      return false;
+    }
+    if (task.resultStatus == "scheduled") {
+      // Осмотр без периодической задачи (её удалили) ролей не несёт —
+      // показывать его некому. Раньше здесь падал `!`.
+      final periodicTask = task.periodicTask;
+      if (periodicTask == null) return false;
+      return periodicTask.customRoles
+              .where((role) => role.id == GlobalState.authUser!.customRoleId)
+              .length >
+          0;
+    } else if (task.resultStatus == "open") {
+      return task.responsibleUser?.uuid == GlobalState.authUser!.uuid;
+    } else {
+      return false;
+    }
   }
 
   String getUsageUnitDisplayName(String value) {

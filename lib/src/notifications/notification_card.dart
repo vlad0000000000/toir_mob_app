@@ -23,9 +23,8 @@ class NotificationCard extends StatelessWidget {
       notification.notificationType == NotificationTypes.overdueTask ||
       notification.status == NotificationStatuses.overdue;
   bool get _isHighPriority =>
-      notification.notificationType == NotificationTypes.inspectionHighPriority;
-  bool get _isSummary =>
-      notification.notificationType == NotificationTypes.summaryTask;
+      notification.notificationType ==
+      NotificationTypes.inspectionHighPriority;
 
   @override
   Widget build(BuildContext context) {
@@ -72,7 +71,7 @@ class NotificationCard extends StatelessWidget {
                         children: [
                           Expanded(
                             child: Text(
-                              NotificationTypes.displayNameOf(notification)
+                              NotificationFormatters.typeLabel(notification)
                                   .toUpperCase(),
                               style: tt.labelSmall?.copyWith(
                                 color: cs.onSurfaceVariant,
@@ -124,8 +123,9 @@ class NotificationCard extends StatelessWidget {
                         runSpacing: 6,
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          if (!_isSummary)
-                            _StatusPill(status: notification.status),
+                          _StatusPill(
+                              status: NotificationFormatters.effectiveStatus(
+                                  notification)),
                           if ((notification.notificationType ==
                                       NotificationTypes.assignedInspection ||
                                   notification.notificationType ==
@@ -161,10 +161,11 @@ class NotificationCard extends StatelessWidget {
   Color _accentColor(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     if (_isOverdueType || _isHighPriority) return cs.error;
-    if (notification.status == NotificationStatuses.completed) {
+    final status = NotificationFormatters.effectiveStatus(notification);
+    if (status == NotificationStatuses.completed) {
       return cs.success;
     }
-    if (notification.status == NotificationStatuses.viewed) {
+    if (status == NotificationStatuses.viewed) {
       return cs.info;
     }
 

@@ -12,6 +12,7 @@ import '../../src/model/inventory_record.dart';
 import '../../src/model/notification.dart';
 import '../../src/model/notification_settings.dart';
 import '../../src/model/periodicity_rule.dart';
+import '../../src/model/ppr.dart';
 import '../../src/model/repair.dart';
 import '../../src/model/scan.dart';
 import '../../src/model/session.dart';
@@ -32,6 +33,7 @@ part 'scan_api.dart';
 part 'notifications_api.dart';
 part 'spare_part_api.dart';
 part 'repair_api.dart';
+part 'ppr_api.dart';
 
 /// Тонкое ядро HTTP-клиента. Методы по доменам вынесены в part-файлы
 /// (auth/equipment/task/scan/notifications/spare_part/repair) как extension на [API];

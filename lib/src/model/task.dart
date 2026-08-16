@@ -37,9 +37,19 @@ class Task {
     this.sparePartUsage,
   });
 
+  /// Комментарий осмотра. Сервер отдаёт его либо строкой (старый формат),
+  /// либо объектом `{text, timestamp}` — принимаем оба, иначе разбор задачи
+  /// падает и список задач остаётся пустым.
+  static String? _parseComment(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is String) return raw;
+    if (raw is Map) return raw['text'] as String?;
+    return null;
+  }
+
   factory Task.fromJson(Map<String, dynamic> json) {
     return Task(
-      comment: json['comment'],
+      comment: _parseComment(json['comment']),
       uuid: json['uuid'] as String,
       resultStatus: json['result_status'] as String,
       targetType: json['target_type'] as String,

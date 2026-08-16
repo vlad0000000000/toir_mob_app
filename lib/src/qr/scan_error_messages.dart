@@ -12,6 +12,11 @@ String scanErrorMessage(Object error) {
   if (error is AuthExpiredException) {
     return ScanQueueStrings.errorAuthExpired;
   }
+  // Нехватка ЗИП: текст сервера уже по-русски и без чисел — сами числа
+  // лежат в `shortages` и показываются отдельным блоком.
+  if (error is InsufficientStockException) {
+    return error.detail;
+  }
   if (isOfflineError(error)) {
     return ScanQueueStrings.errorNoConnection;
   }
@@ -32,6 +37,9 @@ String scanErrorMessage(Object error) {
 /// 5xx считаем временным: это сбой сервера, а не наших данных.
 bool isRetryableScanError(Object error) {
   if (isOfflineError(error)) return true;
+  // Нехватка ЗИП сама не рассосётся: пока склад не пополнят, ответ будет тот
+  // же. Решение принимает обходчик на экране разрешения конфликта.
+  if (error is InsufficientStockException) return false;
   final status = scanErrorStatusCode(error);
   return status != null && status >= 500;
 }

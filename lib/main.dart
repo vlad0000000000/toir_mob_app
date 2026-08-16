@@ -317,6 +317,17 @@ class MyApp extends StatelessWidget {
         },
       ),
       GoRoute(
+        path: '/ppr',
+        // Как и все остальные маршруты — NoTransitionPage. В ветке ППР здесь
+        // был `buildMyTransition` с цветом из `Palette`; и анимация-шторка,
+        // и сам `Palette` удалены рефактором (см. остальные 21 маршрут).
+        pageBuilder: (context, state) {
+          return const NoTransitionPage<void>(
+            child: PprListScreen(key: Key('ppr')),
+          );
+        },
+      ),
+      GoRoute(
         path: '/problems',
         pageBuilder: (context, state) {
           return NoTransitionPage<void>(

@@ -197,13 +197,18 @@ extension DataProviderSync on DataProvider {
       // один за другим.
       final loaded = await Future.wait([loadAllTasks(), loadAllOpenTasks()]);
       final tasks = [...loaded[0], ...loaded[1]];
-      await taskBox.clear();
       Map<String, Task> tasksDict = {};
       for (var task in tasks) {
         tasksDict[task.uuid] = task;
       }
+      // Осмотры задач ППР добираем до записи в ящик: очистка и заливка
+      // должны быть одной операцией, иначе между ними раздел «ППР»
+      // ненадолго пропадает из списков.
+      for (final task in await loadPprInspections(tasksDict.keys.toSet())) {
+        tasksDict[task.uuid] = task;
+      }
+      await taskBox.clear();
       await taskBox.putAll(tasksDict);
-      // await taskBox.addAll(tasks);
     } catch (e, stack) {
       print('Error syncing tasks: $e');
       print(stack);
@@ -212,15 +217,118 @@ extension DataProviderSync on DataProvider {
     }
   }
 
+  /// Синхронизирует актуальные ППР и состав их периодических задач.
+  /// Ошибку глотаем (как и остальные sync-методы) — при сбое остаётся
+  /// последний закэшированный набор из `stringBox`.
+  ///
+  /// Сами осмотры задач ППР догружает [syncTasks] (или [syncPprInspections],
+  /// если задачи перечитывать не нужно), поэтому вызывать до [syncTasks].
+  ///
+  /// При выключенном [FeatureFlags.pprEnabled] не ходит в сеть.
+  Future<void> syncPpr() async {
+    if (!FeatureFlags.pprEnabled) return;
+    _isLoading = true;
+    try {
+      final pprs = await api.getActivePprs();
+      setActivePprs(pprs);
+      await stringBox.put(DataProvider.pprCacheKey,
+          jsonEncode(pprs.map((ppr) => ppr.toJson()).toList()));
+      await syncPprCompletedByMe();
+    } catch (e) {
+      print('Failed sync PPR: $e');
+    } finally {
+      _isLoading = false;
+    }
+  }
+
+  /// Определяет, какие из уже выполненных задач актуальных ППР закрывал
+  /// текущий пользователь, — по ним строится счётчик «выполнено N из M»
+  /// на экране ППР. Закрытые осмотры в ящик задач не кладём: они не должны
+  /// попасть в списки, нужен только факт «эта задача была моей».
+  ///
+  /// Осмотр закрыт навсегда, поэтому проверенные uuid не перезапрашиваем.
+  Future<void> syncPprCompletedByMe() async {
+    final Set<String> known = {};
+    for (final ppr in activePprs) {
+      known.addAll(ppr.completedInspectionUuids);
+    }
+    // Осмотры закрытых ППР из кэша выкидываем, чтобы он не рос вечно.
+    final Set<String> mine = _pprCompletedByMe.intersection(known);
+    final Set<String> checked = _pprCompletedByMeChecked.intersection(known);
+
+    for (final uuid in known.difference(checked)) {
+      try {
+        final task = await api.getTaskByUuid(uuid);
+        checked.add(uuid);
+        if (task != null && isTaskMine(task)) {
+          mine.add(uuid);
+        }
+      } catch (e) {
+        print('Failed to load completed PPR inspection $uuid: $e');
+      }
+    }
+
+    _pprCompletedByMe = mine;
+    _pprCompletedByMeChecked = checked;
+    await stringBox.put(
+        DataProvider.pprCompletedByMeCacheKey,
+        jsonEncode({
+          'mine': mine.toList(),
+          'checked': checked.toList(),
+        }));
+  }
+
+  /// Осмотры задач актуальных ППР, которых нет среди уже загруженных [have].
+  ///
+  /// Общая выборка ([TaskApi.getCurrentTasks]) отдаёт осмотр только пока не
+  /// вышел его срок, а задача ППР актуальна, пока ППР не закрыт, — поэтому
+  /// такие осмотры берём поштучно по uuid из состава ППР.
+  Future<List<Task>> loadPprInspections(Set<String> have) async {
+    final Set<String> missing = {};
+    for (final ppr in activePprs) {
+      for (final uuid in ppr.inspectionUuids) {
+        if (!have.contains(uuid) &&
+            !DataProvider.closedTasks.containsKey(uuid)) {
+          missing.add(uuid);
+        }
+      }
+    }
+    final List<Task> tasks = [];
+    for (final uuid in missing) {
+      try {
+        final task = await api.getTaskByUuid(uuid);
+        if (task != null && task.resultStatus != 'closed') {
+          tasks.add(task);
+        }
+      } catch (e) {
+        print('Failed to load PPR inspection $uuid: $e');
+      }
+    }
+    return tasks;
+  }
+
+  /// Добавляет недостающие осмотры ППР в ящик задач, не трогая остальные.
+  /// Нужен там, где перечитывать весь список задач ради ППР незачем
+  /// (главный экран).
+  Future<void> syncPprInspections() async {
+    final have = taskBox.keys.map((key) => key.toString()).toSet();
+    for (final task in await loadPprInspections(have)) {
+      await taskBox.put(task.uuid, task);
+    }
+  }
+
   /// Синхронизация оперативных справочников.
   ///
-  /// Все загрузки идут параллельно, а не одна за другой: между собой они
-  /// независимы — разные эндпоинты, разные боксы, ни одна не использует
-  /// результат другой. Последовательный проход складывал время всех,
-  /// и на медленной сети кнопка «Синхронизировать данные» думала минутами.
+  /// Загрузки идут параллельно, а не одна за другой: между собой они
+  /// независимы — разные эндпоинты, разные боксы. Последовательный проход
+  /// складывал время всех, и на медленной сети кнопка «Синхронизировать
+  /// данные» думала минутами. Каждая из них уже глотает свою ошибку и
+  /// логирует, так что `Future.wait` не оборвётся из-за одной неудачной.
   ///
-  /// Каждая из них уже глотает свою ошибку и логирует, так что `Future.wait`
-  /// не оборвётся из-за одной неудачной — остальные догрузятся.
+  /// **Исключение — пара ППР → задачи.** [syncTasks] по составу ППР догружает
+  /// его осмотры и пишет всё в ящик задач одной операцией, поэтому [syncPpr]
+  /// обязан завершиться раньше. Эти двое идут последовательно, но параллельно
+  /// со всем остальным.
   ///
   /// **Каталога ЗИП здесь намеренно нет.** Он на порядок больше остальных
   /// справочников (десятки тысяч позиций — это сотни последовательных
@@ -234,7 +342,7 @@ extension DataProviderSync on DataProvider {
     if (!GlobalState.isAuthorized) return;
     await Future.wait([
       syncInventory(),
-      syncTasks(),
+      syncPpr().then((_) => syncTasks()),
       syncTypicalProblems(),
       syncPeriodicityRules(),
       syncUsageUnitTypes(),

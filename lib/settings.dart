@@ -45,6 +45,19 @@ class Settings {
     return v != null && v == "1";
   }
 
+  /// Включены ли фоновые push-уведомления. По умолчанию — да. Пользователь
+  /// может отключить их из «Настройки уведомлений», тогда foreground-сервис
+  /// не поднимается ни на старте, ни watchdog'ом.
+  static set pushEnabled(bool value) {
+    dataProvider.stringBox.put('pushEnabled', value ? "1" : "0");
+  }
+
+  static bool get pushEnabled {
+    var v = dataProvider.stringBox.get('pushEnabled');
+    // null → по умолчанию включено.
+    return v == null || v == "1";
+  }
+
   static set onboardingCompleted(bool value) {
     dataProvider.stringBox.put('onboardingCompleted', value ? "1" : "0");
   }

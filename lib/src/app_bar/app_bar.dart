@@ -65,6 +65,14 @@ class MyAppBar {
         title: const Text('Оборудование'),
       );
     }
+    if (location == '/ppr') {
+      return AppBar(
+        leading: BackButton(
+          onPressed: () => GoRouter.of(context).backOr('/actions'),
+        ),
+        title: const Text('ППР'),
+      );
+    }
     // Точное совпадение проверяем до префикса: '/repairs/<uuid>' — карточка,
     // а голый '/repairs' — список.
     if (location == '/repairs') {
@@ -109,9 +117,15 @@ class MyAppBar {
       );
     }
     if (location.startsWith('/details')) {
+      // На карточку оборудования приходят и из списка задач, и из ППР —
+      // возвращаемся туда, откуда пришли (см. `?from=ppr`).
+      final backTo = location.contains('from=ppr') ? '/ppr' : '/tasks';
       return AppBar(
         leading: BackButton(
-          onPressed: () => GoRouter.of(context).backOr('/tasks'),
+          // backOr, а не сброс стека: карточка открыта через push, и «назад»
+          // должен вернуть на тот экран, откуда пришли, вместе с прокруткой.
+          // backTo — запасной адрес на случай пустого стека (приход по пушу).
+          onPressed: () => GoRouter.of(context).backOr(backTo),
         ),
         title: const Text('Задачи'),
       );

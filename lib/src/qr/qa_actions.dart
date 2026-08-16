@@ -52,6 +52,7 @@ class _QRActionsState extends State<QRActions> {
         // другом разделе: очередь сохранила причину в Hive.
         _openConflict();
       });
+      _refreshPpr();
     }
   }
 
@@ -78,6 +79,25 @@ class _QRActionsState extends State<QRActions> {
   void _onTasks() {
     GlobalState.allowSyncMainOnce = true;
     _openSection('/tasks');
+  }
+
+  void _onPpr() {
+    GlobalState.allowSyncMainOnce = true;
+    // Как и остальные разделы — push через _openSection, а не сброс стека:
+    // хаб остаётся под экраном ППР, «назад» возвращает сюда сам, а на
+    // обратном пути проверяется, не отклонила ли очередь осмотр, пока
+    // обходчик был в разделе.
+    _openSection('/ppr');
+  }
+
+  /// Кнопка «ППР» появляется, только когда есть ППР «В работе», — поэтому
+  /// при заходе на главный экран подтягиваем актуальный список ППР.
+  /// При выключенном фича-флаге `syncPpr()` в сеть не ходит.
+  Future<void> _refreshPpr() async {
+    if (!GlobalState.isAuthorized) return;
+    await GlobalState.dataProvider.syncPpr();
+    await GlobalState.dataProvider.syncPprInspections();
+    if (mounted) setState(() {});
   }
 
   void _onNotifications() {
@@ -269,6 +289,15 @@ class _QRActionsState extends State<QRActions> {
               ),
             ],
           ),
+          if (GlobalState.dataProvider.hasPprInProgressWithTasks) ...[
+            const SizedBox(height: AppConstants.spacingMD),
+            _SecondaryActionCard(
+              icon: Icons.event_repeat_rounded,
+              label: 'ППР',
+              onTap: _onPpr,
+              fullWidth: true,
+            ),
+          ],
           if (allowRequestsWithoutQr) ...[
             const SizedBox(height: AppConstants.spacingMD),
             _SecondaryActionCard(
