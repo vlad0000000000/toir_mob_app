@@ -1,5 +1,26 @@
 part of 'data_provider.dart';
 
+/// Предохранитель постраничных загрузок.
+///
+/// Все циклы ниже выходят по неполной странице. Если сервер начнёт отдавать
+/// ровно `limit` записей на каждый запрос — например перестанет учитывать
+/// `skip` из-за ошибки в фильтрах, — выхода не будет: цикл продолжит копить
+/// ответы в памяти, пока приложение не убьют, и со стороны это выглядит как
+/// бесконечная синхронизация без единой ошибки в логе.
+///
+/// Порог заведомо выше любого реального справочника: он не ограничивает
+/// загрузку, а только не даёт зациклиться.
+const int _maxPagedItems = 100000;
+
+/// `true` — пора остановиться. Пишет в лог: молчаливый обрыв загрузки
+/// диагностировать невозможно.
+bool _pagingLimitReached(int loaded) {
+  if (loaded < _maxPagedItems) return false;
+  print('Paging guard: загрузка остановлена на $loaded записях — '
+      'похоже, сервер не учитывает skip');
+  return true;
+}
+
 /// Сетевые загрузки и авторизация (через [API]).
 extension DataProviderRemote on DataProvider {
   Future<List<InventoryRecord>> loadAllInventory() async {
@@ -21,6 +42,7 @@ extension DataProviderRemote on DataProvider {
         break;
       }
       offset += limit;
+      if (_pagingLimitReached(offset)) break;
     }
     return all;
   }
@@ -45,6 +67,7 @@ extension DataProviderRemote on DataProvider {
         break;
       }
       offset += limit;
+      if (_pagingLimitReached(offset)) break;
     }
     return all;
   }
@@ -67,6 +90,7 @@ extension DataProviderRemote on DataProvider {
         break;
       }
       offset += limit;
+      if (_pagingLimitReached(offset)) break;
     }
     return all;
   }
@@ -94,6 +118,7 @@ extension DataProviderRemote on DataProvider {
         break;
       }
       offset += limit;
+      if (_pagingLimitReached(offset)) break;
     }
     return all;
   }
@@ -136,6 +161,7 @@ extension DataProviderRemote on DataProvider {
         break;
       }
       offset += limit;
+      if (_pagingLimitReached(offset)) break;
     }
     return all;
   }
@@ -160,6 +186,7 @@ extension DataProviderRemote on DataProvider {
         break;
       }
       offset += limit;
+      if (_pagingLimitReached(offset)) break;
     }
     return all;
   }

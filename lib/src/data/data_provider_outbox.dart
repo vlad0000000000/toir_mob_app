@@ -558,6 +558,7 @@ extension DataProviderOutbox on DataProvider {
     scan.lastError = null;
     await scanBox.put(key, scan);
     refreshRejectedScansCount();
+    invalidateScanTaskCache();
     await syncScans();
   }
 
@@ -573,6 +574,9 @@ extension DataProviderOutbox on DataProvider {
       await stringBox.delete('maintenance_task_${scan.taskUuid}');
     }
     refreshRejectedScansCount();
+    // Задача снова свободна — кэш очередей о ней ещё помнит и прятал бы её
+    // из списков до следующего захода в «Задачи».
+    invalidateScanTaskCache();
   }
 
   Future<void> syncPeriodicTasks() async {

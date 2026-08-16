@@ -37,12 +37,22 @@ String scanErrorMessage(Object error) {
 /// 5xx считаем временным: это сбой сервера, а не наших данных.
 bool isRetryableScanError(Object error) {
   if (isOfflineError(error)) return true;
+  // Нет токена — осмотр не виноват. Цикл отправки не запускается без
+  // авторизации, но выход мог случиться ровно между проверкой и запросом.
+  // Помечать такой осмотр отклонённым нельзя: он уйдёт после входа сам.
+  if (error is AuthExpiredException ||
+      error.toString().contains(_notAuthenticated)) {
+    return true;
+  }
   // Нехватка ЗИП сама не рассосётся: пока склад не пополнят, ответ будет тот
   // же. Решение принимает обходчик на экране разрешения конфликта.
   if (error is InsufficientStockException) return false;
   final status = scanErrorStatusCode(error);
   return status != null && status >= 500;
 }
+
+/// Текст, которым методы `API` отвечают на пустой токен.
+const String _notAuthenticated = 'Not authenticated';
 
 /// Точный текст сервера для «осмотр уже закрыт»
 /// (`backend/crud/fault_inspection.update_inspection_by_uuid`).
@@ -95,7 +105,7 @@ const Map<String, String> _translations = {
   'Fault belongs to another equipment':
       'Неисправность относится к другому оборудованию',
   'Failed to update inspection': 'Не удалось сохранить осмотр',
-  'Not authenticated': 'Требуется войти в приложение заново',
+  _notAuthenticated: 'Требуется войти в приложение заново',
   // Форма multipart разбирается до схемы: сюда попадает битый JSON расхода.
   'actual_consumptions must be a JSON array':
       'Не удалось передать расход ЗИП. Сообщите администратору.',

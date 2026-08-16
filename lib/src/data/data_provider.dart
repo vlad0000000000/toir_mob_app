@@ -120,9 +120,8 @@ class DataProvider {
     if (cached == null || cached.isEmpty) return;
     try {
       final List<dynamic> raw = jsonDecode(cached);
-      setActivePprs(raw
-          .map((e) => Ppr.fromJson(e as Map<String, dynamic>))
-          .toList());
+      setActivePprs(
+          raw.map((e) => Ppr.fromJson(e as Map<String, dynamic>)).toList());
     } catch (e) {
       print('Failed to read PPR cache: $e');
     }
@@ -185,6 +184,15 @@ class DataProvider {
   List<Ppr> pprsWithTasks() {
     final pprs = activePprs;
     if (pprs.isEmpty) return const <Ppr>[];
+    // Сбрасываем кэш очередей на входе — тот же договор, что и у списка
+    // оборудования: внутри одного прохода он живёт и экономит сотни обходов,
+    // между кадрами очередь могла измениться.
+    //
+    // Сброс стоит именно здесь, а не на экране ППР: этот метод — общая точка
+    // входа и для экрана, и для кнопки «ППР» на главной
+    // ([hasPprInProgressWithTasks]), а на главную попадают, минуя «Задачи»,
+    // которые раньше были единственным местом сброса.
+    invalidateScanTaskCache();
     // Один проход по задачам: собираем осмотры ППР, доступные пользователю.
     final tasksInScans = _scannedTaskUuids();
     final Set<String> available = {};
@@ -561,6 +569,19 @@ class DataProvider {
 
   void updateInventoryRecords() async {
     _inventoryRecords = inventoryBox.values.toList();
+  }
+
+  /// Оборудование по локальному `id`. `null` — его нет в справочнике.
+  ///
+  /// Отдельный метод, потому что маршрут `/details/:index` ищет именно по
+  /// `id`, а найтись оборудование может не всегда: его удалили на сервере, и
+  /// синхронизация перезаписала бокс, пока экран был открыт или пока
+  /// пользователь шёл по ссылке из пуш-уведомления.
+  InventoryRecord? equipmentById(int id) {
+    for (final record in _inventoryRecords) {
+      if (record.id == id) return record;
+    }
+    return null;
   }
 
   /// Отправляет смену состояния оборудования на сервер и обновляет

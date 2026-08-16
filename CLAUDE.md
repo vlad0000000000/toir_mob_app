@@ -41,8 +41,13 @@ These break user data or the build if ignored. Full detail lives in the skill.
 ```bash
 flutter pub get
 flutter analyze     # baseline: exactly 1 warning; a 2nd is your regression
+flutter test        # baseline: green, 17 tests
 flutter run -d <device>
 ```
 
-`flutter test` currently fails — the only test file is an empty commented-out
-template. There are no tests in this project.
+`flutter test` is green and must stay green. Two suites so far:
+`test/feature_flags_test.dart` (PPR feature flag) and
+`test/scan_error_messages_test.dart` (how the inspection outbox classifies a
+failure — retry, reject, or treat as already delivered). The old empty
+commented-out `widget_test.dart` template was removed; it had no `main()` and
+made the whole run fail.

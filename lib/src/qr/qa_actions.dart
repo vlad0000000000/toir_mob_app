@@ -138,6 +138,9 @@ class _QRActionsState extends State<QRActions> {
     await GlobalState.dataProvider.scanBox.clear();
     await GlobalState.dataProvider.scanPendingBox.clear();
     GlobalState.dataProvider.refreshRejectedScansCount();
+    // Очередь опустела — задачи снова должны стать активными. Без сброса
+    // кэша они остались бы скрытыми до первого захода в «Задачи».
+    GlobalState.dataProvider.invalidateScanTaskCache();
     if (!mounted) return;
     Dialogs.notify(context, 'Осмотры успешно сброшены', '');
   }

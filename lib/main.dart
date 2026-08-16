@@ -49,8 +49,11 @@ import '../../src/spare_parts/spare_part_detail_screen.dart';
 import '../../src/spare_parts/spare_parts_screen.dart';
 import '../../src/splash/splash_screen.dart';
 import '../../src/style/snack_bar.dart';
+import '../../src/app_bar/app_bar.dart';
 import '../../src/tasks/tasks.dart';
 import '../../src/utils/dependent.dart';
+import '../../src/utils/go_router_ext.dart';
+import '../../src/widgets/empty_state.dart';
 
 import 'global_state.dart';
 import 'src/app_lifecycle/app_lifecycle.dart';
@@ -418,14 +421,22 @@ class MyApp extends StatelessWidget {
       GoRoute(
         path: '/details/:index',
         pageBuilder: (context, state) {
-          final index = int.parse(state.pathParameters['index']!);
+          // Ни разбор пути, ни поиск оборудования не должны ронять маршрут.
+          // Сюда попадают не только из списка: из раздела ППР, по тапу
+          // в пуш-уведомлении, из восстановленного стека. Оборудование к
+          // этому моменту могло исчезнуть из локального справочника — его
+          // удалили на сервере, и синхронизация перезаписала бокс. Раньше
+          // `.first` в таком случае бросал `StateError` прямо в build
+          // маршрута, и приложение показывало красный экран.
+          final index = int.tryParse(state.pathParameters['index'] ?? '');
+          final machine = index == null
+              ? null
+              : GlobalState.dataProvider.equipmentById(index);
+          if (machine == null) {
+            return const NoTransitionPage<void>(child: _EquipmentGone());
+          }
           return NoTransitionPage<void>(
-            child: EquipmentDetailScreen(
-              machine: GlobalState.dataProvider.inventoryRecords
-                  .where((element) => element.id == index)
-                  .first,
-            ),
-            // child: const QRTabsScreen(key: Key('qr_scanner')),
+            child: EquipmentDetailScreen(machine: machine),
           );
         },
       ),
@@ -591,6 +602,33 @@ class MyApp extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// Заглушка маршрута `/details/:index`, когда оборудования нет в справочнике.
+///
+/// Своим экраном, а не редиректом: обходчик пришёл по конкретной ссылке — из
+/// раздела ППР, из пуш-уведомления, из восстановленного стека, — и молча
+/// переброшенный на другой экран он решил бы, что приложение сломалось.
+/// Здесь же прямо сказано, что произошло, и предложено обновить справочник.
+class _EquipmentGone extends StatelessWidget {
+  const _EquipmentGone();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: MyAppBar.build(context) as AppBar,
+      body: EmptyState(
+        icon: Icons.search_off_rounded,
+        title: 'Оборудование не найдено',
+        hint: 'Возможно, его удалили. Синхронизируйте данные и попробуйте '
+            'снова.',
+        action: ElevatedButton(
+          onPressed: () => GoRouter.of(context).backOr('/tasks'),
+          child: const Text('К задачам'),
+        ),
+      ),
     );
   }
 }
