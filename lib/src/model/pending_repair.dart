@@ -156,14 +156,16 @@ class PendingRepair {
     );
   }
 
-  /// Внимание: [lastError] здесь **не** «оставить прежнее, если не передали».
-  /// Не переданный `lastError` очищает пометку об отказе — иначе черновик,
-  /// однажды отклонённый, нельзя было бы вернуть в очередь кнопкой
-  /// «Отправить». Поэтому передавайте его явно всегда.
+  /// Обычная правка черновика. Пометку об отказе **не трогает**: менять её
+  /// умеют только [markRejected] и [clearRejection].
+  ///
+  /// Раньше `lastError` и `conflictRepairUuid` были параметрами этого метода
+  /// и сбрасывались, если их не передали. Прочитать это по месту вызова было
+  /// невозможно: `draft.copyWith(photoPaths: …)` выглядит как «добавили
+  /// снимок», а на деле снимал отказ, и очередь тут же отправляла черновик
+  /// заново — получая тот же отказ. Теперь каждый переход назван.
   PendingRepair copyWith({
     int? attempts,
-    String? lastError,
-    String? conflictRepairUuid,
     String? serverUuid,
     List<String>? photoPaths,
     String? comment,
@@ -183,12 +185,59 @@ class PendingRepair {
       attempts: attempts ?? this.attempts,
       lastError: lastError,
       conflictRepairUuid: conflictRepairUuid,
-      // В отличие от lastError эти поля не сбрасываются: созданный ремонт,
-      // недогруженные снимки и намерение отправить на рассмотрение должны
-      // пережить любую пометку об отказе.
       serverUuid: serverUuid ?? this.serverUuid,
       photoPaths: photoPaths ?? this.photoPaths,
       submitForReview: submitForReview ?? this.submitForReview,
+      normItems: normItems,
+    );
+  }
+
+  /// Сервер ответил и отказал. Причина — по-русски, [conflictRepairUuid] —
+  /// ремонт, занявший оборудование, если его удалось найти (иначе `null`,
+  /// и прежнее значение сюда тянуть нельзя: оно от другого отказа).
+  PendingRepair markRejected({
+    required String reason,
+    String? conflictRepairUuid,
+  }) {
+    return PendingRepair(
+      localId: localId,
+      equipmentUuid: equipmentUuid,
+      equipmentName: equipmentName,
+      startedAt: startedAt,
+      createdAt: createdAt,
+      consumptionNormUuid: consumptionNormUuid,
+      consumptionNormName: consumptionNormName,
+      comment: comment,
+      consumptions: consumptions,
+      attempts: attempts + 1,
+      lastError: reason,
+      conflictRepairUuid: conflictRepairUuid,
+      serverUuid: serverUuid,
+      photoPaths: photoPaths,
+      submitForReview: submitForReview,
+      normItems: normItems,
+    );
+  }
+
+  /// Черновик снова готов к отправке: обходчик нажал «Повторить» или изменил
+  /// форму. Очередь берёт в работу только черновики без пометки.
+  PendingRepair clearRejection() {
+    return PendingRepair(
+      localId: localId,
+      equipmentUuid: equipmentUuid,
+      equipmentName: equipmentName,
+      startedAt: startedAt,
+      createdAt: createdAt,
+      consumptionNormUuid: consumptionNormUuid,
+      consumptionNormName: consumptionNormName,
+      comment: comment,
+      consumptions: consumptions,
+      attempts: attempts,
+      lastError: null,
+      conflictRepairUuid: null,
+      serverUuid: serverUuid,
+      photoPaths: photoPaths,
+      submitForReview: submitForReview,
       normItems: normItems,
     );
   }

@@ -27,7 +27,7 @@ extension TaskApi on API {
         'responsible_user_uuids': [userUuid],
     });
 
-    final response = await http.get(
+    final response = await _client.get(
       url,
       headers: {
         'Authorization': 'Bearer ${API.jwtToken}',
@@ -61,7 +61,7 @@ extension TaskApi on API {
     final url = Uri.parse(
         '${API.baseUrl}/v1/company/fault_inspections/?limit=${limit}&skip=${offset}&status=scheduled');
 
-    final response = await http.get(
+    final response = await _client.get(
       url,
       headers: {
         'Authorization': 'Bearer ${API.jwtToken}',
@@ -139,7 +139,7 @@ extension TaskApi on API {
       throw Exception('Not authenticated');
     }
 
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('${API.baseUrl}/v1/company/fault_inspections/$inspectionUuid'),
       headers: {
         'Authorization': 'Bearer ${API.jwtToken}',
@@ -169,7 +169,7 @@ extension TaskApi on API {
     final url = Uri.parse(
         '${API.baseUrl}/v1/company/eq_fault/?limit=${limit}&skip=${offset}');
 
-    final response = await http.get(
+    final response = await _client.get(
       url,
       headers: {
         'Authorization': 'Bearer ${API.jwtToken}',
@@ -193,10 +193,10 @@ extension TaskApi on API {
       throw Exception('Not authenticated');
     }
 
-    final url = Uri.parse(
-        '${API.baseUrl}/v1/company/periodic_task/periodicity-rules');
+    final url =
+        Uri.parse('${API.baseUrl}/v1/company/periodic_task/periodicity-rules');
 
-    final response = await http.get(
+    final response = await _client.get(
       url,
       headers: {
         'Authorization': 'Bearer ${API.jwtToken}',
@@ -277,7 +277,7 @@ extension TaskApi on API {
         }
       }
 
-      final response = await request.send().timeout(API._uploadTimeout);
+      final response = await _client.send(request).timeout(API._uploadTimeout);
       await response.stream.bytesToString().timeout(API._uploadTimeout);
 
       return true;

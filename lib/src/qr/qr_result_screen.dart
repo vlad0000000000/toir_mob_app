@@ -221,7 +221,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Ремонт уже создан'),
+        title: const Text(RepairStrings.draftAlreadyQueuedTitle),
         content: Container(
           padding: const EdgeInsets.all(AppConstants.spacingMD),
           // Красным, как у открытого ремонта: черновик и есть будущий
@@ -237,8 +237,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
               const SizedBox(width: AppConstants.spacingSM),
               Expanded(
                 child: Text(
-                  'Ремонт по этому оборудованию сохранён на устройстве и '
-                  'отправится, когда появится связь. Второй заводить не нужно.',
+                  RepairStrings.draftAlreadyQueuedBody,
                   style: Theme.of(context)
                       .textTheme
                       .bodyMedium

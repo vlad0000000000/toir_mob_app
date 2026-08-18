@@ -64,6 +64,10 @@ class RepairDetailScreen extends StatefulWidget {
 class _RepairDetailScreenState extends State<RepairDetailScreen> {
   static const int _commentLimit = 2000;
 
+  /// Сколько времени тот же самый текст считается уже показанным. Чуть больше
+  /// времени жизни плашки: пока обходчик её читает, повтор не нужен.
+  static const Duration _snackRepeatWindow = Duration(seconds: 5);
+
   final _commentController = TextEditingController();
 
   Repair? _repair;
@@ -156,8 +160,16 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
   bool get _editable {
     final repair = _repair;
     if (repair == null) return false;
+    // Черновик, который обходчик уже отправил, правке не подлежит: очередь
+    // отправит его при первой связи вместе со всем содержимым, и правка
+    // после нажатия «Отправить» уехала бы незаметно для самого обходчика.
+    // Разблокировать можно, отменив отправку, — см. [_cancelSubmit].
+    if (_submittedDraft) return false;
     return repair.isOpen && !repair.isUnassigned;
   }
+
+  /// Черновик помечен к отправке и ждёт связи.
+  bool get _submittedDraft => _draft?.submitForReview ?? false;
 
   /// Кнопка «Сохранить» активна только при реальных изменениях — так обходчик
   /// видит, есть ли неотправленное.
@@ -288,9 +300,12 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
         submitForReview: submitForReview,
       );
       await GlobalState.dataProvider.upsertRepair(updated);
-      // Уехало — очередь больше ни при чём, даже если правка там лежала.
-      await GlobalState.dataProvider
-          .deletePendingRepairUpdate(widget.repairUuid);
+      // Поля уехали — но снимки уходят отдельными запросами, и их очередь
+      // может быть ещё не разобрана. Удалить запись целиком значило бы стереть
+      // файлы кадров, которые сервер ни разу не видел: `deletePendingRepairUpdate`
+      // чистит и диск. Поэтому оставляем запись ровно с фотографической
+      // работой, а всё остальное приводим к тому, что теперь на сервере.
+      await _dropQueuedFieldsKeepingPhotos(updated);
       if (!mounted) return;
       setState(() {
         _applyRepair(updated);
@@ -307,17 +322,11 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
       // Связи нет — не теряем заполненное, кладём правку в очередь. Форму при
       // этом оставляем как есть: обходчик видит свои цифры, а не серверные.
       if (isRetryableRepairError(e)) {
-        await GlobalState.dataProvider.savePendingRepairUpdate(
-          PendingRepairUpdate(
-            repairUuid: repair.uuid,
-            repairId: repair.id,
-            equipmentName: repair.equipmentName,
-            baseStatus: repair.status,
-            createdAt: DateTime.now(),
-            comment: _commentController.text.trim(),
-            consumptions: List<RepairConsumption>.from(_consumptions),
-            submitForReview: submitForReview,
-          ),
+        // Через общую точку: иначе снятые офлайн снимки, уже лежащие в
+        // очереди по этому же ключу, были бы затёрты пустым списком.
+        await _queueUpdate(
+          submitForReview: submitForReview,
+          clearRejection: true,
         );
         if (!mounted) return;
         setState(() => _isSaving = false);
@@ -341,12 +350,15 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
     final draft = _draft;
     if (draft == null) return;
     setState(() => _isSaving = true);
-    await GlobalState.dataProvider.addPendingRepair(draft.copyWith(
-      comment: _commentController.text.trim(),
-      consumptions: List<RepairConsumption>.from(_consumptions),
-      submitForReview: submitForReview ? true : draft.submitForReview,
-      lastError: null,
-    ));
+    // Правка формы — это и есть «попробовать ещё раз»: снимаем пометку об
+    // отказе явно, чтобы очередь снова взяла черновик в работу.
+    await GlobalState.dataProvider.addPendingRepair(draft
+        .copyWith(
+          comment: _commentController.text.trim(),
+          consumptions: List<RepairConsumption>.from(_consumptions),
+          submitForReview: submitForReview ? true : draft.submitForReview,
+        )
+        .clearRejection());
     if (!mounted) return;
     if (submitForReview) {
       // Пытаемся отправить прямо сейчас, а не ждать фонового прохода очереди.
@@ -371,7 +383,9 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
           _isSaving = false;
           _applyRepair(_draftRepair());
         });
-        _showSnack(message: left.lastError!, ok: false);
+        // Причину не всплываем вовсе: она уже написана в блоке «Не
+        // отправлено», который тут же появляется под расходом, и красная
+        // плашка поверх него только дублировала текст.
         return;
       }
       GoRouter.of(context).backOr('/repairs');
@@ -588,20 +602,74 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
   /// ремонта — отдельной очереди для фотографий нет: они всё равно уезжают
   /// вместе с комментарием и расходом, и порядок между ними важен.
   Future<void> _queuePhotoChange({String? addPath, String? deleteUuid}) async {
+    await _queueUpdate(addPath: addPath, deleteUuid: deleteUuid);
+  }
+
+  /// Убирает из очереди то, что уже уехало, сохранив незагруженные снимки.
+  ///
+  /// Полное удаление записи здесь недопустимо: `deletePendingRepairUpdate`
+  /// вместе с ней стирает и файлы кадров, а `updateRepair` фотографии не
+  /// отправляет — они уходят своими запросами из очереди. Снял снимок без
+  /// связи, дождался сети и нажал «Сохранить» раньше очередного прохода —
+  /// и кадр пропадал, так и не загрузившись.
+  Future<void> _dropQueuedFieldsKeepingPhotos(Repair updated) async {
+    final provider = GlobalState.dataProvider;
+    final queued = provider.pendingUpdateFor(widget.repairUuid);
+    if (queued == null) return;
+    if (!queued.hasPhotoWork) {
+      await provider.deletePendingRepairUpdate(widget.repairUuid);
+      return;
+    }
+    await provider.savePendingRepairUpdate(PendingRepairUpdate(
+      repairUuid: queued.repairUuid,
+      repairId: queued.repairId,
+      equipmentName: queued.equipmentName,
+      // Поля уже совпадают с сервером — отсчёт конфликта начинаем заново.
+      baseStatus: updated.status,
+      createdAt: DateTime.now(),
+      comment: updated.comment ?? '',
+      consumptions: List<RepairConsumption>.from(updated.actualConsumptions),
+      submitForReview: false,
+      photoPaths: queued.photoPaths,
+      deletedPhotoUuids: queued.deletedPhotoUuids,
+    ));
+  }
+
+  /// Единственная точка, где правка существующего ремонта попадает в очередь.
+  ///
+  /// Раньше их было три, и каждая собирала `PendingRepairUpdate` с нуля. Ключ
+  /// бокса — `repairUuid`, то есть запись ровно одна, и сборка «с нуля»
+  /// означала перезапись: сохранение без связи теряло уже снятые офлайн
+  /// снимки, а добавление снимка сбрасывало неразрешённый конфликт и
+  /// подменяло `baseStatus`, на котором этот конфликт и держится.
+  ///
+  /// [clearRejection] — правка сделана обходчиком осознанно («Сохранить»,
+  /// «Отправить»), значит пометку об отказе снимаем и очередь берёт запись
+  /// снова. Для работы с фотографиями — нет: снимок к причине отказа
+  /// отношения не имеет.
+  Future<void> _queueUpdate({
+    bool? submitForReview,
+    String? addPath,
+    String? deleteUuid,
+    bool clearRejection = false,
+  }) async {
     final repair = _repair!;
     final provider = GlobalState.dataProvider;
     final existing = provider.pendingUpdateFor(repair.uuid);
-    await provider.savePendingRepairUpdate(PendingRepairUpdate(
+    final queued = PendingRepairUpdate(
       repairUuid: repair.uuid,
       repairId: repair.id,
       equipmentName: repair.equipmentName,
-      baseStatus: repair.status,
-      createdAt: DateTime.now(),
+      // Статус, от которого отсчитывается конфликт, задаёт первая правка:
+      // именно его обходчик видел, когда начал править.
+      baseStatus: existing?.baseStatus ?? repair.status,
+      createdAt: existing?.createdAt ?? DateTime.now(),
       // Форму подхватываем как есть: если обходчик что-то набрал и ещё не
       // сохранил, снимок не должен эти правки затереть.
       comment: _commentController.text.trim(),
       consumptions: List<RepairConsumption>.from(_consumptions),
-      submitForReview: existing?.submitForReview ?? false,
+      submitForReview: submitForReview ?? existing?.submitForReview ?? false,
+      // Снимки и удаления копятся, а не заменяются.
       photoPaths: [
         ...?existing?.photoPaths,
         if (addPath != null) addPath,
@@ -610,7 +678,11 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
         ...?existing?.deletedPhotoUuids,
         if (deleteUuid != null) deleteUuid,
       ],
-    ));
+      lastError: clearRejection ? null : existing?.lastError,
+      serverStatus: clearRejection ? null : existing?.serverStatus,
+      conflictKind: clearRejection ? null : existing?.conflictKind,
+    );
+    await provider.savePendingRepairUpdate(queued);
   }
 
   /// Снимки, ждущие отправки, и uuid'ы удалённых без связи — их прячем.
@@ -652,12 +724,7 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
     final existing = provider.pendingUpdateFor(widget.repairUuid);
     if (existing == null) return;
     final left = existing.photoPaths.where((item) => item != path).toList();
-    await provider.savePendingRepairUpdate(existing.copyWith(
-      lastError: existing.lastError,
-      serverStatus: existing.serverStatus,
-      conflictKind: existing.conflictKind,
-      photoPaths: left,
-    ));
+    await provider.savePendingRepairUpdate(existing.copyWith(photoPaths: left));
     await RepairPhotoFiles.delete(path);
     if (!mounted) return;
     setState(() {});
@@ -744,11 +811,38 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
     });
   }
 
+  /// Текст последней плашки и время показа — чтобы не повторять её.
+  String? _lastSnackMessage;
+  DateTime? _lastSnackAt;
+
+  /// Одна плашка за раз, без дублей.
+  ///
+  /// `ScaffoldMessenger` не заменяет показанный снекбар, а ставит новый в
+  /// очередь: три вызова подряд — это три показа по очереди, каждый на свои
+  /// секунды. При возвращении связи так и получалось: обходчик жмёт
+  /// «Повторить», сервер отвечает тем же отказом, и «Для этого оборудования
+  /// уже есть ремонт» всплывало столько раз, сколько было нажатий, — уже
+  /// после того, как он прочитал сообщение в первый раз.
+  ///
+  /// Поэтому очередь плашек чистим, а тот же самый текст, если он только что
+  /// был на экране, не показываем заново: новое сообщение — новая плашка,
+  /// повтор старого — молча.
   void _showSnack({required String message, required bool ok}) {
     if (!mounted) return;
+    final now = DateTime.now();
+    final isRepeat = message == _lastSnackMessage &&
+        _lastSnackAt != null &&
+        now.difference(_lastSnackAt!) < _snackRepeatWindow;
+    _lastSnackMessage = message;
+    _lastSnackAt = now;
+    if (isRepeat) return;
+    final messenger = ScaffoldMessenger.of(context);
+    // Именно `clearSnackBars`, а не `hideCurrentSnackBar`: второй убирает
+    // только видимую плашку, а накопившиеся за ней всё равно доиграют.
+    messenger.clearSnackBars();
     final cs = Theme.of(context).colorScheme;
     final fg = ok ? cs.onSuccess : cs.onError;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    messenger.showSnackBar(SnackBar(
       content: Row(
         children: [
           Icon(
@@ -827,12 +921,23 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
   }
 
   /// Вид отказа. У правки он определён очередью в момент отказа, у черновика
-  /// выводится из того, чей ремонт занял оборудование: сервер сообщает только
-  /// сам факт занятости.
+  /// выводится здесь.
+  ///
+  /// Отправной точкой служит сама причина отказа, а не наличие занявшего
+  /// ремонта. Раньше вид выводился только из `conflictRepairUuid`, и любой
+  /// отказ — сбой сервера, ошибка валидации, приостановленная подписка —
+  /// становился «оборудование занято кем-то ещё». А этот вид окончательный,
+  /// то есть кнопка «Повторить» исчезала там, где повтор как раз и был
+  /// нужен: единственным выходом оставалось удалить черновик.
   RepairConflictKind _conflictKind(
       PendingRepair? draft, PendingRepairUpdate? update) {
     if (update != null) return update.kind;
-    final blocking = _blockingRepair(draft!);
+    final rejected = draft!;
+    if (!isEquipmentBusyMessage(rejected.lastError)) {
+      // Причина не про занятость — отказ не окончательный, повтор разрешён.
+      return RepairConflictKind.other;
+    }
+    final blocking = _blockingRepair(rejected);
     if (blocking == null) return RepairConflictKind.equipmentBusyOther;
     final me = GlobalState.authUser?.uuid;
     final owner = blocking.responsibleUserUuid;
@@ -856,10 +961,30 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
     router.push('/repairs/${target.uuid}', extra: target);
   }
 
+  /// Возвращает отправленный черновик в работу.
+  ///
+  /// «Отправить» без связи — это только пометка в очереди, ремонт никуда ещё
+  /// не ушёл. Раз так, снять её должно быть можно: иначе ошибочное нажатие
+  /// уезжало бы на сервер при первой же связи, а поправить состав расхода или
+  /// комментарий было бы нечем.
+  Future<void> _cancelSubmit(PendingRepair draft) async {
+    setState(() => _isUnsentBusy = true);
+    await GlobalState.dataProvider
+        .addPendingRepair(draft.copyWith(submitForReview: false));
+    if (!mounted) return;
+    setState(() {
+      _isUnsentBusy = false;
+      _repair = _draftRepair();
+    });
+  }
+
   /// Отправляет неотправленное прямо сейчас, не дожидаясь прохода очереди.
   Future<void> _retryUnsent(
       PendingRepair? draft, PendingRepairUpdate? update) async {
     setState(() => _isUnsentBusy = true);
+    // «Повторить» нажали руками — идём в сеть честно, даже если минуту назад
+    // сервер не отвечал.
+    API.retryConnectionNow();
     final provider = GlobalState.dataProvider;
     if (draft != null) {
       await provider.retryPendingRepair(draft.localId);
@@ -871,10 +996,10 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
         GoRouter.of(context).backOr('/repairs');
         return;
       }
+      // Об исходе повтора говорит сам блок «Не отправлено»: причина написана
+      // в плашке, а набор кнопок под ней меняется по виду отказа. Всплывающей
+      // плашки поверх этого не нужно — она повторяла тот же текст.
       setState(() => _isUnsentBusy = false);
-      // Отказ повторился — говорим об этом, иначе нажатие выглядит как
-      // молчаливо ничего не сделавшее.
-      if (left.isRejected) _showSnack(message: left.lastError!, ok: false);
       return;
     }
     await provider.retryPendingRepairUpdate(widget.repairUuid);
@@ -943,19 +1068,52 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
   /// называл. Теперь здесь только действия: отправить ещё раз или перенести —
   /// и скопировать данные, чтобы передать их администратору.
   ///
-  /// Текста причины в блоке нет намеренно: у отказа сервера формулировки
-  /// служебные («Не удалось выполнить действие»), и обходчику они ничего не
-  /// дают. Что ремонт не уехал, видно по самому блоку и по карточке в списке.
+  /// Причина отказа показывается здесь же. Прежде её намеренно не выводили —
+  /// считалось, что формулировки сервера служебные. На деле их переводит
+  /// `repairErrorMessage`, и обходчик получает «Для этого оборудования уже
+  /// есть ремонт» или «Недостаточно ЗИП на складе» — то, по чему видно, что
+  /// делать. Без этого текста единственным местом, где причина вообще
+  /// появлялась, был снекбар после «Повторить», а при окончательном отказе
+  /// этой кнопки нет — и ремонт молча не уходил.
   List<Widget> _buildUnsentSection(ColorScheme cs) {
+    final tt = Theme.of(context).textTheme;
     final draft = _draft;
     final update = draft == null ? _pendingUpdate : null;
     if (draft == null && update == null) return const [];
     final rejected = draft?.isRejected ?? update!.isRejected;
+    final reason = draft?.lastError ?? update?.lastError;
     final busy = _isSaving || _isUnsentBusy;
     final primary = _unsentPrimaryAction(draft, update, rejected);
     return [
       Divider(color: cs.outlineVariant, height: AppConstants.spacingLG * 2),
       _SectionLabel(RepairCardStrings.labelUnsent),
+      const SizedBox(height: AppConstants.spacingSM),
+      // Отказ — плашкой в цвет ошибки; ожидание связи — обычным пояснением.
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(AppConstants.spacingMD),
+        decoration: BoxDecoration(
+          color: rejected
+              ? cs.error.withValues(alpha: 0.12)
+              : cs.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+          border: rejected
+              ? null
+              : Border.all(color: cs.outlineVariant, width: 0.5),
+        ),
+        // Без значка: цвет плашки и так отличает отказ от ожидания связи, а
+        // текст при этом отбит от краёв одинаково со всех сторон.
+        child: Text(
+          rejected
+              ? (reason ?? RepairCardStrings.unsentRejectedFallback)
+              : _submittedDraft
+                  ? RepairCardStrings.unsentSubmitted
+                  : RepairStrings.draftWaiting,
+          style: tt.bodySmall?.copyWith(
+            color: rejected ? cs.error : cs.onSurfaceVariant,
+          ),
+        ),
+      ),
       const SizedBox(height: AppConstants.spacingSM),
       // В столбик, а не в строку: подписи со значком в половину ширины не
       // помещаются. Первой — та, что зависит от причины отказа.
@@ -964,6 +1122,21 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
           width: double.infinity,
           height: AppConstants.buttonHeight,
           child: primary,
+        ),
+        const SizedBox(height: AppConstants.spacingSM),
+      ],
+      // Отмена отправки — только у черновика: у правки существующего ремонта
+      // «Отправить» означает смену статуса на сервере, и локально её не
+      // отменить.
+      if (draft != null && draft.submitForReview) ...[
+        SizedBox(
+          width: double.infinity,
+          height: AppConstants.buttonHeight,
+          child: OutlinedButton.icon(
+            onPressed: busy ? null : () => _cancelSubmit(draft),
+            icon: Icon(Icons.undo_rounded, size: 20, color: cs.onSurface),
+            label: const Text(RepairCardStrings.cancelSubmit),
+          ),
         ),
         const SizedBox(height: AppConstants.spacingSM),
       ],

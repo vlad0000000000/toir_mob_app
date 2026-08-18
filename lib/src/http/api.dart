@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import 'package:http_parser/http_parser.dart';
 import '../../src/model/usage_update.dart';
 import '../../global_state.dart';
@@ -25,6 +26,7 @@ import '../../src/model/user.dart';
 import '../../src/model/equipment_state.dart';
 import '../../src/model/periodic_task_request.dart';
 import '../exceptions/app_exceptions.dart';
+import '../utils/offline_error.dart';
 
 part 'auth_api.dart';
 part 'equipment_api.dart';
@@ -34,6 +36,56 @@ part 'notifications_api.dart';
 part 'spare_part_api.dart';
 part 'repair_api.dart';
 part 'ppr_api.dart';
+
+/// Соединение, которое живёт дольше одного запроса и сдаётся быстро.
+///
+/// Раньше каждый вызов шёл через top-level `http.get/post/...`, а они на каждый
+/// запрос поднимают собственный `IOClient` и закрывают его после ответа. Из
+/// этого следовали две беды: TCP- и TLS-рукопожатие заново на каждый запрос —
+/// и, главное, некуда было поставить `connectionTimeout`. Когда сеть есть, а
+/// сервера нет, SYN уходит в пустоту, ошибки не приходит, ОС молча ретраит — и
+/// запрос висел до `.timeout()` на самом верху, то есть все 15 секунд. Теперь
+/// попытка соединения сдаётся за три.
+http.Client _newIoClient() => IOClient(
+      HttpClient()
+        ..connectionTimeout = const Duration(seconds: 3)
+        ..idleTimeout = const Duration(seconds: 20),
+    );
+
+/// Клиент обычных запросов: помнит, что сервер только что не отозвался.
+final http.Client _client = _OfflineAwareClient(_newIoClient());
+
+/// Клиент пинга живости. Окно недоступности он обязан игнорировать — иначе
+/// выйти из окна было бы нечем.
+final http.Client _probeClient = _newIoClient();
+
+/// Обёртка, через которую проходят все запросы приложения.
+///
+/// Одно место вместо тридцати: отметка о недоступности ставится и снимается
+/// здесь, а не в каждом методе API, и заодно накрывает multipart-загрузки,
+/// которые идут мимо `get`/`post`.
+class _OfflineAwareClient extends http.BaseClient {
+  final http.Client _inner;
+
+  _OfflineAwareClient(this._inner);
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    if (API.isServerKnownUnreachable) {
+      // Тип тот же, что при реальном обрыве: вызывающий код уже кладёт данные
+      // в очередь именно по нему, отдельная ветка не нужна.
+      throw const SocketException('Сервер не отвечает, попытка отложена');
+    }
+    try {
+      final response = await _inner.send(request);
+      API.markServerReachable();
+      return response;
+    } catch (error) {
+      if (isOfflineError(error)) API.markServerUnreachable();
+      rethrow;
+    }
+  }
+}
 
 /// Тонкое ядро HTTP-клиента. Методы по доменам вынесены в part-файлы
 /// (auth/equipment/task/scan/notifications/spare_part/repair) как extension на [API];
@@ -73,7 +125,7 @@ class API {
 
   // Таймауты сетевых запросов
   static const Duration _readTimeout =
-      Duration(seconds: 15); // GET и мелкие записи + login
+      Duration(seconds: 8); // GET и мелкие записи + login
   static const Duration _uploadTimeout =
       Duration(seconds: 60); // multipart с фото
   static const Duration _aliveTimeout =
@@ -85,6 +137,50 @@ class API {
   /// Включается из кода/дебаггера: `API.simulateOffline = true;`.
   static bool simulateOffline = false;
 
+  /// Сколько держим отметку «сервер не отвечает», не трогая сеть.
+  ///
+  /// Тридцать секунд — компромисс: за это время обходчик успевает сделать
+  /// несколько действий подряд, и ни одно из них не упирается в ожидание
+  /// соединения, а вернувшуюся связь замечает пинг живости (он окно
+  /// игнорирует) или первый запрос после истечения окна.
+  static const Duration offlineWindow = Duration(seconds: 30);
+
+  static DateTime? _unreachableUntil;
+
+  /// Сервер только что не отозвался, и ходить в сеть пока незачем.
+  ///
+  /// Это ответ на «почему офлайн так долго»: без такой отметки каждое
+  /// следующее действие заново открывало соединение к недоступному серверу и
+  /// ждало таймаута. Здесь отказ выдаётся мгновенно и того же вида, что при
+  /// реальном обрыве, — очередь и экраны уже умеют его разбирать.
+  static bool get isServerKnownUnreachable {
+    final until = _unreachableUntil;
+    if (until == null) return false;
+    if (DateTime.now().isBefore(until)) return true;
+    _unreachableUntil = null;
+    return false;
+  }
+
+  /// Запрос не доехал до сервера — закрываем сеть на [offlineWindow].
+  static void markServerUnreachable() {
+    _unreachableUntil = DateTime.now().add(offlineWindow);
+  }
+
+  /// Сервер ответил — неважно чем: связь есть, окно снимаем.
+  static void markServerReachable() {
+    _unreachableUntil = null;
+  }
+
+  /// Забыть отметку недоступности перед действием, которое обходчик запустил
+  /// сам: вход, «Синхронизировать данные», «Повторить».
+  ///
+  /// Он мог только что подключиться к сети, и отвечать ему мгновенным «связи
+  /// нет» по памяти полуминутной давности нельзя — на явное действие
+  /// приложение обязано честно сходить в сеть.
+  static void retryConnectionNow() {
+    _unreachableUntil = null;
+  }
+
   /// Бросает [SocketException], если включена имитация офлайна.
   void _guardOffline() {
     if (simulateOffline) {
@@ -93,20 +189,21 @@ class API {
     }
   }
 
+  /// Дешёвый пинг живости — единственный способ выйти из окна недоступности,
+  /// поэтому идёт мимо него, через [_probeClient]. Ответ сервера снимает окно
+  /// сразу: остальные запросы после этого не ждут его истечения.
   Future<bool> isAlive() async {
     if (simulateOffline) return false;
     try {
-      final response = await http.get(
+      final response = await _probeClient.get(
         Uri.parse('$baseUrl/docs'),
         headers: {'Authorization': basicAuth},
       ).timeout(_aliveTimeout);
 
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        return true;
-      } else {
-        return false;
-      }
-    } on Exception catch (_) {
+      markServerReachable();
+      return response.statusCode == 200 || response.statusCode == 201;
+    } on Exception catch (error) {
+      if (isOfflineError(error)) markServerUnreachable();
       return false;
     }
   }
@@ -121,7 +218,12 @@ Never _throwServerError(http.Response response, String fallback) {
   if (response.statusCode == 401) {
     throw AuthExpiredException();
   }
-  throw Exception(_serverDetail(response, fallback));
+  // Код ответа тащим дальше: по нему очередь отличает отказ по существу от
+  // временного сбоя сервера и решает, повторять отправку или нет.
+  throw ServerFailureException(
+    response.statusCode,
+    _serverDetail(response, fallback),
+  );
 }
 
 /// Достаёт человекочитаемое сообщение из ответа сервера.

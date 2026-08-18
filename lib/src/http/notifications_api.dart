@@ -7,7 +7,7 @@ extension NotificationsApi on API {
       throw Exception('Not authenticated');
     }
 
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('${API.baseUrl}/v1/company/notifications/mobile/settings'),
       headers: {
         'Authorization': 'Bearer ${API.jwtToken}',
@@ -32,14 +32,16 @@ extension NotificationsApi on API {
       throw Exception('Not authenticated');
     }
 
-    final response = await http.patch(
-      Uri.parse('${API.baseUrl}/v1/company/notifications/mobile/settings'),
-      headers: {
-        'Authorization': 'Bearer ${API.jwtToken}',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode(partial),
-    ).timeout(API._readTimeout);
+    final response = await _client
+        .patch(
+          Uri.parse('${API.baseUrl}/v1/company/notifications/mobile/settings'),
+          headers: {
+            'Authorization': 'Bearer ${API.jwtToken}',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode(partial),
+        )
+        .timeout(API._readTimeout);
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
@@ -93,7 +95,7 @@ extension NotificationsApi on API {
     final uri = Uri.parse('${API.baseUrl}/v1/company/notifications/mobile')
         .replace(queryParameters: params);
 
-    final response = await http.get(
+    final response = await _client.get(
       uri,
       headers: {
         'Authorization': 'Bearer ${API.jwtToken}',
@@ -116,7 +118,7 @@ extension NotificationsApi on API {
       throw Exception('Not authenticated');
     }
 
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse(
           '${API.baseUrl}/v1/company/notifications/mobile/$notificationUuid/read'),
       headers: {
@@ -147,8 +149,23 @@ extension NotificationsApi on API {
     request.headers['Accept'] = 'text/event-stream';
     request.headers['Cache-Control'] = 'no-cache';
 
-    final client = http.Client();
-    final response = await client.send(request);
+    // Поток живёт долго и закрывается своим `StreamedResponseHandle`, поэтому
+    // общий клиент ему не подходит — закрытие ручки убило бы и остальные
+    // запросы. Но клиент берём тот же по настройкам: попытка соединения
+    // сдаётся за три секунды, а не висит до таймаута.
+    if (API.isServerKnownUnreachable) {
+      throw const SocketException('Сервер не отвечает, попытка отложена');
+    }
+    final client = _newIoClient();
+    final http.StreamedResponse response;
+    try {
+      response = await client.send(request);
+    } catch (error) {
+      if (isOfflineError(error)) API.markServerUnreachable();
+      client.close();
+      rethrow;
+    }
+    API.markServerReachable();
     if (response.statusCode != 200) {
       client.close();
       throw Exception('Failed to open stream: ${response.statusCode}');

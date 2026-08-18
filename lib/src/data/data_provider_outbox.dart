@@ -60,6 +60,11 @@ extension DataProviderOutbox on DataProvider {
           // Записываем uuid до загрузки снимков: если приложение убьют
           // посреди неё, следующий проход не создаст второй ремонт.
           current = current.copyWith(serverUuid: repair.uuid);
+          // Черновик мог быть удалён с экрана, пока запрос был в полёте.
+          // Возвращать его в бокс нельзя: обходчик уже решил, что не хочет
+          // его видеть, а ремонт на сервере всё равно создан и придёт со
+          // следующей синхронизацией.
+          if (!pendingRepairBox.containsKey(current.localId)) continue;
           await pendingRepairBox.put(current.localId, current);
         }
 
@@ -68,6 +73,7 @@ extension DataProviderOutbox on DataProvider {
         if (left.isNotEmpty) {
           // Часть снимков не ушла — черновик остаётся в очереди ровно с
           // ними. Отправленные уже вычеркнуты и повторно не полетят.
+          if (!pendingRepairBox.containsKey(current.localId)) continue;
           await pendingRepairBox.put(
             current.localId,
             current.copyWith(photoPaths: left),
@@ -101,12 +107,22 @@ extension DataProviderOutbox on DataProvider {
         }
         // Сервер ответил и отказал. Запоминаем причину по-русски и больше не
         // повторяем автоматически.
+        //
+        // Занявший ремонт доискиваем только тогда, когда отказ действительно
+        // про занятое оборудование: поиск при промахе перекачивает весь
+        // список ремонтов, и делать это на каждом отказе — включая сбой
+        // сервера и ошибку валидации — значило гонять сеть впустую ради
+        // значения, которое всё равно окажется пустым.
+        final reason = repairErrorMessage(e);
+        // Удалён с экрана, пока летел запрос, — пометку ставить некуда.
+        if (!pendingRepairBox.containsKey(draft.localId)) continue;
         await pendingRepairBox.put(
           draft.localId,
-          draft.copyWith(
-            attempts: draft.attempts + 1,
-            lastError: repairErrorMessage(e),
-            conflictRepairUuid: await _findBlockingRepair(draft.equipmentUuid),
+          draft.markRejected(
+            reason: reason,
+            conflictRepairUuid: isEquipmentBusyMessage(reason)
+                ? await _findBlockingRepair(draft.equipmentUuid)
+                : null,
           ),
         );
         print('Error sending pending repair: $e');
@@ -221,7 +237,7 @@ extension DataProviderOutbox on DataProvider {
   Future<void> retryPendingRepair(String localId) async {
     final draft = pendingRepairBox.get(localId);
     if (draft == null) return;
-    await pendingRepairBox.put(localId, draft.copyWith(lastError: null));
+    await pendingRepairBox.put(localId, draft.clearRejection());
     await syncPendingRepairs();
   }
 
@@ -258,12 +274,10 @@ extension DataProviderOutbox on DataProvider {
             current.deletedPhotoUuids,
           );
           current = current.copyWith(
-            lastError: current.lastError,
-            serverStatus: current.serverStatus,
-            conflictKind: current.conflictKind,
             photoPaths: photosLeft,
             deletedPhotoUuids: deletesLeft,
           );
+          if (!pendingRepairUpdateBox.containsKey(current.repairUuid)) continue;
           await pendingRepairUpdateBox.put(current.repairUuid, current);
           if (current.hasPhotoWork) {
             // Связь пропала на фотографиях — поля отправим следующим проходом,
@@ -319,10 +333,13 @@ extension DataProviderOutbox on DataProvider {
           // Иначе связь пропала сразу после отказа: вид останется «прочее»,
           // экран разрешения это переживёт.
         }
+        // Правку могли удалить с экрана, пока запрос был в полёте, —
+        // возвращать её в бокс нельзя.
+        if (!pendingRepairUpdateBox.containsKey(update.repairUuid)) continue;
         await pendingRepairUpdateBox.put(
           update.repairUuid,
-          update.copyWith(
-            lastError: repairErrorMessage(e),
+          update.markRejected(
+            reason: repairErrorMessage(e),
             serverStatus: serverStatus,
             conflictKind: kind.code,
           ),
@@ -345,14 +362,24 @@ extension DataProviderOutbox on DataProvider {
   ///   списание со склада, и удваивать его молча нельзя. Такую позицию
   ///   обходчик поправит руками в карточке.
   Future<void> transferDraftToRepair(PendingRepair draft, Repair target) async {
+    // Основой берём уже лежащую в очереди правку этого ремонта, а не только
+    // серверное состояние: обходчик мог править ремонт офлайн раньше, и ключ
+    // бокса — `repairUuid`, то есть запись здесь ровно одна. Без этого
+    // перенос затирал прошлую правку вместе с её комментарием, расходом и
+    // ещё не уехавшими снимками.
+    final existing = pendingUpdateFor(target.uuid);
+    final baseComment = (existing?.comment ?? target.comment ?? '').trim();
+    final baseConsumptions =
+        existing?.consumptions ?? target.actualConsumptions;
+
     final comments = <String>[
-      if ((target.comment ?? '').trim().isNotEmpty) target.comment!.trim(),
+      if (baseComment.isNotEmpty) baseComment,
       if (draft.comment.trim().isNotEmpty &&
-          !(target.comment ?? '').contains(draft.comment.trim()))
+          !baseComment.contains(draft.comment.trim()))
         draft.comment.trim(),
     ];
 
-    final merged = List<RepairConsumption>.from(target.actualConsumptions);
+    final merged = List<RepairConsumption>.from(baseConsumptions);
     final present = merged.map((item) => item.sparePartUuid).toSet();
     for (final item in draft.consumptions) {
       if (present.add(item.sparePartUuid)) merged.add(item);
@@ -362,13 +389,21 @@ extension DataProviderOutbox on DataProvider {
       repairUuid: target.uuid,
       repairId: target.id,
       equipmentName: target.equipmentName,
-      baseStatus: target.status,
+      // Статус, от которого правка отсчитывается, — тот же, что был у прошлой
+      // правки: она уже привязана к состоянию, которое обходчик видел.
+      baseStatus: existing?.baseStatus ?? target.status,
       createdAt: DateTime.now(),
       comment: comments.join('\n'),
       consumptions: merged,
       // Снимки переезжают вместе с остальным — файлы уже на устройстве, и
-      // терять их при переносе нельзя.
-      photoPaths: draft.photoPaths,
+      // терять их при переносе нельзя. К снимкам прошлой правки добавляем
+      // снимки черновика.
+      photoPaths: [...?existing?.photoPaths, ...draft.photoPaths],
+      // Удаления, о которых сервер ещё не знает, тоже нельзя потерять.
+      deletedPhotoUuids: existing?.deletedPhotoUuids ?? const [],
+      // Намерение отправить на рассмотрение сохраняем от любой из сторон.
+      submitForReview:
+          (existing?.submitForReview ?? false) || draft.submitForReview,
     ));
     // Черновик убираем из бокса напрямую: deletePendingRepair снёс бы и файлы
     // снимков, которые только что перешли к правке.
@@ -382,10 +417,7 @@ extension DataProviderOutbox on DataProvider {
   Future<void> retryPendingRepairUpdate(String repairUuid) async {
     final update = pendingRepairUpdateBox.get(repairUuid);
     if (update == null) return;
-    await pendingRepairUpdateBox.put(
-      repairUuid,
-      update.copyWith(lastError: null, serverStatus: null),
-    );
+    await pendingRepairUpdateBox.put(repairUuid, update.clearRejection());
     await syncPendingRepairUpdates();
   }
 

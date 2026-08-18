@@ -91,3 +91,29 @@ class InvalidCredentialsException implements Exception {
   @override
   String toString() => message;
 }
+
+/// Сервер ответил, но отказал. Хранит код ответа — без него отказ «оборудование
+/// уже в ремонте» (409, повторять бессмысленно) неотличим от «шлюз не достучался
+/// до бэкенда» (502/503/504, повторить обязательно).
+///
+/// Именно это ломало создание ремонта без связи: телефон в сети, но сервер
+/// недоступен — прокси отвечает 502, приложение считало это отказом по делу и
+/// показывало «Не удалось создать ремонт», вместо того чтобы положить черновик
+/// в очередь.
+///
+/// [toString] печатается ровно как прежний `Exception(текст)`: переводы ошибок
+/// разбирают строку, и менять её формат нельзя.
+class ServerFailureException implements Exception {
+  final int statusCode;
+  final String message;
+
+  ServerFailureException(this.statusCode, this.message);
+
+  /// Сбой на стороне сервера или шлюза, а не отказ по существу запроса.
+  /// 408 — таймаут запроса, 429 — «слишком часто»: оба лечатся повтором.
+  bool get isTransient =>
+      statusCode >= 500 || statusCode == 408 || statusCode == 429;
+
+  @override
+  String toString() => 'Exception: $message';
+}

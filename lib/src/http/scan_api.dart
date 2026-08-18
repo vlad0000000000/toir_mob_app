@@ -63,7 +63,7 @@ extension ScanApi on API {
     // обрыв связи от отказа сервера — а с расходом ЗИП разница стала
     // принципиальной. Сетевые исключения летят как есть, отказ сервера
     // приходит его же текстом.
-    final response = await request.send().timeout(API._uploadTimeout);
+    final response = await _client.send(request).timeout(API._uploadTimeout);
     final responseBody =
         await response.stream.bytesToString().timeout(API._uploadTimeout);
 

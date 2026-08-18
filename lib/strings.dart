@@ -180,7 +180,6 @@ class RepairStrings {
   static const String statusFree = 'Свободен';
 
   // Список ремонтов
-  static const String groupUnsent = 'НЕ ОТПРАВЛЕНО';
   static const String groupFree = 'СВОБОДНЫЕ — МОЖНО ВЗЯТЬ В РАБОТУ';
   static const String groupMine = 'МОИ РЕМОНТЫ';
   static const String listEmptyTitle = 'Ремонтов нет';
@@ -197,10 +196,32 @@ class RepairStrings {
   static const String draftWaiting =
       'Без связи с сервером ремонт не отправить — уйдёт сам, как только она '
       'появится. Данные можно скопировать и передать администратору.';
+
+  /// По оборудованию уже лежит неотправленный черновик. Показывается и в
+  /// карточке скана (при попытке завести ремонт), и в самой форме создания —
+  /// текст один, поэтому и константа одна.
+  static const String draftAlreadyQueuedTitle = 'Ремонт уже создан';
+  static const String draftAlreadyQueuedBody =
+      'Ремонт по этому оборудованию сохранён на устройстве и отправится, '
+      'когда появится связь. Второй заводить не нужно.';
+
   static const String draftDeleteTitle = 'Удалить черновик?';
 
   static String draftDeleteBody(String equipmentName) =>
       'Ремонт по оборудованию «$equipmentName» не будет создан.';
+
+  /// Черновик, чей ремонт сервер уже принял: не доехали только снимки и
+  /// заполненный расход. Говорить «ремонт не будет создан» здесь нельзя —
+  /// он создан, и оборудование уже числится в ремонте.
+  static const String draftDeleteCreatedTitle = 'Удалить неотправленное?';
+
+  static String draftDeleteCreatedBody(String equipmentName) =>
+      'Ремонт по оборудованию «$equipmentName» уже создан на сервере — '
+      'удалятся только неотправленные фотографии и расход ЗИП.';
+
+  static const String draftDeleteCreatedNote =
+      'Сам ремонт останется открытым, а оборудование — в состоянии «В '
+      'ремонте». Закрыть или отменить его может только администратор.';
 
   /// Последствие удаления — отдельной плашкой в диалоге подтверждения.
   static const String deleteIrreversible =
@@ -280,6 +301,19 @@ class RepairCardStrings {
   static const String labelComment = 'КОММЕНТАРИЙ';
   static const String labelPhotos = 'ФОТО';
   static const String labelUnsent = 'НЕ ОТПРАВЛЕНО';
+
+  /// Показывается, если причина отказа почему-то не сохранилась: сам факт
+  /// отказа известен по пометке, а текста нет.
+  static const String unsentRejectedFallback =
+      'Сервер не принял данные. Попробуйте отправить ещё раз или скопируйте '
+      'их и передайте администратору.';
+
+  /// Черновик отправлен обходчиком и ждёт связи — править его больше нельзя,
+  /// пока отправка не отменена.
+  static const String unsentSubmitted =
+      'Отправлено на рассмотрение — уйдёт, как только появится связь. Чтобы '
+      'снова править, отмените отправку.';
+  static const String cancelSubmit = 'Отменить отправку';
   static const String commentHint = 'Что было сделано во время ремонта';
   static const String claim = 'Взять в работу';
   static const String save = 'Сохранить';

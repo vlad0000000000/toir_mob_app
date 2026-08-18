@@ -89,15 +89,44 @@ class PendingRepairUpdate {
   bool get isStatusConflict =>
       serverStatus != null && serverStatus != baseStatus;
 
-  /// Внимание: [lastError] и [serverStatus] здесь **не** «оставить прежнее».
-  /// Не переданные, они очищаются — иначе разрешённый конфликт нельзя было бы
-  /// вернуть в очередь. Передавайте их явно.
+  /// Обычная правка записи очереди. Пометку об отказе **не трогает**: менять
+  /// её умеют только [markRejected] и [clearRejection].
+  ///
+  /// Раньше `lastError`, `serverStatus` и `conflictKind` были параметрами и
+  /// очищались, если их не передали. По месту вызова это не читалось, и
+  /// безобидное с виду обновление списка снимков снимало неразрешённый
+  /// конфликт. Тот же разбор, что и у [PendingRepair].
   PendingRepairUpdate copyWith({
-    String? lastError,
-    String? serverStatus,
-    String? conflictKind,
+    String? comment,
+    List<RepairConsumption>? consumptions,
+    bool? submitForReview,
     List<String>? photoPaths,
     List<String>? deletedPhotoUuids,
+  }) {
+    return PendingRepairUpdate(
+      repairUuid: repairUuid,
+      repairId: repairId,
+      equipmentName: equipmentName,
+      baseStatus: baseStatus,
+      createdAt: createdAt,
+      comment: comment ?? this.comment,
+      consumptions: consumptions ?? this.consumptions,
+      submitForReview: submitForReview ?? this.submitForReview,
+      lastError: lastError,
+      serverStatus: serverStatus,
+      conflictKind: conflictKind,
+      photoPaths: photoPaths ?? this.photoPaths,
+      deletedPhotoUuids: deletedPhotoUuids ?? this.deletedPhotoUuids,
+    );
+  }
+
+  /// Сервер ответил и отказал. [serverStatus] — статус, который удалось
+  /// перечитать после отказа (`null`, если связь пропала сразу),
+  /// [conflictKind] — код вида конфликта.
+  PendingRepairUpdate markRejected({
+    required String reason,
+    String? serverStatus,
+    String? conflictKind,
   }) {
     return PendingRepairUpdate(
       repairUuid: repairUuid,
@@ -108,13 +137,30 @@ class PendingRepairUpdate {
       comment: comment,
       consumptions: consumptions,
       submitForReview: submitForReview,
-      lastError: lastError,
+      lastError: reason,
       serverStatus: serverStatus,
       conflictKind: conflictKind,
-      // Работа с фотографиями пометкой об отказе не сбрасывается — в отличие
-      // от lastError, который здесь именно очищается по умолчанию.
-      photoPaths: photoPaths ?? this.photoPaths,
-      deletedPhotoUuids: deletedPhotoUuids ?? this.deletedPhotoUuids,
+      photoPaths: photoPaths,
+      deletedPhotoUuids: deletedPhotoUuids,
+    );
+  }
+
+  /// Правка снова готова к отправке: конфликт разобран или форма изменена.
+  PendingRepairUpdate clearRejection() {
+    return PendingRepairUpdate(
+      repairUuid: repairUuid,
+      repairId: repairId,
+      equipmentName: equipmentName,
+      baseStatus: baseStatus,
+      createdAt: createdAt,
+      comment: comment,
+      consumptions: consumptions,
+      submitForReview: submitForReview,
+      lastError: null,
+      serverStatus: null,
+      conflictKind: null,
+      photoPaths: photoPaths,
+      deletedPhotoUuids: deletedPhotoUuids,
     );
   }
 }

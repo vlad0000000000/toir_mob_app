@@ -39,6 +39,21 @@ String _stripExceptionPrefix(String text) {
 
 bool _looksRussian(String text) => RegExp('[а-яА-ЯёЁ]').hasMatch(text);
 
+/// Перевод «Equipment is already in repair».
+///
+/// Единственный отказ создания черновика, который нельзя просто повторить:
+/// оборудование занято другим ремонтом, и решать это должен человек —
+/// перенести данные в занявший ремонт либо удалить черновик. Все прочие
+/// отказы повторять можно и нужно, поэтому карточка отличает их именно по
+/// этой строке. Сравниваем с переводом, а не с английским оригиналом, —
+/// в очереди хранится уже переведённое сообщение.
+const String repairEquipmentBusyMessage =
+    'Для этого оборудования уже есть ремонт';
+
+/// Отказ именно про занятое оборудование.
+bool isEquipmentBusyMessage(String? reason) =>
+    reason != null && reason.contains(repairEquipmentBusyMessage);
+
 /// Точный текст сервера для «ключ идемпотентности ещё обрабатывается»
 /// (`backend/crud/repair.create_repair_idempotently`).
 const String _idempotencyInFlight =
@@ -57,12 +72,22 @@ const String _storageTemporarilyUnavailable =
 /// Отказ временный — черновик надо оставить в очереди и повторить, а не
 /// показывать обходчику ошибку и не считать попытку неудачной.
 ///
-/// Случаи: связи нет вовсе; сервер занят обработкой того же самого ключа
-/// идемпотентности (наш же предыдущий запрос ещё не закоммитился — отдельно
-/// для создания ремонта и для загрузки снимка); файловое хранилище прилегло.
+/// Случаи: связи нет вовсе; сервер или шлюз ответили сбоем (5xx, 408, 429);
+/// токена нет; сервер занят обработкой того же самого ключа идемпотентности
+/// (наш же предыдущий запрос ещё не закоммитился — отдельно для создания
+/// ремонта и для загрузки снимка); файловое хранилище прилегло.
 bool isRetryableRepairError(Object error) {
   if (isOfflineError(error)) return true;
+  // Сервер ответил, но сбоем своей стороны: 502/503/504 от прокси, когда до
+  // бэкенда не достучались, 408 и 429. По существу запрос не отклонён —
+  // черновик обязан остаться в очереди, а не превратиться в ошибку на экране.
+  if (error is ServerFailureException) return error.isTransient;
   final text = error.toString();
+  // Нет токена — черновик не виноват, он уйдёт после входа. Тот же разбор,
+  // что и у очереди осмотров (`isRetryableScanError`).
+  if (error is AuthExpiredException || text.contains('Not authenticated')) {
+    return true;
+  }
   return text.contains(_idempotencyInFlight) ||
       text.contains(_photoIdempotencyInFlight) ||
       text.contains(_storageTemporarilyUnavailable);
@@ -113,7 +138,7 @@ const Map<String, String> _translations = {
       'Вернуть на доработку можно только ремонт на рассмотрении',
 
   // Оборудование и справочники
-  'Equipment is already in repair': 'Для этого оборудования уже есть ремонт',
+  'Equipment is already in repair': repairEquipmentBusyMessage,
   'Equipment not found': 'Оборудование не найдено',
   'One or more spare parts were not found':
       'Часть позиций ЗИП не найдена. Обновите справочник и повторите.',

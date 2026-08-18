@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../global_state.dart';
 import '../../strings.dart';
+import '../http/api.dart';
 import '../design/app_constants.dart';
 import '../design/app_theme.dart';
 
@@ -47,7 +48,13 @@ class _OfflineBannerState extends State<OfflineBanner> {
   }
 
   Future<void> _check() async {
-    final online = await GlobalState.hasConnectionToServer;
+    // Пока показываем «офлайн», спрашиваем сервер напрямую: пинг живости
+    // единственный ходит мимо отметки недоступности, а `hasConnectionToServer`
+    // в этом состоянии отвечает по памяти и вернувшуюся связь не заметит.
+    // Наоборот, когда связь есть, дорогой проверки не надо — хватит кэша.
+    final online = _online == false
+        ? await API().isAlive()
+        : await GlobalState.hasConnectionToServer;
     if (!mounted || online == _online) return;
     setState(() => _online = online);
   }

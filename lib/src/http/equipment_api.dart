@@ -7,7 +7,7 @@ extension EquipmentApi on API {
       throw Exception('Not authenticated');
     }
 
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse(
           '${API.baseUrl}/v1/company/equipment?limit=${limit}&skip=${offset}'),
       headers: {
@@ -32,7 +32,7 @@ extension EquipmentApi on API {
       throw Exception('Not authenticated');
     }
 
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse(
           '${API.baseUrl}/v1/inventory_record/list?limit=${limit}&offset=${offset}'),
       headers: {
@@ -58,7 +58,7 @@ extension EquipmentApi on API {
 
     final url = Uri.parse('${API.baseUrl}/v1/company/equipment/states');
 
-    final response = await http.get(
+    final response = await _client.get(
       url,
       headers: {
         'Authorization': 'Bearer ${API.jwtToken}',
@@ -85,7 +85,7 @@ extension EquipmentApi on API {
     final url =
         Uri.parse('${API.baseUrl}/v1/company/equipment/usage-unit-types');
 
-    final response = await http.get(
+    final response = await _client.get(
       url,
       headers: {
         'Authorization': 'Bearer ${API.jwtToken}',
@@ -113,14 +113,16 @@ extension EquipmentApi on API {
     final url = Uri.parse(
         '${API.baseUrl}/v1/company/equipment/${usageUpdate.equipmentUuid}/usage-parameters/${usageUpdate.usageParameterUuid}');
 
-    final response = await http.patch(
-      url,
-      headers: {
-        'Authorization': 'Bearer ${API.jwtToken}',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({'current_value': usageUpdate.usageParameterValue}),
-    ).timeout(API._readTimeout);
+    final response = await _client
+        .patch(
+          url,
+          headers: {
+            'Authorization': 'Bearer ${API.jwtToken}',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({'current_value': usageUpdate.usageParameterValue}),
+        )
+        .timeout(API._readTimeout);
 
     final responseBody = response.body;
     final Map<String, dynamic> responseData = jsonDecode(responseBody);
@@ -153,11 +155,10 @@ extension EquipmentApi on API {
     request.fields['state'] = state;
 
     try {
-      final response = await request.send().timeout(API._readTimeout);
+      final response = await _client.send(request).timeout(API._readTimeout);
 
-      final responseBody = await response.stream
-          .bytesToString()
-          .timeout(API._readTimeout);
+      final responseBody =
+          await response.stream.bytesToString().timeout(API._readTimeout);
 
       if (response.statusCode != 200 && response.statusCode != 201) {
         throw Exception(

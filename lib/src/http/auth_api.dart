@@ -3,7 +3,7 @@ part of 'api.dart';
 extension AuthApi on API {
   Future<User> me(String meJWTToken) async {
     _guardOffline();
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('${API.baseUrl}/v1/user/me'),
       headers: {
         'Authorization': 'Bearer $meJWTToken',
@@ -30,7 +30,7 @@ extension AuthApi on API {
       throw Exception('Not authenticated');
     }
 
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('${API.baseUrl}/v1/company/me'),
       headers: {
         'Authorization': 'Bearer ${API.jwtToken}',
@@ -53,7 +53,7 @@ extension AuthApi on API {
       throw Exception('Not authenticated');
     }
 
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('${API.baseUrl}/v1/walker/list'),
       headers: {
         'Authorization': 'Bearer ${API.jwtToken}',
@@ -95,28 +95,16 @@ extension AuthApi on API {
       } else {
         throw Exception('Failed to login: ${response.statusCode}');
       }
-    } on SocketException catch (_) {
-      throw NoConnectionException();
-    } on HttpException catch (_) {
-      throw NoConnectionException();
     } on InvalidCredentialsException {
       rethrow;
     } on NoConnectionException {
       rethrow;
-    } on Exception catch (e) {
-      if (e.toString().contains('SocketException') ||
-          e.toString().contains('Failed host lookup') ||
-          e.toString().contains('Connection refused') ||
-          e.toString().contains('Network is unreachable') ||
-          e.toString().contains('TimeoutException')) {
-        throw NoConnectionException();
-      }
-      rethrow;
     } catch (e) {
-      if (e.toString().contains('Timeout') ||
-          e.toString().contains('timeout')) {
-        throw NoConnectionException();
-      }
+      // Разбор обрыва связи здесь был выписан вручную тремя ветками подряд и
+      // не знал про `ClientException` — вход без сервера падал не в «нет
+      // связи», а в общий «не удалось войти». Признак теперь общий на всё
+      // приложение.
+      if (isOfflineError(e)) throw NoConnectionException();
       throw Exception('Failed to login: $e');
     }
   }
@@ -127,7 +115,7 @@ extension AuthApi on API {
       throw Exception('Not authenticated');
     }
 
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('${API.baseUrl}/v1/session/'),
       headers: {
         'Authorization': 'Bearer ${API.jwtToken}',

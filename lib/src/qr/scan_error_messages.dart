@@ -73,6 +73,9 @@ bool isScanAlreadyDelivered(Object error) =>
 /// Код ответа, если он был приклеен к тексту ошибки методом `sendScan`.
 /// `null` — до сервера не дошли вовсе.
 int? scanErrorStatusCode(Object error) {
+  // Остальные методы `API` несут код в самом исключении — метка в тексте нужна
+  // только `sendScan`, который собирает сообщение сам.
+  if (error is ServerFailureException) return error.statusCode;
   final match = RegExp(r'\[HTTP (\d{3})\]').firstMatch(error.toString());
   if (match == null) return null;
   return int.tryParse(match.group(1)!);

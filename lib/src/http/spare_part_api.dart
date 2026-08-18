@@ -15,7 +15,7 @@ extension SparePartApi on API {
       throw Exception('Not authenticated');
     }
 
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse(
           '${API.baseUrl}/v1/company/spare_parts/?limit=${limit}&skip=${offset}'),
       headers: {
@@ -46,7 +46,7 @@ extension SparePartApi on API {
       throw Exception('Not authenticated');
     }
 
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('${API.baseUrl}/v1/company/spare_parts/$uuid'),
       headers: {
         'Authorization': 'Bearer ${API.jwtToken}',
@@ -77,7 +77,7 @@ extension SparePartApi on API {
       throw Exception('Not authenticated');
     }
 
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('${API.baseUrl}/v1/company/spare_parts/history'
           '?spare_part_uuid=$sparePartUuid&limit=$limit&skip=$offset'),
       headers: {

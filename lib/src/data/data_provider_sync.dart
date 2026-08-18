@@ -145,16 +145,39 @@ extension DataProviderSync on DataProvider {
     }
   }
 
+  /// Перекачивает активные ремонты обходчика в офлайн-кэш.
+  ///
+  /// Без `clear()`: сначала кладём свежие, потом убираем лишние. Очистка
+  /// с последующей заливкой оставляла окно, в котором бокс пуст, — а этот
+  /// метод крутится в фоне каждую минуту параллельно с очередью отправки, и
+  /// попади окно на чтение карточки, обходчик увидел бы «ремонт не найден»
+  /// на ровном месте.
+  ///
+  /// Ремонты, только что созданные очередью, из кэша не выбрасываем, даже
+  /// если их нет в ответе: список мог быть запрошен до их появления. Такой
+  /// ремонт помнит свой черновик — по `serverUuid`.
   Future<void> syncMyRepairs() async {
     _isLoading = true;
 
     try {
-      _repairs = await loadAllActiveRepairs();
-      await repairBox.clear();
+      final fresh = await loadAllActiveRepairs();
+      final keep = {for (final repair in fresh) repair.uuid};
+      for (final draft in pendingRepairBox.values) {
+        final uuid = draft.serverUuid;
+        if (uuid == null || uuid.isEmpty) continue;
+        // Только пока ремонт активен: если администратор успел его закрыть,
+        // держать запись в кэше активных незачем — она попала бы во вкладку
+        // «Закрыт» вторым экземпляром рядом с серверным.
+        final cached = repairBox.get(uuid);
+        if (cached != null && cached.isActive) keep.add(uuid);
+      }
       // Ключ — uuid, а не автоинкремент: так отдельный ремонт можно обновить
       // точечно (см. DataProvider.upsertRepair), не перекачивая весь список.
-      await repairBox
-          .putAll({for (final repair in _repairs) repair.uuid: repair});
+      await repairBox.putAll({for (final repair in fresh) repair.uuid: repair});
+      for (final key in repairBox.keys.toList()) {
+        if (!keep.contains(key)) await repairBox.delete(key);
+      }
+      _repairs = repairBox.values.toList();
       _refreshActiveRepairsCount();
     } catch (e) {
       print('Failed sync repairs: $e');
@@ -207,6 +230,10 @@ extension DataProviderSync on DataProvider {
         final page = await api.getConsumptionNorms(limit: pageSize, skip: skip);
         all.addAll(page);
         if (page.length < pageSize) break;
+        // Тот же предохранитель, что и у постраничных загрузок в
+        // `data_provider_remote`: без него сервер, перестав учитывать `skip`,
+        // загонял бы этот цикл в бесконечную загрузку.
+        if (_pagingLimitReached(all.length)) break;
       }
       await consumptionNormBox.clear();
       await consumptionNormBox
@@ -370,6 +397,11 @@ extension DataProviderSync on DataProvider {
   /// в [startSyncing].
   Future mainSync() async {
     if (!GlobalState.isAuthorized) return;
+    // Девять параллельных синхронизаций к недоступному серверу — самый
+    // дорогой способ ничего не узнать: часть из них постраничные, и каждая
+    // страница ждала своего таймаута. Пока стоит отметка недоступности, не
+    // начинаем вовсе; снимет её пинг живости, когда связь вернётся.
+    if (API.isServerKnownUnreachable) return;
     await Future.wait([
       syncInventory(),
       syncPpr().then((_) => syncTasks()),
@@ -397,10 +429,29 @@ extension DataProviderSync on DataProvider {
       pendingRepairBox.isEmpty &&
       pendingRepairUpdateBox.isEmpty;
 
+  /// Задержки цикла отправки: обычная и те, на которые он отходит, пока
+  /// сервер недоступен.
+  ///
+  /// Без бэкоффа цикл долбился в недоступный сервер каждые пять секунд весь
+  /// день: пять проходов по очередям, каждый со своим ожиданием соединения.
+  /// Данные от этого не уезжают быстрее — уезжают они, когда связь вернётся,
+  /// а до тех пор проверять чаще раза в минуту незачем.
+  static const List<int> _outboxBackoffSeconds = [5, 15, 60];
+
   void startScanSyncing() {
     Future.sync(() async {
+      var backoff = 0;
       while (true) {
-        await Future.delayed(Duration(seconds: 5));
+        await Future.delayed(
+          Duration(seconds: _outboxBackoffSeconds[backoff]),
+        );
+        // Сервер только что не отозвался — расходимся сразу, не трогая сеть,
+        // и в следующий раз просыпаемся реже.
+        if (API.isServerKnownUnreachable) {
+          if (backoff < _outboxBackoffSeconds.length - 1) backoff++;
+          continue;
+        }
+        backoff = 0;
         // Без авторизации не отправляем ничего.
         //
         // Цикл заводится в `main()` и крутится всё время жизни приложения —
@@ -452,6 +503,9 @@ extension DataProviderSync on DataProvider {
   /// Ручная синхронизация (кнопка «Синхронизировать данные»): справочники +
   /// осмотры. Возвращает результат; UI-диалоги — на стороне вызывающего.
   Future<SyncResult> syncDataAndScans() async {
+    // Кнопку нажали руками — отметку недоступности забываем и идём в сеть
+    // честно: обходчик мог только что дойти до места, где связь есть.
+    API.retryConnectionNow();
     // Второй вход в очереди, помимо вечного цикла, — и та же причина
     // проверять авторизацию: без токена отправка не отказ, а бессмыслица.
     if (!GlobalState.isAuthorized || !await GlobalState.hasConnectionToServer) {

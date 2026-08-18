@@ -27,7 +27,7 @@ extension RepairApi on API {
       },
     );
 
-    final response = await http.get(
+    final response = await _client.get(
       uri,
       headers: {
         'Authorization': 'Bearer ${API.jwtToken}',
@@ -53,7 +53,7 @@ extension RepairApi on API {
       throw Exception('Not authenticated');
     }
 
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('${API.baseUrl}/v1/repairs/recent-closed'),
       headers: {
         'Authorization': 'Bearer ${API.jwtToken}',
@@ -99,7 +99,7 @@ extension RepairApi on API {
       'usage_type': [usageType],
     });
 
-    final response = await http.get(
+    final response = await _client.get(
       uri,
       headers: {'Authorization': 'Bearer ${API.jwtToken}'},
     ).timeout(API._readTimeout);
@@ -222,7 +222,7 @@ extension RepairApi on API {
       }
     }
 
-    final streamed = await request.send().timeout(API._uploadTimeout);
+    final streamed = await _client.send(request).timeout(API._uploadTimeout);
     final body =
         await streamed.stream.bytesToString().timeout(API._uploadTimeout);
 
@@ -244,7 +244,7 @@ extension RepairApi on API {
       throw Exception('Not authenticated');
     }
 
-    final response = await http.delete(
+    final response = await _client.delete(
       Uri.parse('${API.baseUrl}/v1/repairs/$repairUuid/photos/$photoUuid'),
       headers: {'Authorization': 'Bearer ${API.jwtToken}'},
     ).timeout(API._readTimeout);
@@ -361,7 +361,7 @@ extension RepairApi on API {
       throw Exception('Not authenticated');
     }
 
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('${API.baseUrl}/v1/repairs/$repairUuid'),
       headers: {
         'Authorization': 'Bearer ${API.jwtToken}',

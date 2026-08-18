@@ -23,7 +23,7 @@ extension PprApi on API {
 
     final listUrl = Uri.parse(
         '${API.baseUrl}/v1/company/ppr/?limit=100&statuses=QUEUED&statuses=IN_PROGRESS');
-    final listResponse = await http.get(
+    final listResponse = await _client.get(
       listUrl,
       headers: {'Authorization': 'Bearer ${API.jwtToken}'},
     ).timeout(API._readTimeout);
@@ -42,7 +42,7 @@ extension PprApi on API {
       if (pprUuid == null) continue;
 
       final detailUrl = Uri.parse('${API.baseUrl}/v1/company/ppr/$pprUuid');
-      final detailResponse = await http.get(
+      final detailResponse = await _client.get(
         detailUrl,
         headers: {'Authorization': 'Bearer ${API.jwtToken}'},
       ).timeout(API._readTimeout);

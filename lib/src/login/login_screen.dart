@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../global_state.dart';
 import '../../src/data/data_provider.dart';
+import '../../src/http/api.dart';
 import '../../src/widgets/help_link.dart';
 import '../../src/notifications/notifications_service.dart';
 import '../../src/notifications/push/push_notifications_controller.dart';
@@ -59,6 +60,9 @@ class _LoginScreenState extends State<LoginScreen> {
     Future<void> doLogin() async {
       if (_busy) return;
       setState(() => _busy = true);
+      // Вход — явное действие обходчика: сеть могла появиться только что, и
+      // отвечать ему по памяти об отметке недоступности нельзя.
+      API.retryConnectionNow();
       try {
         final currentUser = await dataProvider.login(
             loginController.text, passwordController.text);

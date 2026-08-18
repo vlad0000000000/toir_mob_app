@@ -159,6 +159,15 @@ class GlobalState {
     if (API.simulateOffline) {
       return false;
     }
+    // Сервер только что не отозвался — отвечаем сразу, не занимая пять секунд
+    // пингом. Это и делает экраны отзывчивыми без связи: те, кто спрашивает
+    // «есть ли сервер», получают ответ мгновенно и сразу уходят в офлайнную
+    // ветку — черновик, кэш, очередь.
+    if (API.isServerKnownUnreachable) {
+      _cachedResult = false;
+      _cacheTime = DateTime.now();
+      return false;
+    }
     // Проверяем, есть ли актуальный кэш
     if (_cachedResult != null && _cacheTime != null) {
       if (DateTime.now().difference(_cacheTime!) < _cacheDuration) {

@@ -11,6 +11,7 @@ import '../model/consumption_norm.dart';
 import '../model/inventory_record.dart';
 import '../model/pending_repair.dart';
 import '../model/repair.dart';
+import '../utils/dialogs.dart';
 import '../utils/go_router_ext.dart';
 import '../widgets/date_range_sheet.dart';
 import '../widgets/offline_banner.dart';
@@ -116,6 +117,21 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
 
   Future<void> _create() async {
     if (_isSaving) return;
+    // Второй черновик по тому же оборудованию сервер всё равно отклонит:
+    // активный ремонт может быть только один. Проверка есть и на входе в
+    // форму (карточка скана), но полагаться на вызывающего нельзя — сюда
+    // можно вернуться «назад» и нажать «Создать» ещё раз, пока первый
+    // черновик ждёт связи.
+    final queued = GlobalState.dataProvider.pendingRepairs
+        .any((item) => item.equipmentUuid == widget.equipment.uuid);
+    if (queued) {
+      Dialogs.notify(
+        context,
+        RepairStrings.draftAlreadyQueuedTitle,
+        RepairStrings.draftAlreadyQueuedBody,
+      );
+      return;
+    }
     setState(() => _isSaving = true);
     final draft = PendingRepair.create(
       equipmentUuid: widget.equipment.uuid,
@@ -161,7 +177,11 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
       }
       setState(() => _isSaving = false);
       final cs = Theme.of(context).colorScheme;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      final messenger = ScaffoldMessenger.of(context);
+      // Плашки копятся в очереди, а не заменяют друг друга: два нажатия
+      // «Создать» подряд — два одинаковых сообщения одно за другим.
+      messenger.clearSnackBars();
+      messenger.showSnackBar(SnackBar(
         content: Text(
           _messageOf(e),
           style: Theme.of(context)
@@ -524,6 +544,10 @@ class _NormPickerSheetState extends State<_NormPickerSheet> {
       final norms = await API().getConsumptionNorms(
         equipmentUuid: widget.equipmentUuid,
       );
+      // Ответ сохраняем в кэш: следующий заход в форму может случиться уже без
+      // связи, и выбирать тогда будет не из чего.
+      await GlobalState.dataProvider
+          .cacheConsumptionNorms(widget.equipmentUuid, norms);
       if (!mounted) return;
       setState(() => _norms = norms);
     } catch (e) {

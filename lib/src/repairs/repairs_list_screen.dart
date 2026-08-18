@@ -181,11 +181,23 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
           : const [];
 
   Future<void> _deleteDraft(PendingRepair draft) async {
+    // У черновика с `serverUuid` ремонт на сервере уже есть: очередь успела
+    // его создать и остановилась на снимках или финальной правке. Удаление
+    // в этом случае не отменяет ремонт — оно бросает его открытым, а
+    // оборудование остаётся «В ремонте». Спрашивать теми же словами, что и
+    // про несозданный ремонт, значит вводить обходчика в заблуждение.
+    final created = (draft.serverUuid ?? '').isNotEmpty;
     final confirmed = await confirmRepairDelete(
       context,
-      title: RepairStrings.draftDeleteTitle,
-      body: RepairStrings.draftDeleteBody(draft.equipmentName),
-      note: RepairStrings.deleteIrreversible,
+      title: created
+          ? RepairStrings.draftDeleteCreatedTitle
+          : RepairStrings.draftDeleteTitle,
+      body: created
+          ? RepairStrings.draftDeleteCreatedBody(draft.equipmentName)
+          : RepairStrings.draftDeleteBody(draft.equipmentName),
+      note: created
+          ? RepairStrings.draftDeleteCreatedNote
+          : RepairStrings.deleteIrreversible,
     );
     if (!confirmed) return;
     await GlobalState.dataProvider.deletePendingRepair(draft.localId);
@@ -193,8 +205,6 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
     setState(() {});
   }
 
-  /// Отклонённый черновик разбирают на отдельном экране: там видно и что
-  /// вводил обходчик, и какой ремонт помешал.
   /// Список строится целиком, а не через `itemBuilder`: у обходчика активных
   /// ремонтов единицы-десятки, зато так тривиально вставляются заголовки
   /// групп. Во вкладке «Закрытые» их ровно 10 — тем более не проблема.
@@ -216,12 +226,12 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
 
     final drafts = _visibleDrafts;
     // Черновики всегда сверху: это единственные записи, которые чего-то ждут
-    // от обходчика, — остальные уже на сервере.
+    // от обходчика, — остальные уже на сервере. Заголовка над ними нет: сами
+    // карточки и так помечены пилюлей «Черновик» и красным значком очереди,
+    // а подпись только повторяла это третий раз.
     final draftChildren = drafts.isEmpty
         ? const <Widget>[]
         : <Widget>[
-            const _GroupLabel(RepairStrings.groupUnsent),
-            const SizedBox(height: AppConstants.spacingSM),
             for (var i = 0; i < drafts.length; i++) ...[
               if (i > 0) const SizedBox(height: AppConstants.spacingSM),
               _DraftTile(
@@ -686,6 +696,13 @@ class _DraftTile extends StatelessWidget {
                             ),
                           ],
                         ),
+                        // Причину отказа в списке не печатаем. Красная строка
+                        // под каждым черновиком превращала список в полосу
+                        // тревоги, а разбирается отказ всё равно на карточке:
+                        // там та же причина написана в блоке «Не отправлено»,
+                        // и там же стоят кнопки под конкретный случай.
+                        // Отличить отклонённый черновик от ждущего связи
+                        // по-прежнему можно по значку слева.
                       ],
                     ),
                   ),

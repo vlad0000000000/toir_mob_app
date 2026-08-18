@@ -285,6 +285,34 @@ class DataProvider {
           if (norm.equipmentUuid == equipmentUuid) norm,
       ];
 
+  /// Кладёт в кэш нормы, только что полученные с сервера по одному
+  /// оборудованию.
+  ///
+  /// Весь справочник наливает `syncConsumptionNorms`, но она ходит только в
+  /// общей синхронизации — то есть при живой связи и не чаще раза в сеанс.
+  /// Форма создания ремонта спрашивает нормы у сервера сама и раньше ответ
+  /// выбрасывала: обходчик видел список онлайн, а без связи тот же список
+  /// оказывался пуст, хотя «нормы уже загружались». Теперь всё, что показали
+  /// онлайн, остаётся доступным офлайн.
+  ///
+  /// Снимок по этому оборудованию замещается целиком — норму могли удалить на
+  /// сервере. Чужие записи не трогаем: про них ответ ничего не сообщает.
+  Future<void> cacheConsumptionNorms(
+    String equipmentUuid,
+    List<ConsumptionNorm> norms,
+  ) async {
+    if (equipmentUuid.isEmpty) return;
+    final fresh = {for (final norm in norms) norm.uuid: norm};
+    final stale = [
+      for (final entry in consumptionNormBox.toMap().entries)
+        if (entry.value.equipmentUuid == equipmentUuid &&
+            !fresh.containsKey(entry.key))
+          entry.key,
+    ];
+    if (stale.isNotEmpty) await consumptionNormBox.deleteAll(stale);
+    if (fresh.isNotEmpty) await consumptionNormBox.putAll(fresh);
+  }
+
   /// Позиция справочника по uuid — за постоянное время.
   ///
   /// Индекс, а не перебор списка: остаток и единицу измерения спрашивают из
@@ -339,8 +367,18 @@ class DataProvider {
     // Черновики тоже активные ремонты — просто ещё не доехавшие. Не считать их
     // значило бы: обходчик создал ремонт в цеху, вернулся в меню, а счётчик
     // прежний, будто ничего не произошло.
-    activeRepairsCount.value =
-        _repairs.where((r) => r.isActive).length + pendingRepairBox.length;
+    //
+    // Но черновик, у которого уже есть `serverUuid`, — это тот же самый
+    // ремонт, что лежит в кэше: очередь создала его на сервере и остановилась
+    // на снимках или финальной правке. Складывать оба значило показывать на
+    // плитке на единицу больше, чем ремонтов на самом деле.
+    final active = _repairs.where((r) => r.isActive).toList();
+    final known = {for (final repair in active) repair.uuid};
+    final drafts = pendingRepairBox.values.where((draft) {
+      final uuid = draft.serverUuid;
+      return uuid == null || !known.contains(uuid);
+    }).length;
+    activeRepairsCount.value = active.length + drafts;
   }
 
   /// Черновики ремонтов, ждущие отправки. Порядок — от новых к старым, как в
