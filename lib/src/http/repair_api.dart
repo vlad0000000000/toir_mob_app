@@ -75,10 +75,16 @@ extension RepairApi on API {
   /// Фильтры те же, что использует форма создания ремонта в веб-админке:
   /// конкретное оборудование и назначение «для ремонта». Роль «обходчик» к
   /// эндпоинту допущена, доработок на сервере не требуется.
+  /// Нормы расхода компании.
+  ///
+  /// [equipmentUuid] пустой — берём все: так их выгружает синхронизация в
+  /// кэш. Форма создания ремонта передаёт конкретное оборудование, чтобы при
+  /// живой связи получить свежий список без лишнего.
   Future<List<ConsumptionNorm>> getConsumptionNorms({
-    required String equipmentUuid,
+    String equipmentUuid = '',
     String usageType = ConsumptionNorm.repairUsageType,
     int limit = 100,
+    int skip = 0,
   }) async {
     _guardOffline();
     if (API.jwtToken == null) {
@@ -88,8 +94,8 @@ extension RepairApi on API {
     final uri = Uri.parse('${API.baseUrl}/v1/company/consumption_norms/')
         .replace(queryParameters: <String, dynamic>{
       'limit': '$limit',
-      'skip': '0',
-      'equipment_uuid': [equipmentUuid],
+      'skip': '$skip',
+      if (equipmentUuid.isNotEmpty) 'equipment_uuid': [equipmentUuid],
       'usage_type': [usageType],
     });
 

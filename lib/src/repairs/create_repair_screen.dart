@@ -512,7 +512,14 @@ class _NormPickerSheetState extends State<_NormPickerSheet> {
   }
 
   Future<void> _load() async {
-    setState(() => _failed = false);
+    // Сначала кэш: без связи это единственное, из чего можно выбрать, а при
+    // живой — список рисуется сразу и через миг обновляется свежим.
+    final cached =
+        GlobalState.dataProvider.consumptionNormsFor(widget.equipmentUuid);
+    setState(() {
+      _failed = false;
+      if (cached.isNotEmpty) _norms = cached;
+    });
     try {
       final norms = await API().getConsumptionNorms(
         equipmentUuid: widget.equipmentUuid,
@@ -522,8 +529,10 @@ class _NormPickerSheetState extends State<_NormPickerSheet> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _norms = const [];
-        _failed = true;
+        _norms = cached;
+        // Ошибку показываем, только когда показать больше нечего: с кэшем на
+        // руках обходчику важнее список, чем сообщение о сбое.
+        _failed = cached.isEmpty;
       });
     }
   }

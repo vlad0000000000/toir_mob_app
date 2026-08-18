@@ -302,7 +302,11 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             icon: const Icon(Icons.info_outline_rounded),
             visualDensity: VisualDensity.compact,
             color: cs.onSurfaceVariant,
-            onPressed: () => showPeriodicTaskCard(context, task.periodicTask!),
+            onPressed: () => showPeriodicTaskCard(
+              context,
+              task.periodicTask!,
+              usage: task.sparePartUsage,
+            ),
             tooltip: 'Карточка периодической задачи',
           )
         : const SizedBox.shrink();

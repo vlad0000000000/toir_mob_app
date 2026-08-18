@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -18,10 +19,11 @@ import '../http/api.dart';
 import '../model/pending_repair.dart';
 import '../model/pending_repair_update.dart';
 import '../model/repair.dart';
+import '../model/repair_conflict.dart';
 import '../utils/go_router_ext.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/spare_part_consumption.dart';
-import 'repair_conflict_screen.dart';
+import 'repair_clipboard.dart';
 import 'repair_error_messages.dart';
 import 'repair_status_pill.dart';
 import 'spare_part_picker_sheet.dart';
@@ -71,6 +73,9 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
   bool _isSaving = false;
   bool _isClaiming = false;
   bool _isPhotoBusy = false;
+
+  /// Идёт действие из блока «Не отправлено»: перенос, повтор или удаление.
+  bool _isUnsentBusy = false;
 
   /// Обходчик что-то менял в форме с момента последней загрузки с сервера.
   bool _userEdited = false;
@@ -344,8 +349,31 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
     ));
     if (!mounted) return;
     if (submitForReview) {
-      // Черновик отправлен — карточку закрываем и возвращаемся туда, откуда
-      // пришли.
+      // Пытаемся отправить прямо сейчас, а не ждать фонового прохода очереди.
+      // Обходчик нажал «Отправить» и должен увидеть исход здесь же — иначе
+      // при живой связи карточка закрывалась раньше ответа сервера, и отказ
+      // («по этому оборудованию уже есть ремонт») находился потом в списке,
+      // без всякой связи с нажатием.
+      //
+      // Без связи проход отработает вхолостую: ошибка окажется временной,
+      // пометки об отказе не появится, и мы уйдём в список — ровно как
+      // обещало окно подтверждения.
+      await GlobalState.dataProvider.syncPendingRepairs();
+      if (!mounted) return;
+      final left = _draft;
+      if (left != null && left.isRejected) {
+        // Сервер отказал по существу. Остаёмся на карточке: под расходом
+        // появится блок с действиями — перенести в существующий ремонт или
+        // скопировать данные. Причину показываем разово снекбаром: в самом
+        // блоке текста нет, а тут обходчик только что нажал кнопку и ждёт
+        // ответа именно на неё.
+        setState(() {
+          _isSaving = false;
+          _applyRepair(_draftRepair());
+        });
+        _showSnack(message: left.lastError!, ok: false);
+        return;
+      }
       GoRouter.of(context).backOr('/repairs');
       return;
     }
@@ -780,90 +808,177 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
     );
   }
 
-  /// Полоса о неотправленной правке. Два разных сообщения: правка просто ждёт
-  /// связи — это норма, и правку отклонили — это разбирать человеку.
-  List<Widget> _buildPendingBanner(Repair repair) {
-    // Черновик целиком не отправлен — говорим об этом одной плашкой, отдельной
-    // от «неотправленных правок»: у черновика на сервере нет вообще ничего.
-    final draft = _draft;
-    if (draft != null) {
-      return [
-        _Banner(
-          icon: draft.isRejected
-              ? Icons.merge_type_rounded
-              : Icons.cloud_upload_outlined,
-          title: draft.isRejected
-              ? RepairCardStrings.conflictRejectedTitle
-              : ConflictStrings.badgeDraft,
-          text: draft.lastError ??
-              (draft.submitForReview
-                  ? RepairCardStrings.draftWillSubmit
-                  : RepairStrings.draftWaiting),
-          // Красным в обоих случаях: черновик — будущий открытый ремонт, и
-          // оборудование он занимает так же. Отличает отклонённый от ждущего
-          // не цвет, а значок, заголовок и кнопка «Разобраться».
-          danger: true,
-          action: draft.isRejected
-              ? FilledButton(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => RepairConflictScreen(draft: draft),
-                    ),
-                  ),
-                  child: const Text(RepairStrings.resolve),
-                )
-              : null,
-        ),
-        const SizedBox(height: AppConstants.spacingMD),
-      ];
+  /// Неотправленная правка существующего ремонта. У черновика её не бывает:
+  /// он сам целиком и есть неотправленное.
+  PendingRepairUpdate? get _pendingUpdate =>
+      GlobalState.dataProvider.pendingUpdateFor(widget.repairUuid);
+
+  /// Ремонт, занявший оборудование и не давший черновику создаться.
+  ///
+  /// `null` — либо конфликта не было, либо ремонт чужой: чужие обходчику не
+  /// отдают, и в кэше его нет.
+  Repair? _blockingRepair(PendingRepair draft) {
+    final uuid = draft.conflictRepairUuid;
+    if (uuid == null || uuid.isEmpty) return null;
+    for (final repair in GlobalState.dataProvider.repairs) {
+      if (repair.uuid == uuid) return repair;
     }
-    final update = GlobalState.dataProvider.pendingUpdateFor(widget.repairUuid);
-    if (update == null) return const [];
-    if (!update.isRejected) {
-      return [
-        _Banner(
-          icon: Icons.cloud_upload_outlined,
-          title: RepairCardStrings.unsentTitle,
-          text: update.submitForReview
-              ? RepairCardStrings.unsentSubmitBody
-              : RepairCardStrings.unsentSaveBody,
-          warning: true,
-        ),
-        const SizedBox(height: AppConstants.spacingMD),
-      ];
-    }
-    return [
-      _Banner(
-        icon: Icons.merge_type_rounded,
-        title: update.isStatusConflict
-            ? RepairCardStrings.conflictChangedTitle
-            : RepairCardStrings.conflictRejectedTitle,
-        text: update.lastError!,
-        danger: true,
-        action: FilledButton(
-          onPressed: () => _resolveConflict(update),
-          child: const Text(RepairStrings.resolve),
-        ),
-      ),
-      const SizedBox(height: AppConstants.spacingMD),
-    ];
+    return null;
   }
 
-  /// Разбор конфликта вынесен на отдельный экран («Рисунок 13»): решений там
-  /// несколько, у каждого свои последствия, и принимать их вслепую поверх
-  /// карточки нельзя.
-  Future<void> _resolveConflict(PendingRepairUpdate update) async {
-    await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => RepairConflictScreen(update: update),
+  /// Вид отказа. У правки он определён очередью в момент отказа, у черновика
+  /// выводится из того, чей ремонт занял оборудование: сервер сообщает только
+  /// сам факт занятости.
+  RepairConflictKind _conflictKind(
+      PendingRepair? draft, PendingRepairUpdate? update) {
+    if (update != null) return update.kind;
+    final blocking = _blockingRepair(draft!);
+    if (blocking == null) return RepairConflictKind.equipmentBusyOther;
+    final me = GlobalState.authUser?.uuid;
+    final owner = blocking.responsibleUserUuid;
+    final mine = me != null && owner != null && owner.isNotEmpty && owner == me;
+    return mine
+        ? RepairConflictKind.equipmentBusyMine
+        : RepairConflictKind.equipmentBusyOther;
+  }
+
+  /// Переносит данные черновика в уже существующий ремонт.
+  ///
+  /// Возможно только когда оборудование занял ремонт самого обходчика: чужой
+  /// расход подтверждать он не вправе. Уходим сразу в карточку получателя —
+  /// дальше работать там; черновика после переноса не существует.
+  Future<void> _transferDraft(PendingRepair draft, Repair target) async {
+    setState(() => _isUnsentBusy = true);
+    await GlobalState.dataProvider.transferDraftToRepair(draft, target);
+    if (!mounted) return;
+    final router = GoRouter.of(context);
+    router.pop();
+    router.push('/repairs/${target.uuid}', extra: target);
+  }
+
+  /// Отправляет неотправленное прямо сейчас, не дожидаясь прохода очереди.
+  Future<void> _retryUnsent(
+      PendingRepair? draft, PendingRepairUpdate? update) async {
+    setState(() => _isUnsentBusy = true);
+    final provider = GlobalState.dataProvider;
+    if (draft != null) {
+      await provider.retryPendingRepair(draft.localId);
+      if (!mounted) return;
+      final left = _draft;
+      if (left == null) {
+        // Черновик уехал и стал настоящим ремонтом — на этой карточке его
+        // больше нет. В списке он уже с сервера.
+        GoRouter.of(context).backOr('/repairs');
+        return;
+      }
+      setState(() => _isUnsentBusy = false);
+      // Отказ повторился — говорим об этом, иначе нажатие выглядит как
+      // молчаливо ничего не сделавшее.
+      if (left.isRejected) _showSnack(message: left.lastError!, ok: false);
+      return;
+    }
+    await provider.retryPendingRepairUpdate(widget.repairUuid);
+    if (!mounted) return;
+    setState(() => _isUnsentBusy = false);
+    await _load();
+  }
+
+  /// Третья кнопка блока — та, что зависит от причины отказа.
+  ///
+  /// `null` — делать нечего: сервер отказал окончательно, и остаётся только
+  /// скопировать данные и удалить. Иначе либо переносим в свой ремонт, либо
+  /// пробуем отправить ещё раз.
+  Widget? _unsentPrimaryAction(
+      PendingRepair? draft, PendingRepairUpdate? update, bool rejected) {
+    final busy = _isUnsentBusy || _isSaving;
+    if (draft != null && rejected) {
+      final kind = _conflictKind(draft, null);
+      final blocking = _blockingRepair(draft);
+      if (kind.canTransfer && blocking != null) {
+        return ElevatedButton.icon(
+          onPressed: busy ? null : () => _transferDraft(draft, blocking),
+          icon: const Icon(Icons.move_down_rounded, size: 20),
+          label: Text(ConflictStrings.transferTo(blocking.id)),
+        );
+      }
+    }
+    // Окончательный отказ повторять бессмысленно: сервер ответит тем же.
+    // Пока связи нет, отказа ещё не было — «повторить» значит «отправить
+    // сейчас», не дожидаясь очередного прохода очереди.
+    if (rejected && _conflictKind(draft, update).isFinal) return null;
+    return ElevatedButton.icon(
+      onPressed: busy ? null : () => _retryUnsent(draft, update),
+      icon: const Icon(Icons.refresh_rounded, size: 20),
+      label: const Text(ConflictStrings.retry),
+    );
+  }
+
+  /// Кладёт неотправленные данные в буфер обмена.
+  ///
+  /// Берём из формы, а не из сохранённой записи: обходчик мог только что
+  /// дописать комментарий или добавить позицию расхода и ещё не нажать
+  /// «Сохранить» — скопировать надо то, что он видит на экране.
+  Future<void> _copyUnsent() async {
+    // `_repair` подходит и черновику: у него это `PendingRepair.toRepair()`,
+    // где уже собраны оборудование, норма, ответственный и даты. Отдельной
+    // ветки на черновик не нужно.
+    final repair = _repair;
+    if (repair == null) return;
+    await Clipboard.setData(ClipboardData(
+      text: repairClipboardText(
+        repair: repair,
+        comment: _commentController.text,
+        consumptions: _consumptions,
+      ),
     ));
     if (!mounted) return;
-    // Что бы обходчик там ни выбрал, состояние очереди изменилось —
-    // перечитываем карточку и снимаем признак локальных правок, если правки
-    // отброшены.
-    if (GlobalState.dataProvider.pendingUpdateFor(widget.repairUuid) == null) {
-      setState(() => _userEdited = false);
-    }
-    await _load();
+    _showSnack(message: ConflictStrings.copied, ok: true);
+  }
+
+  /// Блок неотправленного — последним в форме, под расходом.
+  ///
+  /// Раньше на его месте была красная полоса поверх карточки с кнопкой
+  /// «Разобраться», уводившей на отдельный экран. Экран показывал те же
+  /// комментарий и расход второй раз, а его заголовок настоящую причину не
+  /// называл. Теперь здесь только действия: отправить ещё раз или перенести —
+  /// и скопировать данные, чтобы передать их администратору.
+  ///
+  /// Текста причины в блоке нет намеренно: у отказа сервера формулировки
+  /// служебные («Не удалось выполнить действие»), и обходчику они ничего не
+  /// дают. Что ремонт не уехал, видно по самому блоку и по карточке в списке.
+  List<Widget> _buildUnsentSection(ColorScheme cs) {
+    final draft = _draft;
+    final update = draft == null ? _pendingUpdate : null;
+    if (draft == null && update == null) return const [];
+    final rejected = draft?.isRejected ?? update!.isRejected;
+    final busy = _isSaving || _isUnsentBusy;
+    final primary = _unsentPrimaryAction(draft, update, rejected);
+    return [
+      Divider(color: cs.outlineVariant, height: AppConstants.spacingLG * 2),
+      _SectionLabel(RepairCardStrings.labelUnsent),
+      const SizedBox(height: AppConstants.spacingSM),
+      // В столбик, а не в строку: подписи со значком в половину ширины не
+      // помещаются. Первой — та, что зависит от причины отказа.
+      if (primary != null) ...[
+        SizedBox(
+          width: double.infinity,
+          height: AppConstants.buttonHeight,
+          child: primary,
+        ),
+        const SizedBox(height: AppConstants.spacingSM),
+      ],
+      SizedBox(
+        width: double.infinity,
+        height: AppConstants.buttonHeight,
+        child: OutlinedButton.icon(
+          onPressed: busy ? null : _copyUnsent,
+          // Значок чёрным, а не в цвет подписи: копирование — служебное
+          // действие, и выделять его наравне с отправкой незачем.
+          icon: Icon(Icons.copy_rounded, size: 20, color: cs.onSurface),
+          label: const Text(ConflictStrings.copyToClipboard),
+        ),
+      ),
+    ];
   }
 
   Widget _buildBody(ColorScheme cs, Repair? repair) {
@@ -902,12 +1017,12 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
         AppConstants.spacingXL,
       ),
       children: [
-        ..._buildPendingBanner(repair),
+        // Причина, по которой ремонт не уехал, теперь стоит внизу формы —
+        // см. [_buildUnsentSection].
         if (_failed) ...[
           // Без значка и по центру — как остальные полосы про отсутствие связи.
           _Banner(
             text: RepairCardStrings.staleDataBanner,
-            centered: true,
           ),
           const SizedBox(height: AppConstants.spacingMD),
         ],
@@ -995,6 +1110,7 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
           onSetQuantity: _setQuantity,
           onRemove: _removePosition,
         ),
+        ..._buildUnsentSection(cs),
       ],
     );
   }
@@ -1641,13 +1757,11 @@ class _SubmitConfirmDialog extends StatelessWidget {
               _Banner(
                 text: RepairCardStrings.finishOffline,
                 warning: true,
-                centered: true,
               ),
               const SizedBox(height: AppConstants.spacingSM),
             ],
             if (noConsumption)
               _Banner(
-                icon: Icons.remove_shopping_cart_outlined,
                 text: RepairCardStrings.finishNoConsumption,
                 warning: true,
               )
@@ -1832,82 +1946,23 @@ class _CountChip extends StatelessWidget {
 
 /// Плашка-предупреждение. Значок необязателен: без него текст занимает всю
 /// ширину и блок выглядит ровнее — отступы со всех сторон одинаковые.
+/// Полоса-пояснение: одна фраза на цветной подложке.
+///
+/// Всегда без значка и всегда по центру. Значок ничего не добавлял к тексту —
+/// он повторял ту же мысль картинкой, — а прижатый влево текст оставлял справа
+/// пустое поле, и полоса выглядела перекошенной. Единственное, чем полосы
+/// отличаются друг от друга, — цвет: [warning] для того, что требует внимания.
 class _Banner extends StatelessWidget {
-  final IconData? icon;
-  final String? title;
   final String text;
   final bool warning;
 
-  /// Кнопка под текстом — например «Разобраться» у конфликта. Полосы без
-  /// действия (их большинство) её не задают.
-  final Widget? action;
-
-  /// Красная подача вместо оранжевой — для конфликта, который сам не
-  /// рассосётся.
-  final bool danger;
-
-  /// Текст по центру, а не по левому краю.
-  ///
-  /// Так подаются полосы-пояснения: про отсутствие связи и про то, что данные
-  /// уйдут позже. Они идут без значка, и текст, прижатый влево, оставлял бы
-  /// справа пустое поле — полоса выглядела перекошенной.
-  ///
-  /// Полосы, у которых есть заголовок, значок или кнопка (черновик в очереди,
-  /// конфликт, нехватка ЗИП), остаются слева: там значок отличает один случай
-  /// от другого, а текст читается как обычный абзац.
-  final bool centered;
-
-  const _Banner({
-    required this.text,
-    this.icon,
-    this.title,
-    this.warning = false,
-    this.action,
-    this.danger = false,
-    this.centered = false,
-  });
+  const _Banner({required this.text, this.warning = false});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    final color = danger
-        ? cs.error
-        : warning
-            ? cs.warning
-            : cs.onSurfaceVariant;
-
-    final align = centered ? TextAlign.center : TextAlign.start;
-    final content = Column(
-      crossAxisAlignment:
-          centered ? CrossAxisAlignment.center : CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (title != null) ...[
-          Text(
-            title!,
-            textAlign: align,
-            style: tt.bodyMedium?.copyWith(
-              color: color,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 2),
-        ],
-        Text(
-          text,
-          textAlign: align,
-          style: tt.bodySmall?.copyWith(color: color),
-        ),
-        if (action != null) ...[
-          const SizedBox(height: AppConstants.spacingSM),
-          Align(
-            alignment: centered ? Alignment.center : Alignment.centerLeft,
-            child: action!,
-          ),
-        ],
-      ],
-    );
+    final color = warning ? cs.warning : cs.onSurfaceVariant;
 
     return Container(
       width: double.infinity,
@@ -1916,16 +1971,11 @@ class _Banner extends StatelessWidget {
         color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(AppConstants.radiusMD),
       ),
-      child: icon == null
-          ? content
-          : Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(icon, size: 18, color: color),
-                const SizedBox(width: AppConstants.spacingSM),
-                Expanded(child: content),
-              ],
-            ),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: tt.bodySmall?.copyWith(color: color),
+      ),
     );
   }
 }

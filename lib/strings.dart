@@ -167,7 +167,6 @@ class RepairStrings {
   static const String cancel = 'Отмена';
   static const String delete = 'Удалить';
   static const String send = 'Отправить';
-  static const String resolve = 'Разобраться';
   static const String done = 'Готово';
   static const String clearSearch = 'Очистить поиск';
   static const String nothingFound = 'Ничего не найдено';
@@ -196,12 +195,17 @@ class RepairStrings {
   // Черновики офлайн-очереди
   static const String draftPill = 'Не отправлено';
   static const String draftWaiting =
-      'Нет связи с сервером. Ремонт отправится автоматически.';
+      'Без связи с сервером ремонт не отправить — уйдёт сам, как только она '
+      'появится. Данные можно скопировать и передать администратору.';
   static const String draftDeleteTitle = 'Удалить черновик?';
 
   static String draftDeleteBody(String equipmentName) =>
-      'Ремонт по оборудованию «$equipmentName» не будет создан. '
-      'Восстановить его будет нельзя.';
+      'Ремонт по оборудованию «$equipmentName» не будет создан.';
+
+  /// Последствие удаления — отдельной плашкой в диалоге подтверждения.
+  static const String deleteIrreversible =
+      'Восстановить данные будет нельзя. Если они ещё нужны — сначала '
+      'скопируйте их.';
 
   // Истёкшая сессия
   static const String authExpiredTitle = 'Сессия истекла';
@@ -275,6 +279,7 @@ class RepairCardStrings {
   static const String labelDetails = 'ДЕТАЛИ РЕМОНТА';
   static const String labelComment = 'КОММЕНТАРИЙ';
   static const String labelPhotos = 'ФОТО';
+  static const String labelUnsent = 'НЕ ОТПРАВЛЕНО';
   static const String commentHint = 'Что было сделано во время ремонта';
   static const String claim = 'Взять в работу';
   static const String save = 'Сохранить';
@@ -318,13 +323,10 @@ class RepairCardStrings {
       'Нет связи. Фото сохранено и отправится позже';
 
   // Полоса неотправленного
-  static const String unsentTitle = 'Изменения не отправлены';
   static const String unsentSubmitBody =
       'Ремонт уйдёт на рассмотрение, как только появится связь.';
   static const String unsentSaveBody =
       'Сохранены на устройстве и отправятся, как только появится связь.';
-  static const String conflictChangedTitle = 'Ремонт изменился на сервере';
-  static const String conflictRejectedTitle = 'Изменения отклонены';
   static const String draftWillSubmit =
       'Ремонт создастся и сразу уйдёт на рассмотрение, как только появится '
       'связь.';
@@ -383,57 +385,37 @@ class RepairCardStrings {
   static String countOf(int count, int total) => '$count из $total';
 }
 
-/// Строки экрана разрешения конфликта.
+/// Строки неотправленного в карточке ремонта: причина, по которой ремонт не
+/// уехал, и два действия под ней.
+///
+/// Раньше это был отдельный экран разрешения конфликта. Он показывал
+/// комментарий и расход второй раз, поверх той же карточки, а заголовок
+/// «Изменения отклонены» настоящую причину не называл. Экран убран, блок
+/// переехал вниз формы — часть строк вместе с ним не понадобилась.
 class ConflictStrings {
   ConflictStrings._();
 
-  static const String title = 'Не удалось отправить';
-  static const String close = 'Закрыть';
-  static const String defaultReason = 'Сервер отклонил данные';
   static const String copied = 'Данные скопированы';
-
-  static const String myDataTitle = 'Ваши данные';
   static const String badgeDraft = 'Черновик';
-  static const String badgeUnsent = 'Не отправлено';
-  static const String stampCreated = 'Создан';
-  static const String stampChanged = 'Изменено';
-  static const String commentEmpty = 'Комментарий не заполнен';
-  static const String consumptionEmpty = 'Расход ещё не заполнен';
 
   static const String deleteTitle = 'Удалить мои данные?';
-  static const String deleteBody =
-      'Введённое будет удалено с устройства без возможности восстановить. '
-      'Если данные ещё нужны — сначала скопируйте их.';
-  static const String deleteMyData = 'Удалить мои данные';
+  static const String copyToClipboard = 'Скопировать данные в буфер обмена';
   static const String retry = 'Повторить отправку';
-  static const String copyToClipboard = 'Скопировать данные в буфер';
 
-  static String existingRepair(int id) => 'Существующий ремонт №$id';
-
+  /// Перенос в уже существующий ремонт — единственный способ не потерять
+  /// введённое, когда оборудование занял ремонт самого обходчика.
   static String transferTo(int id) => 'Перенести в ремонт №$id';
 
-  static String startedAt(String date) => 'Начат $date';
-
-  static String startedAtBy(String date, String owner) =>
-      'Начат $date · $owner';
-
-  // Подсказки «что делать дальше»
-  static const String hintBusyOther =
-      'Ремонт ведёт другой сотрудник — перенести данные нельзя. Скопируйте их '
-      'и передайте ответственному за ремонт или администратору.';
-  static const String hintClosed =
-      'Скопируйте данные, чтобы передать их администратору для внесения '
-      'вручную.';
-  static const String hintReassigned =
-      'Ремонт передан другому сотруднику — правки не принимаются. Скопируйте '
-      'данные и передайте новому ответственному.';
-
-  // Текст для буфера обмена
+  // Текст для буфера обмена. Подписи развёрнутые: сообщение читает не
+  // обходчик, а администратор, у которого приложения перед глазами нет.
   static const String clipboardNewRepair = 'Новый ремонт';
+  static const String clipboardEquipment = 'Оборудование:';
+  static const String clipboardTypeModel = 'Тип/модель:';
+  static const String clipboardStatus = 'Статус:';
+  static const String clipboardNormItems = 'Состав нормы:';
   static const String clipboardComment = 'Комментарий:';
-  static const String clipboardConsumption = 'Фактический расход:';
-  static const String clipboardStartedAt = 'Начат:';
-  static const String clipboardChangedAt = 'Изменено:';
+  static const String clipboardConsumption = 'Фактический расход ЗИП:';
+  static const String clipboardStartedAt = 'Дата начала:';
 }
 
 /// Строки раздела ЗИП: справочник, фильтры и карточка позиции.

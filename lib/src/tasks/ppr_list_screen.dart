@@ -283,7 +283,11 @@ class _PprTaskItem extends StatelessWidget {
                     icon: const Icon(Icons.info_outline_rounded),
                     visualDensity: VisualDensity.compact,
                     color: cs.onSurfaceVariant,
-                    onPressed: () => showPeriodicTaskCard(context, periodicTask),
+                    onPressed: () => showPeriodicTaskCard(
+                      context,
+                      periodicTask,
+                      usage: task.sparePartUsage,
+                    ),
                     tooltip: 'Карточка периодической задачи',
                   ),
                 Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant),

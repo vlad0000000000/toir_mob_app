@@ -22,6 +22,7 @@ import '../../src/model/usage_unit.dart';
 import '../../src/model/user.dart';
 import '../../src/model/equipment_state.dart';
 import '../../src/model/periodic_task_request.dart';
+import '../../src/model/consumption_norm.dart';
 import '../../src/model/ppr.dart';
 import '../model/usage_update.dart';
 import '../exceptions/app_exceptions.dart';
@@ -59,6 +60,7 @@ class DataProvider {
   final Box<Repair> repairBox;
   final Box<PendingRepair> pendingRepairBox;
   final Box<PendingRepairUpdate> pendingRepairUpdateBox;
+  final Box<ConsumptionNorm> consumptionNormBox;
   final Box<String> stringBox;
 
   DataProvider(
@@ -81,6 +83,7 @@ class DataProvider {
       required this.repairBox,
       required this.pendingRepairBox,
       required this.pendingRepairUpdateBox,
+      required this.consumptionNormBox,
       required this.periodicTaskBox,
       required this.periodicTaskPendingBox}) {
     _spareParts = sparePartBox.values.toList();
@@ -272,6 +275,15 @@ class DataProvider {
   List<UsageUnit> get usageUnits => _usageUnits;
 
   List<SparePart> get spareParts => _spareParts;
+
+  /// Нормы расхода для оборудования из кэша — то, что можно выбрать без сети.
+  ///
+  /// Отбор по оборудованию делаем здесь: серверного фильтра офлайн нет, а
+  /// норм на компанию десятки, так что полный перебор бокса дешевле индекса.
+  List<ConsumptionNorm> consumptionNormsFor(String equipmentUuid) => [
+        for (final norm in consumptionNormBox.values)
+          if (norm.equipmentUuid == equipmentUuid) norm,
+      ];
 
   /// Позиция справочника по uuid — за постоянное время.
   ///

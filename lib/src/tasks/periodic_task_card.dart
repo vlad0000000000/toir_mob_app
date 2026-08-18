@@ -1,11 +1,23 @@
 import 'package:flutter/material.dart';
 import '../../src/model/periodic_task_models.dart';
+import '../../src/model/spare_part_usage.dart';
 import '../design/app_constants.dart';
 import '../widgets/app_bottom_sheet.dart';
+import '../widgets/spare_part_consumption.dart';
 
-/// Карточка периодической задачи (узел, описание, фото) — общая для списка
-/// задач оборудования и для списка задач ППР.
-void showPeriodicTaskCard(BuildContext context, PeriodicTask pt) {
+/// Карточка периодической задачи (узел, описание, норма расхода, фото) — общая
+/// для списка задач оборудования и для списка задач ППР.
+///
+/// [usage] — блок расхода ЗИП из осмотра, а не из самой периодической задачи:
+/// план приходит в `spare_part_usage` вместе с осмотром и уже разобран в
+/// `Task`. Берём его оттуда, а не тащим норму в [PeriodicTask], — иначе
+/// пришлось бы менять её Hive-адаптер и хранить одно и то же дважды.
+/// `null` или пустой план — раздела нормы в карточке нет.
+void showPeriodicTaskCard(
+  BuildContext context,
+  PeriodicTask pt, {
+  SparePartUsage? usage,
+}) {
   final tt = Theme.of(context).textTheme;
   showModalBottomSheet(
     context: context,
@@ -40,16 +52,17 @@ void showPeriodicTaskCard(BuildContext context, PeriodicTask pt) {
               _buildDetailRow(context, 'Описание:', pt.description!),
             ],
             const SizedBox(height: 8),
+            // Норма расхода — до фото: это такая же текстовая справка о задаче,
+            // как узел и описание, и читают её чаще, чем смотрят снимки.
+            if (usage != null && usage.hasPlan) ...[
+              const SizedBox(height: 12),
+              _buildSectionLabel(context, 'НОРМА РАСХОДА ЗИП'),
+              const SizedBox(height: 8),
+              for (final item in usage.planned) _buildNormRow(context, item),
+            ],
             if (pt.photos.isNotEmpty) ...[
               const SizedBox(height: 12),
-              Text(
-                'ФОТО',
-                style: tt.labelSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  letterSpacing: 0.6,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              _buildSectionLabel(context, 'ФОТО'),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
@@ -127,6 +140,38 @@ void showPeriodicTaskCard(BuildContext context, PeriodicTask pt) {
           ],
         ),
       ),
+    ),
+  );
+}
+
+/// Подпись раздела карточки — «НОРМА РАСХОДА ЗИП», «ФОТО».
+Widget _buildSectionLabel(BuildContext context, String text) {
+  final tt = Theme.of(context).textTheme;
+  return Text(
+    text,
+    style: tt.labelSmall?.copyWith(
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+      letterSpacing: 0.6,
+      fontWeight: FontWeight.w600,
+    ),
+  );
+}
+
+/// Строка нормы: «Болт 6347-59 × 3». По левому краю, вровень с описанием и
+/// узлом — карточка вся набрана без отступов и маркеров.
+///
+/// Знак «×» — уже принятый в приложении разделитель для состава нормы, тот же
+/// что в `ConsumptionNorm.compositionSummary`. Единицу измерения не
+/// показываем: в составе плана сервер её не присылает, в админке её тоже нет,
+/// а тянуть ради неё каталог ЗИП на экран задач слишком дорого.
+Widget _buildNormRow(BuildContext context, SparePartUsageItem item) {
+  final tt = Theme.of(context).textTheme;
+  final quantity = formatConsumptionQuantity(item.quantity);
+  return Padding(
+    padding: const EdgeInsets.only(bottom: AppConstants.spacingXS),
+    child: Text(
+      '${item.sparePartName} × $quantity',
+      style: tt.bodyMedium,
     ),
   );
 }

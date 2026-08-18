@@ -189,6 +189,36 @@ extension DataProviderSync on DataProvider {
     }
   }
 
+  /// Выгружает нормы расхода для ремонта в кэш.
+  ///
+  /// Целиком, а не по оборудованию: заранее неизвестно, какой станок обходчик
+  /// заведёт в ремонт, а без связи спросить сервер будет уже не у кого. Норм
+  /// на компанию десятки — одна-две страницы, поэтому проход дешёвый и едет
+  /// вместе с остальными справочниками.
+  ///
+  /// Бокс переписываем целиком: норму могли удалить на сервере, и остаться в
+  /// выборе она не должна.
+  Future<void> syncConsumptionNorms() async {
+    _isLoading = true;
+    try {
+      const pageSize = 100;
+      final List<ConsumptionNorm> all = [];
+      for (var skip = 0;; skip += pageSize) {
+        final page = await api.getConsumptionNorms(limit: pageSize, skip: skip);
+        all.addAll(page);
+        if (page.length < pageSize) break;
+      }
+      await consumptionNormBox.clear();
+      await consumptionNormBox
+          .putAll({for (final norm in all) norm.uuid: norm});
+    } catch (e) {
+      // Как и остальные справочники: при сбое остаётся прошлый снимок.
+      print('Failed sync consumption norms: $e');
+    } finally {
+      _isLoading = false;
+    }
+  }
+
   // Метод синхронизации задач
   Future<void> syncTasks() async {
     _isLoading = true;
@@ -347,6 +377,7 @@ extension DataProviderSync on DataProvider {
       syncPeriodicityRules(),
       syncUsageUnitTypes(),
       syncEquipmentStates(),
+      syncConsumptionNorms(),
       syncMyRepairs(),
       syncCompany(),
     ]);

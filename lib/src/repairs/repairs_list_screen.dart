@@ -16,7 +16,7 @@ import '../model/pending_repair_update.dart';
 import '../model/repair.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/offline_banner.dart';
-import 'repair_conflict_screen.dart';
+import 'repair_delete_dialog.dart';
 import 'repair_status_pill.dart';
 
 /// Статусы, по которым фильтруется список. Выбор множественный.
@@ -180,34 +180,14 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
           ? GlobalState.dataProvider.pendingRepairs
           : const [];
 
-  /// Отправить черновик прямо сейчас — кнопка на карточке отклонённого.
-  Future<void> _retryDraft(PendingRepair draft) async {
-    await GlobalState.dataProvider.retryPendingRepair(draft.localId);
-    if (!mounted) return;
-    setState(() {});
-  }
-
   Future<void> _deleteDraft(PendingRepair draft) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text(RepairStrings.draftDeleteTitle),
-        content: Text(
-          RepairStrings.draftDeleteBody(draft.equipmentName),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text(RepairStrings.cancel),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text(RepairStrings.delete),
-          ),
-        ],
-      ),
+    final confirmed = await confirmRepairDelete(
+      context,
+      title: RepairStrings.draftDeleteTitle,
+      body: RepairStrings.draftDeleteBody(draft.equipmentName),
+      note: RepairStrings.deleteIrreversible,
     );
-    if (confirmed != true) return;
+    if (!confirmed) return;
     await GlobalState.dataProvider.deletePendingRepair(draft.localId);
     if (!mounted) return;
     setState(() {});
@@ -215,14 +195,6 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
 
   /// Отклонённый черновик разбирают на отдельном экране: там видно и что
   /// вводил обходчик, и какой ремонт помешал.
-  Future<void> _resolveDraft(PendingRepair draft) async {
-    await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => RepairConflictScreen(draft: draft),
-    ));
-    if (!mounted) return;
-    setState(() {});
-  }
-
   /// Список строится целиком, а не через `itemBuilder`: у обходчика активных
   /// ремонтов единицы-десятки, зато так тривиально вставляются заголовки
   /// групп. Во вкладке «Закрытые» их ровно 10 — тем более не проблема.
@@ -254,9 +226,7 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
               if (i > 0) const SizedBox(height: AppConstants.spacingSM),
               _DraftTile(
                 draft: drafts[i],
-                onRetry: () => _retryDraft(drafts[i]),
                 onDelete: () => _deleteDraft(drafts[i]),
-                onResolve: () => _resolveDraft(drafts[i]),
                 // По черновику можно работать так же, как по ремонту:
                 // заполнить расход, приложить фото и отправить (п. 4.5.1).
                 onOpen: () => GoRouter.of(context)
@@ -626,25 +596,26 @@ class _AuthExpiredBanner extends StatelessWidget {
 // Черновик ремонта: создан без связи, ждёт отправки
 // ─────────────────────────────────────────────────────────────────────────
 
-/// Карточка черновика. Открыть её нечем — ремонта на сервере ещё нет, а
-/// заполнять расход по несуществующему нельзя. Поэтому вместо перехода —
-/// причина задержки и две кнопки: отправить сейчас или удалить.
+/// Карточка черновика — ремонта, созданного без связи и ещё не принятого
+/// сервером.
+///
+/// Ведёт себя как обычная карточка ремонта: нажатие открывает черновик, справа
+/// стрелка. По нему работают так же — заполняют расход, прикладывают фото,
+/// отправляют, — поэтому отдельной кнопки «Открыть карточку» тут нет.
+///
+/// Единственное действие на самой карточке — «Удалить»: оно необратимо, и
+/// нажать его случайно вместе с переходом нельзя, поэтому оно вынесено
+/// отдельной полосой внизу.
 class _DraftTile extends StatelessWidget {
   final PendingRepair draft;
-  final VoidCallback onRetry;
   final VoidCallback onDelete;
-
-  /// Открыть экран разрешения конфликта — только у отклонённых черновиков.
-  final VoidCallback onResolve;
 
   /// Открыть карточку черновика: по нему работают так же, как по ремонту.
   final VoidCallback onOpen;
 
   const _DraftTile({
     required this.draft,
-    required this.onRetry,
     required this.onDelete,
-    required this.onResolve,
     required this.onOpen,
   });
 
@@ -655,109 +626,92 @@ class _DraftTile extends StatelessWidget {
     final started = DateFormat('dd.MM HH:mm').format(draft.startedAt.toLocal());
     final rejected = draft.isRejected;
 
-    // Красным, как открытый ремонт: черновик и есть будущий «Открыт».
-    // Пунктир при этом остаётся — он говорит не про статус, а про то, что
-    // серверной записи за карточкой ещё нет.
-    return CustomPaint(
-      foregroundPainter: _DashedBorderPainter(
-        color: cs.error,
-        radius: AppConstants.radiusLG,
-      ),
-      child: Card(
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onOpen,
-          child: Padding(
-            padding: const EdgeInsets.all(AppConstants.spacingMD),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 48,
-                      height: 48,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: cs.surfaceContainerHigh,
-                        borderRadius:
-                            BorderRadius.circular(AppConstants.radiusMD),
-                      ),
-                      child: Icon(
-                        rejected
-                            ? Icons.error_outline_rounded
-                            : Icons.cloud_upload_outlined,
-                        size: 24,
-                        color: cs.error,
-                      ),
+    // Рамки у карточки нет: что записи ещё нет на сервере, видно и без неё —
+    // по красному значку, пилюле «Черновик» и полосе удаления внизу.
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          InkWell(
+            onTap: onOpen,
+            child: Padding(
+              padding: const EdgeInsets.all(AppConstants.spacingMD),
+              child: Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: cs.surfaceContainerHigh,
+                      borderRadius:
+                          BorderRadius.circular(AppConstants.radiusMD),
                     ),
-                    const SizedBox(width: AppConstants.spacingMD),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            draft.equipmentName.isEmpty
-                                ? RepairStrings.equipmentUnknown
-                                : draft.equipmentName,
-                            style: tt.titleMedium,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: AppConstants.spacingSM),
-                          Row(
-                            children: [
-                              const _DraftPill(),
-                              const SizedBox(width: AppConstants.spacingSM),
-                              Flexible(
-                                child: Text(
-                                  started,
-                                  style: tt.bodySmall
-                                      ?.copyWith(color: cs.onSurfaceVariant),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+                    child: Icon(
+                      rejected
+                          ? Icons.error_outline_rounded
+                          : Icons.cloud_upload_outlined,
+                      size: 24,
+                      color: cs.error,
                     ),
-                  ],
-                ),
-                const SizedBox(height: AppConstants.spacingSM),
-                Text(
-                  // Пока связи нет, причины нет — и придумывать её незачем:
-                  // черновик просто ждёт.
-                  draft.lastError ?? RepairStrings.draftWaiting,
-                  style: tt.bodySmall?.copyWith(
-                    color: cs.error,
                   ),
-                ),
-                const SizedBox(height: AppConstants.spacingSM),
-                // Отклонённый черновик отправлять повторно бесполезно — сервер
-                // откажет снова. Вместо «Отправить» ведём в разбор конфликта.
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: onDelete,
-                      child: const Text(RepairStrings.delete),
+                  const SizedBox(width: AppConstants.spacingMD),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          draft.equipmentName.isEmpty
+                              ? RepairStrings.equipmentUnknown
+                              : draft.equipmentName,
+                          style: tt.titleMedium,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: AppConstants.spacingSM),
+                        Row(
+                          children: [
+                            const _DraftPill(),
+                            const SizedBox(width: AppConstants.spacingSM),
+                            Flexible(
+                              child: Text(
+                                started,
+                                style: tt.bodySmall
+                                    ?.copyWith(color: cs.onSurfaceVariant),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: AppConstants.spacingSM),
-                    FilledButton(
-                      onPressed: rejected ? onResolve : onRetry,
-                      child: Text(rejected
-                          ? RepairStrings.resolve
-                          : RepairStrings.send),
-                    ),
-                  ],
-                ),
-              ],
+                  ),
+                  const SizedBox(width: AppConstants.spacingSM),
+                  Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant),
+                ],
+              ),
             ),
           ),
-        ),
+          // Во всю ширину и без скруглений: полоса упирается в края
+          // карточки, а углы ей обрезает `clipBehavior` самой карточки.
+          SizedBox(
+            width: double.infinity,
+            height: AppConstants.buttonHeight,
+            child: FilledButton.icon(
+              onPressed: onDelete,
+              style: FilledButton.styleFrom(
+                backgroundColor: cs.error,
+                foregroundColor: cs.onError,
+                shape: const RoundedRectangleBorder(),
+              ),
+              icon: const Icon(Icons.delete_outline_rounded, size: 20),
+              label: const Text(RepairStrings.delete),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -792,45 +746,6 @@ class _DraftPill extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Пунктирная рамка карточки черновика: серверной записи за ней нет, и
-/// «недорисованный» контур говорит об этом раньше любого текста (п. 4.2.4).
-class _DashedBorderPainter extends CustomPainter {
-  final Color color;
-  final double radius;
-
-  const _DashedBorderPainter({required this.color, required this.radius});
-
-  /// Длина штриха и промежутка — подобраны так, чтобы на скруглении рисунок
-  /// не сбивался в сплошную линию.
-  static const double _dash = 6;
-  static const double _gap = 4;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-    final path = Path()
-      ..addRRect(RRect.fromRectAndRadius(
-        Offset.zero & size,
-        Radius.circular(radius),
-      ));
-    for (final metric in path.computeMetrics()) {
-      var distance = 0.0;
-      while (distance < metric.length) {
-        final end = (distance + _dash).clamp(0.0, metric.length);
-        canvas.drawPath(metric.extractPath(distance, end), paint);
-        distance = end + _gap;
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(_DashedBorderPainter oldDelegate) =>
-      oldDelegate.color != color || oldDelegate.radius != radius;
 }
 
 /// Заголовок группы в списке — прописными, как секционные подписи форм.

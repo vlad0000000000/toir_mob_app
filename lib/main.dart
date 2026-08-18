@@ -42,6 +42,7 @@ import '../../src/notifications/push/push_notifications_controller.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import '../../src/onboarding/onboarding_video_player.dart';
 import '../../src/onboarding/onboarding_welcome_screen.dart';
+import '../../src/model/consumption_norm.dart';
 import '../../src/repairs/create_repair_screen.dart';
 import '../../src/repairs/repair_detail_screen.dart';
 import '../../src/repairs/repairs_list_screen.dart';
@@ -141,6 +142,7 @@ Future<void> main() async {
   Hive.registerAdapter(RepairConsumptionAdapter());
   Hive.registerAdapter(RepairPhotoAdapter());
   Hive.registerAdapter(RepairNormItemAdapter());
+  Hive.registerAdapter(ConsumptionNormAdapter());
   Hive.registerAdapter(PendingRepairAdapter());
   Hive.registerAdapter(PendingRepairUpdateAdapter());
 
@@ -167,6 +169,8 @@ Future<void> main() async {
       pendingRepairBox: await Hive.openBox<PendingRepair>('pending_repairs'),
       pendingRepairUpdateBox:
           await Hive.openBox<PendingRepairUpdate>('pending_repair_updates'),
+      consumptionNormBox:
+          await Hive.openBox<ConsumptionNorm>('consumption_norms'),
       periodicTaskBox:
           await Hive.openBox<PeriodicTaskRequest>('periodic_tasks'),
       periodicTaskPendingBox:

@@ -41,13 +41,15 @@ These break user data or the build if ignored. Full detail lives in the skill.
 ```bash
 flutter pub get
 flutter analyze     # baseline: exactly 1 warning; a 2nd is your regression
-flutter test        # baseline: green, 17 tests
+flutter test        # baseline: green, 22 tests
 flutter run -d <device>
 ```
 
-`flutter test` is green and must stay green. Two suites so far:
-`test/feature_flags_test.dart` (PPR feature flag) and
+`flutter test` is green and must stay green. Three suites so far:
+`test/feature_flags_test.dart` (PPR feature flag),
 `test/scan_error_messages_test.dart` (how the inspection outbox classifies a
-failure — retry, reject, or treat as already delivered). The old empty
-commented-out `widget_test.dart` template was removed; it had no `main()` and
-made the whole run fail.
+failure — retry, reject, or treat as already delivered) and
+`test/repair_clipboard_test.dart` (the shared repair-to-clipboard format used by
+both the draft card and the conflict screen). The old empty commented-out
+`widget_test.dart` template was removed; it had no `main()` and made the whole
+run fail.
