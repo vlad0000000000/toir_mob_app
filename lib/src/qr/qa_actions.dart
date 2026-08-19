@@ -1010,18 +1010,22 @@ class _RejectedScansBanner extends StatelessWidget {
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(AppConstants.spacingMD),
+          // Значка нет, текст по центру — как во всех полосах-пояснениях
+          // приложения. Вместо подписи «Разобраться» справа стрелка: полоса
+          // и так нажимается целиком, а стрелка говорит о переходе тем же
+          // языком, что карточки ремонтов и задач.
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.error_outline_rounded, size: 18, color: cs.error),
-              const SizedBox(width: AppConstants.spacingSM),
+              // Пустой слот шириной со стрелку: без него текст, «отцентрованный»
+              // в оставшемся месте, съезжал бы влево относительно самой полосы.
+              const SizedBox(width: 24),
               Expanded(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       ScanQueueStrings.rejectedTitle,
+                      textAlign: TextAlign.center,
                       style: tt.bodyMedium?.copyWith(
                         color: cs.error,
                         fontWeight: FontWeight.w600,
@@ -1030,16 +1034,13 @@ class _RejectedScansBanner extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       ScanQueueStrings.rejectedCount(count),
+                      textAlign: TextAlign.center,
                       style: tt.bodySmall?.copyWith(color: cs.error),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: AppConstants.spacingSM),
-              Text(
-                ScanQueueStrings.rejectedAction,
-                style: tt.labelLarge?.copyWith(color: cs.error),
-              ),
+              Icon(Icons.chevron_right_rounded, color: cs.error),
             ],
           ),
         ),

@@ -609,7 +609,14 @@ class _QRResultScreenState extends State<QRResultScreen> {
     // со склада ничего не спишется. Не запрещаем: ТО не всегда требует ЗИП.
     // Но переспрашиваем — забытый расход всплыл бы только у администратора,
     // в разъехавшихся остатках, и задним числом его уже не поправить.
-    final skipsWriteOff = consumptionTaskOf(equipmentController) != null &&
+    //
+    // Спрашиваем только по настроенной задаче. Раздел расхода теперь есть у
+    // каждой периодической задачи, и без этой проверки подтверждение вылезало
+    // бы при закрытии любого обычного осмотра — там пустой расход не забывчивость,
+    // а норма жизни.
+    final consumptionTask = consumptionTaskOf(equipmentController);
+    final skipsWriteOff = consumptionTask != null &&
+        consumptionTask.sparePartUsage!.isConfigured &&
         _consumptionsPayload() == null;
 
     Dialogs.areYouSure(context, onOk: () async {

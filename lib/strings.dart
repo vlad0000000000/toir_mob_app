@@ -574,6 +574,11 @@ class ScanQueueStrings {
       'Нет связи с сервером. Проверьте интернет и повторите.';
   static const String errorGeneric = 'Сервер не принял осмотр';
 
+  /// Перевод `InsufficientStockError.detail` — сервер отдаёт его по-английски
+  /// намеренно и локализацию оставляет клиенту.
+  static const String errorInsufficientStock =
+      'Недостаточно ЗИП на складе для списания';
+
   static const String rejectedTitle = 'Осмотры не отправлены';
   static const String rejectedAction = 'Разобраться';
   static const String rejectedUnknownEquipment = 'Оборудование не указано';
@@ -595,8 +600,8 @@ class ScanConflictStrings {
   static const String reasonLabel = 'ПРИЧИНА ОТКАЗА';
   static const String dataLabel = 'ВАШИ ДАННЫЕ';
   static const String shortageLabel = 'ЧЕГО НЕ ХВАТАЕТ НА СКЛАДЕ';
-  static const String commentLabel = 'Комментарий';
-  static const String consumptionLabel = 'Фактический расход ЗИП';
+  static const String commentLabel = 'КОММЕНТАРИЙ';
+  static const String consumptionLabel = 'ФАКТИЧЕСКИЙ РАСХОД ЗИП';
   static const String noComment = 'Без комментария';
   static const String noConsumption = 'Расход не указан';
 
@@ -618,8 +623,14 @@ class ScanConflictStrings {
       'Отправку можно повторить — например если причина уже устранена. Если '
       'нет, осмотр придётся удалить и снять заново.';
 
+  /// Подпись над самим списком нехватки — отделяет его от обращения к
+  /// администратору, которое стоит выше.
+  static const String shortageListLabel = 'Не хватает';
+
   static String needShortage(String name, String required, String available) =>
       '$name — нужно $required, на складе $available';
 
-  static String position(String name, String quantity) => '$name — $quantity';
+  /// Позиция расхода. Знак «×» — тот же разделитель, что в норме расхода и в
+  /// тексте для буфера обмена: список должен читаться одинаково везде.
+  static String position(String name, String quantity) => '$name × $quantity';
 }

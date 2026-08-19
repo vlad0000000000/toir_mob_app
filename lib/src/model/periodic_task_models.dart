@@ -196,6 +196,21 @@ class PeriodicTask {
   final DateTime? updatedAt;
   final List<PeriodicTaskPhoto> photos;
 
+  /// Это задача технического обслуживания, а не обычная периодическая.
+  ///
+  /// Считает сервер (`PeriodicTask.is_maintenance`): по `target_type` в
+  /// параметрах задачи, а для созданных до этого поля — по связке
+  /// «параметр наработки + интервал периода + заголовок». Приложение раньше
+  /// опознавало ТО само, по вхождению «Техническое обслуживание» в заголовок,
+  /// и переименование задачи в админке эту догадку ломало.
+  ///
+  /// **В Hive не сохраняется.** Этот объект вложен в [Task] и пишется в общий
+  /// с ним поток, а значит дописать поле в конец адаптера нельзя: лишний
+  /// `read()` съел бы следующее поле родителя. Поэтому у задачи, прочитанной
+  /// из кэша, флаг всегда `false` — до первой синхронизации работает разбор по
+  /// заголовку, оставленный запасным в `DataProvider.addScan`.
+  final bool isMaintenance;
+
   PeriodicTask({
     required this.id,
     required this.uuid,
@@ -212,6 +227,7 @@ class PeriodicTask {
     required this.createdAt,
     this.updatedAt,
     this.photos = const [],
+    this.isMaintenance = false,
   });
 
   factory PeriodicTask.fromJson(Map<String, dynamic> json) {
@@ -241,9 +257,13 @@ class PeriodicTask {
           ? DateTime.parse(json['updated_at'] as String)
           : null,
       photos: (json['photos'] as List<dynamic>?)
-              ?.map((e) => PeriodicTaskPhoto.fromJson(e as Map<String, dynamic>))
+              ?.map(
+                  (e) => PeriodicTaskPhoto.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
+      // Поле появилось в `1d99a25`; со старого сервера не придёт, и тогда
+      // остаётся прежний разбор по заголовку.
+      isMaintenance: json['is_maintenance'] as bool? ?? false,
     );
   }
 }
@@ -252,6 +272,13 @@ class PeriodicTaskAdapter extends TypeAdapter<PeriodicTask> {
   @override
   final int typeId = 11;
 
+  /// Формат намеренно не содержит `isMaintenance` — см. комментарий у поля.
+  ///
+  /// Дописать поле в конец, как в `TaskAdapter`, здесь **нельзя**: этот объект
+  /// вложен в [Task], и оба пишутся в один поток. Лишний `read()` не упёрся бы
+  /// в конец записи, а съел бы следующее поле родителя — дальше всё
+  /// разъезжается, `Hive.openBox` падает на разборе, и приложение навсегда
+  /// остаётся на заставке.
   @override
   PeriodicTask read(BinaryReader reader) {
     return PeriodicTask(

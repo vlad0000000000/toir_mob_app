@@ -578,10 +578,18 @@ class DataProvider {
     if (scan.taskUuid != null) {
       final taskUuid = scan.taskUuid!;
       final task = taskBox.get(taskUuid);
-      final periodicTitle = task?.periodicTask?.title ?? '';
+      final periodic = task?.periodicTask;
+      // Признак ТО берём у сервера. Разбор по заголовку оставлен запасным: у
+      // задач из кэша, записанного до появления поля `is_maintenance`, его в
+      // потоке нет, и до первой синхронизации `isMaintenance` будет `false`.
+      // Ошибиться здесь дорого — от этого зависит, дождётся ли задача ТО
+      // отправки наработки по своему оборудованию.
+      final isMaintenance = periodic != null &&
+          (periodic.isMaintenance ||
+              periodic.title.contains('Техническое обслуживание'));
       if (scan.periodicTaskUuid != null &&
           scan.periodicTaskUuid!.isNotEmpty &&
-          periodicTitle.contains('Техническое обслуживание')) {
+          isMaintenance) {
         await stringBox.put('maintenance_task_$taskUuid', '1');
       }
       closedTasks[taskUuid] = taskUuid;

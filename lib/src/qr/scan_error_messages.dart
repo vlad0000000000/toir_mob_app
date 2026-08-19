@@ -12,15 +12,36 @@ String scanErrorMessage(Object error) {
   if (error is AuthExpiredException) {
     return ScanQueueStrings.errorAuthExpired;
   }
-  // Нехватка ЗИП: текст сервера уже по-русски и без чисел — сами числа
-  // лежат в `shortages` и показываются отдельным блоком.
+  // Нехватка ЗИП. Текст сервера здесь **английский** и таким останется: он
+  // помечен в `backend/exceptions/common.py` как legacy и стабильный, а
+  // локализовать его велено клиенту по `detail_code`. Числа не подставляем —
+  // они лежат в `shortages` и показываются отдельным блоком.
   if (error is InsufficientStockException) {
-    return error.detail;
+    return ScanQueueStrings.errorInsufficientStock;
   }
   if (isOfflineError(error)) {
     return ScanQueueStrings.errorNoConnection;
   }
   final raw = _stripExceptionPrefix(error.toString()).trim();
+  for (final entry in _translations.entries) {
+    if (raw == entry.key || raw.contains(entry.key)) {
+      return entry.value;
+    }
+  }
+  return _looksRussian(raw) ? raw : ScanQueueStrings.errorGeneric;
+}
+
+/// Причина отказа, уже лежащая в очереди, — для показа на экране.
+///
+/// [scanErrorMessage] переводит ошибку в момент отказа, но результат остаётся
+/// в Hive навсегда. Осмотры, отклонённые прежними версиями приложения, хранят
+/// английский текст сервера, и без этой проверки он доезжал до обходчика как
+/// есть («Insufficient spare parts in warehouses»). Прогоняем сохранённое
+/// через тот же словарь: непереведённое английское заменяем общей фразой —
+/// показать английский хуже, чем показать «сервер не принял осмотр».
+String scanStoredReason(String? stored) {
+  final raw = _stripExceptionPrefix((stored ?? '').trim()).trim();
+  if (raw.isEmpty) return ScanQueueStrings.errorGeneric;
   for (final entry in _translations.entries) {
     if (raw == entry.key || raw.contains(entry.key)) {
       return entry.value;
@@ -98,6 +119,11 @@ bool _looksRussian(String text) => RegExp('[а-яА-ЯёЁ]').hasMatch(text);
 /// Ключи — точные строки из `backend/api/v1/company/fault_inspection.py` и
 /// `backend/crud/fault_inspection.py`.
 const Map<String, String> _translations = {
+  // `InsufficientStockError.detail` из `backend/exceptions/common.py`. Ловится
+  // и типом выше — здесь на случай осмотров, отклонённых прежней версией
+  // приложения: у них английский текст уже лежит в базе.
+  'Insufficient spare parts in warehouses':
+      ScanQueueStrings.errorInsufficientStock,
   'Company was not found': 'Компания не найдена',
   'Company is deactivated. Please renew your subscription.':
       'Доступ компании приостановлен. Обратитесь к администратору.',

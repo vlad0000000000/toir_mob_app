@@ -23,10 +23,11 @@ import '../widgets/spare_part_consumption.dart';
 
 /// Задача, по которой сервер ждёт фактический расход ЗИП.
 ///
-/// Условие ровно то же, что и на бэкенде: блок `spare_part_usage` приходит
-/// только у задач с настроенным расходом, а `PATCH` без такой настройки
-/// отклоняется («Для этого осмотра не настроен расход ЗИП»). Выбор задачи в
-/// приложении одиночный, поэтому берём единственную.
+/// Условие ровно то же, что и на бэкенде: блок `spare_part_usage` приходит у
+/// любой периодической задачи, а у заявки без задачи его нет — списывать не по
+/// чему. Настроена задаче норма или нет, значения больше не имеет: сервер
+/// принимает и внеплановый расход. Выбор задачи в приложении одиночный,
+/// поэтому берём единственную.
 ///
 /// Живёт здесь, а не в модели: правило описывает поведение формы осмотра, и
 /// нужно оно двоим — самой форме и сборке осмотра на экране результата.
@@ -172,7 +173,8 @@ class _ResultControlsState extends State<ResultControls> {
   Future<void> _addConsumptionPosition() async {
     final picked = await showSparePartPicker(
       context,
-      alreadyAddedUuids: _consumptions.map((item) => item.sparePartUuid).toSet(),
+      alreadyAddedUuids:
+          _consumptions.map((item) => item.sparePartUuid).toSet(),
     );
     if (picked == null || !mounted) return;
     widget.consumptionController.value = [
@@ -265,10 +267,9 @@ class _ResultControlsState extends State<ResultControls> {
                         Divider(height: 1, color: cs.outlineVariant),
                     itemBuilder: (_, i) {
                       final p = problems[i];
-                      final isCurrent =
-                          widget.problemController.value == p ||
-                              (widget.problemController.value == null &&
-                                  p == TypicalProblem.empty);
+                      final isCurrent = widget.problemController.value == p ||
+                          (widget.problemController.value == null &&
+                              p == TypicalProblem.empty);
                       final isOther = p == TypicalProblem.other;
                       final isEmpty = p == TypicalProblem.empty;
                       return ListTile(
@@ -435,9 +436,8 @@ class _ResultControlsState extends State<ResultControls> {
                 _ActionRow(
                   icon: Icons.flag_outlined,
                   title: 'Приоритет',
-                  value: priority == null
-                      ? 'Не выбран'
-                      : priority.name as String,
+                  value:
+                      priority == null ? 'Не выбран' : priority.name as String,
                   valueColor: priority?.color,
                   error: widget.highlightPriorityError
                       ? 'Укажите приоритет'
@@ -478,9 +478,8 @@ class _ResultControlsState extends State<ResultControls> {
                 color: cs.onSurfaceVariant.withValues(alpha: 0.7),
               ),
               alignLabelWithHint: true,
-              errorText: widget.highlightDescError
-                  ? 'Укажите комментарий'
-                  : null,
+              errorText:
+                  widget.highlightDescError ? 'Укажите комментарий' : null,
             ),
           ),
 
@@ -829,7 +828,8 @@ class _UsageListState extends State<_UsageList> {
     for (final p in widget.parameters) {
       final unit = units.firstWhere(
         (u) => u.value == p.unitType,
-        orElse: () => UsageUnit(value: p.unitType, displayName: p.unitType, shortName: ''),
+        orElse: () => UsageUnit(
+            value: p.unitType, displayName: p.unitType, shortName: ''),
       );
       rows.add(_UsageRow(
         param: p,
@@ -895,8 +895,7 @@ class _UsageRow extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Icon(Icons.speed_rounded,
-                    size: 20, color: cs.onSurfaceVariant),
+                Icon(Icons.speed_rounded, size: 20, color: cs.onSurfaceVariant),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(unit.displayName,
@@ -909,19 +908,18 @@ class _UsageRow extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text('$current →',
-                          style: tt.bodySmall?.copyWith(
-                              color: cs.onSurfaceVariant)),
+                          style: tt.bodySmall
+                              ?.copyWith(color: cs.onSurfaceVariant)),
                       const SizedBox(width: 4),
                       Text('${_format(draft!)}$short',
                           style: tt.bodyMedium?.copyWith(
-                              color: cs.primary,
-                              fontWeight: FontWeight.w600)),
+                              color: cs.primary, fontWeight: FontWeight.w600)),
                     ],
                   )
                 else
                   Text('$current$short',
-                      style: tt.bodyMedium
-                          ?.copyWith(color: cs.onSurfaceVariant)),
+                      style:
+                          tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant)),
                 const SizedBox(width: 4),
                 AnimatedRotation(
                   turns: expanded ? 0.5 : 0,
@@ -958,8 +956,9 @@ class _UsageRow extends StatelessWidget {
                           Expanded(
                             child: TextFormField(
                               controller: edit,
-                              keyboardType: const TextInputType
-                                  .numberWithOptions(decimal: true),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true),
                               autofocus: true,
                               decoration: InputDecoration(
                                 isDense: true,
@@ -1118,8 +1117,7 @@ class _PhotoStripState extends State<_PhotoStrip> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.camera_alt_rounded,
-                    color: cs.primary, size: 22),
+                Icon(Icons.camera_alt_rounded, color: cs.primary, size: 22),
                 const SizedBox(width: 8),
                 Text(
                   'Добавить фото',

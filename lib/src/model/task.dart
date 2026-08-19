@@ -18,9 +18,11 @@ class Task {
   final EquipmentFault? equipmentFault;
   final List<String> photos;
 
-  /// Настройка расхода ЗИП по этой задаче. `null` — расход не настроен, и
-  /// раздел фактического расхода при закрытии задачи показывать нельзя:
-  /// сервер такой `PATCH` отклонит.
+  /// Плановый и фактический расход ЗИП по этой задаче. `null` — задачи нет
+  /// вовсе (осмотр заведён по заявке), и раздел расхода показывать негде.
+  ///
+  /// У периодической задачи блок есть всегда, даже когда норму в админке не
+  /// выбирали, — см. [SparePartUsage].
   final SparePartUsage? sparePartUsage;
 
   Task({
@@ -87,9 +89,7 @@ class Task {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is Task &&
-          runtimeType == other.runtimeType &&
-          uuid == other.uuid;
+      other is Task && runtimeType == other.runtimeType && uuid == other.uuid;
 
   @override
   int get hashCode => uuid.hashCode;

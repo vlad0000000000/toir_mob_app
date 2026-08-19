@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qr_scan_industry/src/exceptions/app_exceptions.dart';
 import 'package:qr_scan_industry/src/qr/scan_error_messages.dart';
+import 'package:qr_scan_industry/strings.dart';
 
 /// Классификация отказов очереди осмотров.
 ///
@@ -78,13 +79,31 @@ void main() {
       );
     });
 
-    test('нехватка ЗИП — текст сервера', () {
+    test('нехватка ЗИП — своя формулировка, а не текст сервера', () {
+      // Сервер отдаёт `detail` по-английски и локализацию оставляет клиенту,
+      // поэтому текст берётся из строк приложения, а не из исключения.
       expect(
         scanErrorMessage(
-          InsufficientStockException('Недостаточно ЗИП на складе', const []),
+          InsufficientStockException(
+              'Insufficient spare parts in warehouses', const []),
         ),
-        'Недостаточно ЗИП на складе',
+        ScanQueueStrings.errorInsufficientStock,
       );
+    });
+
+    test('английская причина из старой очереди переводится при показе', () {
+      expect(
+        scanStoredReason('Insufficient spare parts in warehouses'),
+        ScanQueueStrings.errorInsufficientStock,
+      );
+    });
+
+    test('непереведённое английское в очереди заменяется общей фразой', () {
+      expect(scanStoredReason('Something odd'), 'Сервер не принял осмотр');
+    });
+
+    test('русская причина из очереди отдаётся как есть', () {
+      expect(scanStoredReason('Задача не найдена'), 'Задача не найдена');
     });
   });
 

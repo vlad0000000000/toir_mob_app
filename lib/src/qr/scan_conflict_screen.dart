@@ -10,7 +10,9 @@ import '../design/app_constants.dart';
 import '../design/app_theme.dart';
 import '../exceptions/app_exceptions.dart';
 import '../model/scan.dart';
+import '../repairs/repair_delete_dialog.dart';
 import '../widgets/spare_part_consumption.dart';
+import 'scan_error_messages.dart';
 
 /// Экран разрешения конфликта при отправке осмотра.
 ///
@@ -37,9 +39,18 @@ class ScanConflictScreen extends StatefulWidget {
 class _ScanConflictScreenState extends State<ScanConflictScreen> {
   bool _isBusy = false;
 
-  Scan get _scan => widget.scan;
+  /// Осмотр перечитываем из очереди, а не держим переданный объект.
+  ///
+  /// После повтора отправки сервер мог отказать заново и с другой причиной —
+  /// с копией из аргумента экран показывал бы прежнюю. Если записи в боксе
+  /// уже нет (уехала), откатываемся на переданную: экран в этот момент как
+  /// раз закрывается, и рисовать пустоту не нужно.
+  Scan get _scan =>
+      GlobalState.dataProvider.scanBox.get(widget.scan.key()) ?? widget.scan;
 
-  String get _reason => _scan.lastError ?? ScanQueueStrings.errorGeneric;
+  /// Причину прогоняем через словарь переводов: в очереди могла остаться
+  /// английская строка сервера, записанная прежней версией приложения.
+  String get _reason => scanStoredReason(_scan.lastError);
 
   /// Отказ именно из-за остатков — тогда показываем, чего и сколько не хватает.
   ///
@@ -48,7 +59,7 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
   /// бэкенд начал отдавать `shortages`.
   bool get _isStockShortage =>
       (_scan.lastShortages ?? '').isNotEmpty ||
-      _reason.contains('Недостаточно ЗИП на складе');
+      _reason == ScanQueueStrings.errorInsufficientStock;
 
   String _equipmentName() {
     final uuid = _scan.equipmentUuid;
@@ -193,31 +204,31 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
   Future<void> _retry() async {
     if (_isBusy) return;
     setState(() => _isBusy = true);
-    await GlobalState.dataProvider.retryRejectedScan(_scan.key());
+    await GlobalState.dataProvider.retryRejectedScan(widget.scan.key());
     if (!mounted) return;
-    _close();
+    // Экран закрываем только когда разбирать больше нечего: осмотр уехал либо
+    // ждёт связи в очереди. Если сервер отказал снова — остаёмся здесь и
+    // показываем свежую причину. Раньше экран закрывался всегда, и повторный
+    // отказ обходчик находил заново в списке, уже без связи с нажатием.
+    final left = GlobalState.dataProvider.scanBox.get(widget.scan.key());
+    if (left == null || !left.isRejected) {
+      _close();
+      return;
+    }
+    setState(() => _isBusy = false);
   }
 
   Future<void> _delete() async {
     if (_isBusy) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text(ScanConflictStrings.deleteTitle),
-        content: const Text(ScanConflictStrings.deleteBody),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text(RepairStrings.cancel),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text(RepairStrings.delete),
-          ),
-        ],
-      ),
+    // Тот же диалог, что у черновика ремонта: значок в красном квадрате,
+    // заголовок, что пропадёт, плашка с необратимостью и две кнопки.
+    final confirmed = await confirmRepairDelete(
+      context,
+      title: ScanConflictStrings.deleteTitle,
+      body: ScanConflictStrings.deleteBody,
+      note: RepairStrings.deleteIrreversible,
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
     setState(() => _isBusy = true);
     await GlobalState.dataProvider.deleteRejectedScan(_scan.key());
     if (!mounted) return;
@@ -248,6 +259,9 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
         children: [
           _Label(ScanConflictStrings.reasonLabel),
           const SizedBox(height: AppConstants.spacingSM),
+          // Без значка и по центру — как все полосы-пояснения в приложении:
+          // значок повторял бы подпись «ПРИЧИНА ОТКАЗА», стоящую прямо над
+          // ним, а прижатый влево текст оставлял справа пустое поле.
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(AppConstants.spacingMD),
@@ -255,18 +269,10 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
               color: cs.error.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(AppConstants.radiusMD),
             ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.error_outline_rounded, size: 18, color: cs.error),
-                const SizedBox(width: AppConstants.spacingSM),
-                Expanded(
-                  child: Text(
-                    _reason,
-                    style: tt.bodyMedium?.copyWith(color: cs.error),
-                  ),
-                ),
-              ],
+            child: Text(
+              _reason,
+              textAlign: TextAlign.center,
+              style: tt.bodyMedium?.copyWith(color: cs.error),
             ),
           ),
 
@@ -298,28 +304,43 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
                     ScanConflictStrings.askAdminBody,
                     style: tt.bodySmall?.copyWith(color: cs.warning),
                   ),
-                  const SizedBox(height: AppConstants.spacingSM),
+                  // Список отделён от обращения к администратору: выше —
+                  // что делать, ниже — что именно просить. Слитно они
+                  // читались как один абзац, и позиции терялись.
+                  const SizedBox(height: AppConstants.spacingMD),
+                  Divider(
+                    height: 1,
+                    color: cs.warning.withValues(alpha: 0.4),
+                  ),
+                  const SizedBox(height: AppConstants.spacingMD),
+                  Text(
+                    ScanConflictStrings.shortageListLabel,
+                    style: tt.bodySmall?.copyWith(color: cs.warning),
+                  ),
+                  const SizedBox(height: AppConstants.spacingXS),
                   for (final item in shortages)
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 2),
+                      padding:
+                          const EdgeInsets.only(bottom: AppConstants.spacingXS),
                       child: Text(
                         ScanConflictStrings.needShortage(
                           item.$1,
                           _withUnit(item.$2, item.$4),
                           _withUnit(item.$3, item.$4),
                         ),
-                        style: tt.bodyMedium?.copyWith(
-                          color: cs.onSurface,
-                          fontWeight: FontWeight.w600,
-                        ),
+                        style: tt.bodyMedium?.copyWith(color: cs.onSurface),
                       ),
                     ),
                   const SizedBox(height: AppConstants.spacingSM),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
+                  // Кнопка та же, что на карточке черновика: во всю ширину,
+                  // обводкой, значок чёрным.
+                  SizedBox(
+                    width: double.infinity,
+                    height: AppConstants.buttonHeight,
+                    child: OutlinedButton.icon(
                       onPressed: () => _copy(_shortageText(shortages)),
-                      icon: const Icon(Icons.copy_rounded, size: 20),
+                      icon: Icon(Icons.copy_rounded,
+                          size: 20, color: cs.onSurface),
                       label: const Text(ScanConflictStrings.copy),
                     ),
                   ),
@@ -348,33 +369,36 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Подписи полей — теми же прописными, что секции карточки
+                // ремонта: блок читается как её слепок, а не как отдельный
+                // стиль внутри одного приложения.
                 Text(_equipmentName(), style: tt.titleMedium),
-                const SizedBox(height: AppConstants.spacingSM),
-                Text(
-                  ScanConflictStrings.commentLabel,
-                  style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                ),
+                const SizedBox(height: AppConstants.spacingMD),
+                _Label(ScanConflictStrings.commentLabel),
+                const SizedBox(height: AppConstants.spacingXS),
                 Text(
                   (_scan.comment ?? '').trim().isEmpty
                       ? ScanConflictStrings.noComment
                       : _scan.comment!.trim(),
                   style: tt.bodyMedium,
                 ),
-                const SizedBox(height: AppConstants.spacingSM),
-                Text(
-                  ScanConflictStrings.consumptionLabel,
-                  style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                ),
+                const SizedBox(height: AppConstants.spacingMD),
+                _Label(ScanConflictStrings.consumptionLabel),
+                const SizedBox(height: AppConstants.spacingXS),
                 if (consumptions.isEmpty)
                   Text(ScanConflictStrings.noConsumption, style: tt.bodyMedium)
                 else
                   for (final line in consumptions)
-                    Text(
-                      ScanConflictStrings.position(
-                        line.sparePartName,
-                        _withUnit(line.quantity, line.unitName ?? ''),
+                    Padding(
+                      padding:
+                          const EdgeInsets.only(bottom: AppConstants.spacingXS),
+                      child: Text(
+                        ScanConflictStrings.position(
+                          line.sparePartName,
+                          _withUnit(line.quantity, line.unitName ?? ''),
+                        ),
+                        style: tt.bodyMedium,
                       ),
-                      style: tt.bodyMedium,
                     ),
               ],
             ),
@@ -406,16 +430,20 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
                 ),
               ),
               const SizedBox(height: AppConstants.spacingSM),
+              // Заливкой, а не текстом: удаление необратимо, и рядом с
+              // зелёной «Повторить отправку» бледная надпись читалась как
+              // второстепенная ссылка, а не как опасное действие.
               SizedBox(
                 height: AppConstants.buttonHeight,
                 width: double.infinity,
-                child: TextButton.icon(
-                  onPressed: _isBusy ? null : _delete,
-                  icon: Icon(Icons.delete_outline_rounded, color: cs.error),
-                  label: Text(
-                    ScanConflictStrings.delete,
-                    style: tt.labelLarge?.copyWith(color: cs.error),
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: cs.error,
+                    foregroundColor: cs.onError,
                   ),
+                  onPressed: _isBusy ? null : _delete,
+                  icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                  label: const Text(ScanConflictStrings.delete),
                 ),
               ),
             ],

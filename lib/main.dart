@@ -67,6 +67,30 @@ import 'src/http/api.dart';
 import 'src/model/session.dart';
 import 'src/model/user.dart';
 
+/// Открывает бокс-кэш, а если он не читается — пересоздаёт.
+///
+/// `Hive.openBox` разбирает **все** записи сразу, и одна нечитаемая роняет
+/// открытие целиком. Здесь это не просто ошибка: `main()` на этом `await`
+/// никогда не завершится, приложение навсегда останется на заставке, и
+/// починить это можно только переустановкой — то есть потеряв заодно
+/// неотправленные осмотры. Так и вышло, когда в адаптер вложенного
+/// `PeriodicTask` дописали поле.
+///
+/// Годится **только** для боксов, содержимое которых целиком приходит с
+/// сервера: потерять их не страшно, следующая синхронизация нальёт заново.
+/// Очереди отправки (`scans`, `pending_*`, `repairs` в работе) и данные входа
+/// открываются как раньше — молча стереть неотправленное нельзя, такой сбой
+/// обязан быть заметным.
+Future<Box<T>> _openCacheBox<T>(String name) async {
+  try {
+    return await Hive.openBox<T>(name);
+  } catch (error) {
+    debugPrint('[Hive] бокс "$name" не читается ($error) — пересоздаём');
+    await Hive.deleteBoxFromDisk(name);
+    return await Hive.openBox<T>(name);
+  }
+}
+
 Future<void> main() async {
   if (kReleaseMode) {
     // Don't log anything below warnings in production.
@@ -149,28 +173,30 @@ Future<void> main() async {
   var dataProvider = DataProvider(
       api: API(),
       userBox: await Hive.openBox<User>('users'),
-      inventoryBox: await Hive.openBox<InventoryRecord>('inventory'),
+      inventoryBox: await _openCacheBox<InventoryRecord>('inventory'),
       scanBox: await Hive.openBox<Scan>('scans'),
       scanUsageBox: await Hive.openBox<UsageUpdate>('usage_scans'),
       scanPendingBox: await Hive.openBox<Scan>('pending_scans'),
       scanUsagePendingBox:
           await Hive.openBox<UsageUpdate>('pending_usage_scans'),
       sessionBox: await Hive.openBox<Session>('sessions'),
-      usageUnitBox: await Hive.openBox<UsageUnit>('usage_units'),
-      typicalProblemBox: await Hive.openBox<TypicalProblem>('typical_problems'),
+      usageUnitBox: await _openCacheBox<UsageUnit>('usage_units'),
+      typicalProblemBox:
+          await _openCacheBox<TypicalProblem>('typical_problems'),
       stringBox: await Hive.openBox<String>('strings'),
       periodicityRuleBox:
-          await Hive.openBox<PeriodicityRule>('periodicity_rules'),
-      taskBox: await Hive.openBox<Task>('tasks'),
-      companyBox: await Hive.openBox<Company>('company'),
-      equipmentStateBox: await Hive.openBox<EquipmentState>('equipment_states'),
-      sparePartBox: await Hive.openBox<SparePart>('spare_parts'),
-      repairBox: await Hive.openBox<Repair>('repairs'),
+          await _openCacheBox<PeriodicityRule>('periodicity_rules'),
+      taskBox: await _openCacheBox<Task>('tasks'),
+      companyBox: await _openCacheBox<Company>('company'),
+      equipmentStateBox:
+          await _openCacheBox<EquipmentState>('equipment_states'),
+      sparePartBox: await _openCacheBox<SparePart>('spare_parts'),
+      repairBox: await _openCacheBox<Repair>('repairs'),
       pendingRepairBox: await Hive.openBox<PendingRepair>('pending_repairs'),
       pendingRepairUpdateBox:
           await Hive.openBox<PendingRepairUpdate>('pending_repair_updates'),
       consumptionNormBox:
-          await Hive.openBox<ConsumptionNorm>('consumption_norms'),
+          await _openCacheBox<ConsumptionNorm>('consumption_norms'),
       periodicTaskBox:
           await Hive.openBox<PeriodicTaskRequest>('periodic_tasks'),
       periodicTaskPendingBox:
