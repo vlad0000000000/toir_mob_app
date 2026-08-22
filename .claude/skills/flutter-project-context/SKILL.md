@@ -184,7 +184,7 @@ lib/
 
 ```bash
 flutter pub get
-flutter analyze     # эталон: ровно 1 warning (include_file_not_found)
+flutter analyze     # эталон: 140 info, ноль warning/error — warning значит регрессию
 flutter run -d <device>
 ```
 

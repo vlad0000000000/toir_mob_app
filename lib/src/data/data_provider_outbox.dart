@@ -43,11 +43,16 @@ extension DataProviderOutbox on DataProvider {
       // сама («Для этого оборудования уже есть ремонт»), а обходчик увидит
       // её в списке и решит — повторить вручную или удалить черновик.
       if (draft.isRejected) continue;
+      // Копится по ходу конвейера: после создания ремонта здесь уже лежит
+      // serverUuid. Объявлен снаружи try, потому что именно этот объект должен
+      // попасть в отказ — иначе черновик «забудет» созданный ремонт, и по
+      // нему соврут сразу трое: текст подтверждения удаления, счётчик активных
+      // ремонтов и удержание свежего ремонта в кэше при фоновой синхронизации.
+      var current = draft;
       try {
         // Ремонт создаём только если его ещё нет: на повторном проходе
         // (например, когда доехал ремонт, но не доехали снимки) черновик уже
         // помнит серверный uuid.
-        var current = draft;
         if (current.serverUuid == null) {
           final repair = await api.createRepair(
             equipmentUuid: current.equipmentUuid,
@@ -115,13 +120,13 @@ extension DataProviderOutbox on DataProvider {
         // значения, которое всё равно окажется пустым.
         final reason = repairErrorMessage(e);
         // Удалён с экрана, пока летел запрос, — пометку ставить некуда.
-        if (!pendingRepairBox.containsKey(draft.localId)) continue;
+        if (!pendingRepairBox.containsKey(current.localId)) continue;
         await pendingRepairBox.put(
-          draft.localId,
-          draft.markRejected(
+          current.localId,
+          current.markRejected(
             reason: reason,
             conflictRepairUuid: isEquipmentBusyMessage(reason)
-                ? await _findBlockingRepair(draft.equipmentUuid)
+                ? await _findBlockingRepair(current.equipmentUuid)
                 : null,
           ),
         );
@@ -262,10 +267,13 @@ extension DataProviderOutbox on DataProvider {
     var sent = 0;
     for (final update in pendingRepairUpdateBox.values.toList()) {
       if (update.isRejected) continue;
+      // Снаружи try по той же причине, что и у черновиков: в отказ должен
+      // попасть объект с уже вычеркнутыми снимками и удалениями, а не
+      // исходный — иначе следующая попытка проделает ту же работу заново.
+      var current = update;
       try {
         // Фотографии — до PATCH, а не после. PATCH может перевести ремонт в
         // «На рассмотрении», и после этого сервер снимки уже не примет.
-        var current = update;
         if (current.hasPhotoWork) {
           final photosLeft =
               await _uploadPhotos(current.repairUuid, current.photoPaths);
@@ -292,7 +300,7 @@ extension DataProviderOutbox on DataProvider {
           submitForReview: current.submitForReview,
         );
         await upsertRepair(repair);
-        await deletePendingRepairUpdate(update.repairUuid);
+        await deletePendingRepairUpdate(current.repairUuid);
         authExpired.value = false;
         sent++;
       } catch (e) {
@@ -307,7 +315,7 @@ extension DataProviderOutbox on DataProvider {
         String? serverStatus;
         var kind = RepairConflictKind.other;
         try {
-          final fresh = await api.getRepair(update.repairUuid);
+          final fresh = await api.getRepair(current.repairUuid);
           serverStatus = fresh.status;
           await upsertRepair(fresh);
           if (fresh.isClosed) {
@@ -335,10 +343,10 @@ extension DataProviderOutbox on DataProvider {
         }
         // Правку могли удалить с экрана, пока запрос был в полёте, —
         // возвращать её в бокс нельзя.
-        if (!pendingRepairUpdateBox.containsKey(update.repairUuid)) continue;
+        if (!pendingRepairUpdateBox.containsKey(current.repairUuid)) continue;
         await pendingRepairUpdateBox.put(
-          update.repairUuid,
-          update.markRejected(
+          current.repairUuid,
+          current.markRejected(
             reason: repairErrorMessage(e),
             serverStatus: serverStatus,
             conflictKind: kind.code,
@@ -460,7 +468,7 @@ extension DataProviderOutbox on DataProvider {
   }
 
   Future<void> _syncScansImpl() async {
-    // Проверяем pending сканы - возвращаем в scanBox те, что прождали 60 секунд
+    // Проверяем pending сканы — возвращаем в scanBox те, что прождали 120 секунд
     final pendingScans = scanPendingBox.values.toList();
     final now = DateTime.now().millisecondsSinceEpoch;
     for (final scan in pendingScans) {
@@ -471,7 +479,7 @@ extension DataProviderOutbox on DataProvider {
         if (timestamp != null) {
           final elapsedSeconds = (now - timestamp) ~/ 1000;
           if (elapsedSeconds >= 120) {
-            // Прошло 60 секунд - возвращаем скан в scanBox для повторной попытки
+            // Прошло 120 секунд — возвращаем скан в scanBox для повторной попытки
             await scanPendingBox.delete(scan.key());
             await stringBox.delete(timestampKey);
             await scanBox.put(scan.key(), scan);
@@ -612,7 +620,7 @@ extension DataProviderOutbox on DataProvider {
   }
 
   Future<void> syncPeriodicTasks() async {
-    // Проверяем pending задачи - возвращаем в periodicTaskBox те, что прождали 60 секунд
+    // Проверяем pending задачи — возвращаем в periodicTaskBox те, что прождали 120 секунд
     final pendingTasks = periodicTaskPendingBox.values.toList();
     final now = DateTime.now().millisecondsSinceEpoch;
     for (final task in pendingTasks) {

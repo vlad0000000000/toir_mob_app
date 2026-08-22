@@ -276,8 +276,11 @@ Push **без FCM**: `flutter_foreground_task` + локальные уведом
 `mobile_scanner` (QR, beta-версия в проде), `image_picker`,
 `flutter_inappwebview` (база знаний), `url_launcher`, `video_player`
 (онбординг), `flutter_svg`, `flutter_markdown`, `awesome_dialog`, `crypto`
-(md5 для ключей очереди — **используется, но отсутствует в `pubspec.yaml`**,
-приходит транзитивно), Shorebird (code push).
+(md5 для ключей очереди), Shorebird (code push).
+
+`crypto` и `http_parser` до августа 2026 импортировались напрямую, но в
+`pubspec.yaml` не значились — приходили транзитивно. Объявлены явно после того,
+как включённый линтер это заметил (`depend_on_referenced_packages`).
 
 **Не используются:** `dio`, `cached_network_image`, `shared_preferences`,
 `connectivity_plus`, `infinite_scroll_pagination`, `flutter_pdfview`,

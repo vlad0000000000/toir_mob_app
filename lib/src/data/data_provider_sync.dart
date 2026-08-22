@@ -117,7 +117,9 @@ extension DataProviderSync on DataProvider {
   /// входе в экран, а не обновление. Освежает его фоновый цикл и жест
   /// «потянуть вниз» в самом разделе ЗИП.
   Future<void> ensureSparePartsLoaded() async {
-    if (spareParts.isNotEmpty) return;
+    // Непустого списка мало: прерванная запись оставляет в боксе половину
+    // каталога, и она выглядит как готовая.
+    if (spareParts.isNotEmpty && !isSparePartsWriteIncomplete) return;
     await syncSpareParts();
   }
 
@@ -133,8 +135,13 @@ extension DataProviderSync on DataProvider {
       spareParts.sort((a, b) => a.name.compareTo(b.name));
       _spareParts = spareParts;
       _rebuildSparePartIndex();
+      // Между clear() и addAll() бокс пуст или неполон. Флаг снаружи этой
+      // пары помечает такое состояние как незавершённое — см.
+      // markSparePartsWriteStarted.
+      await markSparePartsWriteStarted();
       await sparePartBox.clear();
       await sparePartBox.addAll(_spareParts);
+      await markSparePartsWriteFinished();
       await saveSparePartsSyncDate();
       return true;
     } catch (e) {

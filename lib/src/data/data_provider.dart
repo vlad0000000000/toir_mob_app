@@ -521,6 +521,26 @@ class DataProvider {
   /// устройств, обновившихся со старой версии, и больше не пишется.
   static const String _legacySparePartsSyncKey = 'spare_parts_last_sync';
 
+  /// Взводится на время перезаписи каталога ЗИП и снимается после неё.
+  ///
+  /// Каталог пишется как `clear()` + `addAll()`, и на десятках тысяч позиций
+  /// это не мгновенно. Убьют приложение между ними — в боксе останется пусто
+  /// или половина, а выглядеть это будет как готовый каталог: список не пуст,
+  /// дозагрузка не запустится, и офлайн выбрать позицию расхода будет не из
+  /// чего. Флаг переживает перезапуск и говорит, что прочитанному верить
+  /// нельзя.
+  static const String _sparePartsWriteKey = 'spare_parts_write_in_progress';
+
+  /// Прервалась ли последняя запись каталога ЗИП.
+  bool get isSparePartsWriteIncomplete =>
+      stringBox.get(_sparePartsWriteKey) == '1';
+
+  Future<void> markSparePartsWriteStarted() =>
+      stringBox.put(_sparePartsWriteKey, '1');
+
+  Future<void> markSparePartsWriteFinished() =>
+      stringBox.delete(_sparePartsWriteKey);
+
   saveSparePartsSyncDate() async {
     await stringBox.put(
       _sparePartsSyncKey,

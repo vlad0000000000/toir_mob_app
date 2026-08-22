@@ -45,16 +45,24 @@ These break user data or the build if ignored. Full detail lives in the skill.
 
 ```bash
 flutter pub get
-flutter analyze     # baseline: exactly 1 warning; a 2nd is your regression
-flutter test        # baseline: green, 22 tests
+flutter analyze     # baseline: 140 infos, zero warnings/errors; any warning is your regression
+flutter test        # baseline: green, 63 tests
 flutter run -d <device>
 ```
 
-`flutter test` is green and must stay green. Three suites so far:
-`test/feature_flags_test.dart` (PPR feature flag),
-`test/scan_error_messages_test.dart` (how the inspection outbox classifies a
-failure — retry, reject, or treat as already delivered) and
-`test/repair_clipboard_test.dart` (the shared repair-to-clipboard format used by
-both the draft card and the conflict screen). The old empty commented-out
-`widget_test.dart` template was removed; it had no `main()` and made the whole
-run fail.
+`flutter test` is green and must stay green — 8 suites under `test/`, covering
+the PPR feature flag, how the inspection and repair outboxes classify a failure
+(retry, reject, or treat as already delivered), the repair-to-clipboard format,
+the server-unreachable window, the two repair-queue models, and `SparePartUsage`.
+The old empty commented-out `widget_test.dart` template was removed; it had no
+`main()` and made the whole run fail.
+
+Note what these tests do **not** cover: they exercise models and pure helpers,
+not the two outbox loops in `data_provider_outbox.dart`. That gap is why the
+`serverUuid`-losing bug survived — `markRejected` itself was always correct;
+the loop handed it the wrong object.
+
+The analyzer only started applying rules in August 2026 — `analysis_options.yaml`
+had included a package that was never a dependency, so nothing but the built-in
+checks ran. The 140 remaining findings are all `info` and pre-date that fix;
+working through them is separate from keeping the baseline free of warnings.
