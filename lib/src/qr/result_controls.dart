@@ -230,6 +230,8 @@ class _ResultControlsState extends State<ResultControls> {
     final problem = widget.problemController.value;
     final priority = widget.priorityController.value;
     final showPriority = problem == TypicalProblem.other;
+    final allowMultiSelect = widget.equipmentDetailController.allowMultiSelect;
+    final fieldsLocked = allowMultiSelect && selectedTasks.length >= 2;
 
     String taskValue;
     Color? taskAccent;
@@ -319,46 +321,52 @@ class _ResultControlsState extends State<ResultControls> {
             ),
           ],
 
-          // ── Комментарий ──────────────────────────────────────
-          const SizedBox(height: AppConstants.spacingMD),
-          _SectionLabel('Комментарий'),
-          TextFormField(
-            minLines: 3,
-            maxLines: 6,
-            controller: widget.descController,
-            decoration: InputDecoration(
-              hintText: 'Опишите состояние, наблюдения или дефекты',
-              hintStyle: tt.bodyMedium?.copyWith(
-                color: cs.onSurfaceVariant.withValues(alpha: 0.7),
+          // ── Фото и комментарий недоступны при выборе 2+ задач ──
+          if (fieldsLocked) ...[
+            const SizedBox(height: AppConstants.spacingMD),
+            _LockedFieldsHint(),
+          ] else ...[
+            // ── Комментарий ──────────────────────────────────────
+            const SizedBox(height: AppConstants.spacingMD),
+            _SectionLabel('Комментарий'),
+            TextFormField(
+              minLines: 3,
+              maxLines: 6,
+              controller: widget.descController,
+              decoration: InputDecoration(
+                hintText: 'Опишите состояние, наблюдения или дефекты',
+                hintStyle: tt.bodyMedium?.copyWith(
+                  color: cs.onSurfaceVariant.withValues(alpha: 0.7),
+                ),
+                alignLabelWithHint: true,
+                errorText: widget.highlightDescError
+                    ? 'Укажите комментарий'
+                    : null,
               ),
-              alignLabelWithHint: true,
-              errorText: widget.highlightDescError
-                  ? 'Укажите комментарий'
-                  : null,
             ),
-          ),
 
-          // ── Фото ─────────────────────────────────────────────
-          const SizedBox(height: AppConstants.spacingMD),
-          _SectionLabel(
-            'Фото',
-            trailing: _CountChip(
-              count: [
+            // ── Фото ─────────────────────────────────────────────
+            const SizedBox(height: AppConstants.spacingMD),
+            _SectionLabel(
+              'Фото',
+              trailing: _CountChip(
+                count: [
+                  widget.imageData1Controller,
+                  widget.imageData2Controller,
+                  widget.imageData3Controller,
+                ].where((c) => c.value.isNotEmpty).length,
+                total: 3,
+                label: 'из',
+              ),
+            ),
+            _PhotoStrip(
+              controllers: [
                 widget.imageData1Controller,
                 widget.imageData2Controller,
                 widget.imageData3Controller,
-              ].where((c) => c.value.isNotEmpty).length,
-              total: 3,
-              label: 'из',
+              ],
             ),
-          ),
-          _PhotoStrip(
-            controllers: [
-              widget.imageData1Controller,
-              widget.imageData2Controller,
-              widget.imageData3Controller,
-            ],
-          ),
+          ],
           const SizedBox(height: AppConstants.spacingMD),
         ],
       ),
@@ -395,6 +403,41 @@ class _SectionLabel extends StatelessWidget {
           ),
           if (trailing != null) trailing!,
         ],
+      ),
+    );
+  }
+}
+
+/// Подсказка вместо полей фото/комментария, когда выбрано 2+ задач и у
+/// компании включён множественный выбор задач при сканировании QR.
+class _LockedFieldsHint extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return Material(
+      color: cs.surfaceContainerLow,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppConstants.radiusLG),
+        side: BorderSide(color: cs.outlineVariant, width: 0.5),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(AppConstants.spacingMD),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.info_outline_rounded, size: 20, color: cs.onSurfaceVariant),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Фото и комментарий недоступны при выборе нескольких задач. '
+                'Оставьте только одну задачу, чтобы их заполнить.',
+                style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -7,6 +7,7 @@ class Company {
   final String? currentTariff;
   final DateTime? tariffValidUntil;
   final bool allowRequestsWithoutQr;
+  final bool allowMultipleTasksPerQrScan;
 
   Company({
     required this.id,
@@ -15,6 +16,7 @@ class Company {
     this.currentTariff,
     this.tariffValidUntil,
     required this.allowRequestsWithoutQr,
+    this.allowMultipleTasksPerQrScan = false,
   });
 
   factory Company.fromJson(Map<String, dynamic> json) {
@@ -23,10 +25,12 @@ class Company {
       name: json['name'] as String,
       logoUrl: json['logo_url'] as String?,
       currentTariff: json['current_tariff'] as String?,
-      tariffValidUntil: json['tariff_valid_until'] != null 
+      tariffValidUntil: json['tariff_valid_until'] != null
           ? DateTime.parse(json['tariff_valid_until'] as String)
           : null,
       allowRequestsWithoutQr: json['allow_requests_without_qr'] as bool,
+      allowMultipleTasksPerQrScan:
+          json['allow_multiple_tasks_per_qr_scan'] as bool? ?? false,
     );
   }
 
@@ -38,6 +42,7 @@ class Company {
       'current_tariff': currentTariff,
       'tariff_valid_until': tariffValidUntil?.toIso8601String(),
       'allow_requests_without_qr': allowRequestsWithoutQr,
+      'allow_multiple_tasks_per_qr_scan': allowMultipleTasksPerQrScan,
     };
   }
 }
@@ -55,6 +60,9 @@ class CompanyAdapter extends TypeAdapter<Company> {
       currentTariff: reader.read(),
       tariffValidUntil: reader.read(),
       allowRequestsWithoutQr: reader.read(),
+      // Поле добавлено позже — у ранее закэшированных записей его нет.
+      allowMultipleTasksPerQrScan:
+          reader.availableBytes > 0 ? reader.read() as bool : false,
     );
   }
 
@@ -66,5 +74,6 @@ class CompanyAdapter extends TypeAdapter<Company> {
     writer.write(obj.currentTariff);
     writer.write(obj.tariffValidUntil);
     writer.write(obj.allowRequestsWithoutQr);
+    writer.write(obj.allowMultipleTasksPerQrScan);
   }
 }
