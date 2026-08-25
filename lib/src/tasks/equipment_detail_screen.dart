@@ -223,7 +223,6 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       },
     );
 
-    final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     return Column(
       children: [
@@ -240,46 +239,57 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
           ),
         ),
         if (_isSelectionMode && widget.isModal && !_hintHidden)
-          Container(
-            margin: const EdgeInsets.symmetric(
-                horizontal: AppConstants.spacingMD,
-                vertical: AppConstants.spacingSM),
-            padding: const EdgeInsets.symmetric(
-                horizontal: AppConstants.spacingMD,
-                vertical: AppConstants.spacingSM),
-            decoration: BoxDecoration(
-              color: cs.primaryContainer,
-              borderRadius: BorderRadius.circular(AppConstants.radiusMD),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.info_outline_rounded,
-                    size: 18, color: cs.onPrimaryContainer),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Выберите только одну задачу',
-                    style: tt.bodyMedium?.copyWith(
-                      color: cs.onPrimaryContainer,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  icon: const Icon(Icons.clear_rounded),
-                  color: cs.onPrimaryContainer,
-                  // Крестик закрывает саму подсказку: выделение снимается
-                  // повторным тапом по задаче, а «X» на сообщении читается
-                  // как «скрыть сообщение».
-                  onPressed: () => setState(() => _hintHidden = true),
-                  tooltip: 'Скрыть подсказку',
-                ),
-              ],
-            ),
+          _buildSelectionHint(
+            context,
+            _selectionController.allowMultiSelect
+                ? 'Можно выбрать несколько задач. Фото и комментарий будут '
+                    'доступны только при выборе одной задачи.'
+                : 'Выберите только одну задачу',
           ),
         Expanded(child: list),
       ],
+    );
+  }
+
+  Widget _buildSelectionHint(BuildContext context, String hintText) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return Container(
+      margin: const EdgeInsets.symmetric(
+          horizontal: AppConstants.spacingMD,
+          vertical: AppConstants.spacingSM),
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppConstants.spacingMD,
+          vertical: AppConstants.spacingSM),
+      decoration: BoxDecoration(
+        color: cs.primaryContainer,
+        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline_rounded, size: 18, color: cs.onPrimaryContainer),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              hintText,
+              style: tt.bodyMedium?.copyWith(
+                color: cs.onPrimaryContainer,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.clear_rounded),
+            color: cs.onPrimaryContainer,
+            // Крестик закрывает саму подсказку: выделение снимается
+            // повторным тапом по задаче, а «X» на сообщении читается
+            // как «скрыть сообщение».
+            onPressed: () => setState(() => _hintHidden = true),
+            tooltip: 'Скрыть подсказку',
+          ),
+        ],
+      ),
     );
   }
 

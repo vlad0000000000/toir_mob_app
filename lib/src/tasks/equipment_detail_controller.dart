@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import '../../global_state.dart';
 import '../../src/model/task.dart';
 
-// Контроллер для управления выбором задач (single-select под multi-select API).
+// Контроллер для управления выбором задач. По умолчанию — single-select
+// (radio) под multi-select API. Если у компании включена настройка
+// allow_multiple_tasks_per_qr_scan, разрешается выбирать несколько задач.
 class EquipmentDetailController {
   final ValueNotifier<List<Task>> _valueNotifier = ValueNotifier([]);
 
@@ -22,9 +25,16 @@ class EquipmentDetailController {
 
   EquipmentDetailController({this.onSelectionChanged});
 
+  /// Разрешён ли выбор нескольких задач одновременно — управляется
+  /// настройкой компании `allow_multiple_tasks_per_qr_scan`.
+  bool get allowMultiSelect =>
+      GlobalState.dataProvider.company?.allowMultipleTasksPerQrScan ?? false;
+
   void toggleTaskSelection(Task task) {
     if (selectedTasks.contains(task)) {
-      selectedTasks.clear();
+      selectedTasks.remove(task);
+    } else if (allowMultiSelect) {
+      selectedTasks.add(task);
     } else {
       selectedTasks
         ..clear()

@@ -410,13 +410,22 @@ class _QRResultScreenState extends State<QRResultScreen> {
     final consumptionsPayload =
         consumptionTask == null ? null : _consumptionsPayload();
 
-    var images = [
-      imageData1Controller.value,
-      imageData2Controller.value,
-      imageData3Controller.value,
-    ].where((v) {
-      return v.length > 0;
-    }).toList();
+    // Если у компании включён множественный выбор задач и выбрано 2+ —
+    // поля фото и комментария в UI заблокированы, поэтому не отправляем их
+    // значения вместе с задачами, даже если они остались в контроллерах.
+    final tasksLocked = equipmentController.allowMultiSelect &&
+        equipmentController.value.length >= 2;
+
+    var images = tasksLocked
+        ? <String>[]
+        : [
+            imageData1Controller.value,
+            imageData2Controller.value,
+            imageData3Controller.value,
+          ].where((v) {
+            return v.length > 0;
+          }).toList();
+    var taskComment = tasksLocked ? '' : descController.text;
 
     var faultUUID =
         problemController.value != null && problemController.value!.id != 0
@@ -441,7 +450,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
             taskUuid: task.uuid,
             resultStatus: 'closed',
             files: images,
-            comment: descController.text,
+            comment: taskComment,
             priority: '',
             equipmentUuid: widget.machine.uuid,
             faultUuid: '',
@@ -457,7 +466,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
             taskUuid: task.uuid,
             resultStatus: 'closed',
             files: images,
-            comment: descController.text,
+            comment: taskComment,
             priority: '',
             equipmentUuid: widget.machine.uuid,
             faultUuid: '',
