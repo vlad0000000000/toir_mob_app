@@ -127,29 +127,118 @@ extension DataProviderSync on DataProvider {
     _isLoading = true;
 
     try {
-      final spareParts = await loadAllSpareParts();
-      // Сортируем один раз здесь, а не на каждый ввод символа в поиске:
-      // на каталоге в десятки тысяч позиций сортировка в build была бы
-      // самой дорогой операцией экрана. Порядок переживает перезапуск —
-      // Hive отдаёт значения в порядке добавления.
-      spareParts.sort((a, b) => a.name.compareTo(b.name));
-      _spareParts = spareParts;
-      _rebuildSparePartIndex();
-      // Между clear() и addAll() бокс пуст или неполон. Флаг снаружи этой
-      // пары помечает такое состояние как незавершённое — см.
-      // markSparePartsWriteStarted.
-      await markSparePartsWriteStarted();
-      await sparePartBox.clear();
-      await sparePartBox.addAll(_spareParts);
-      await markSparePartsWriteFinished();
-      await saveSparePartsSyncDate();
-      return true;
+      // Инкрементально — только когда есть от чего отсчитывать и каталог в
+      // хранилище цел. Иначе полный проход: он же и переводит бокс на ключи
+      // по uuid, без которых точечное обновление невозможно.
+      final cursor = getSparePartsCursor();
+      if (cursor != null &&
+          sparePartBox.isNotEmpty &&
+          !isSparePartsWriteIncomplete) {
+        return await _syncSparePartsIncremental(cursor);
+      }
+      return await _syncSparePartsFull();
     } catch (e) {
       print('Failed sync spare parts: $e');
       return false;
     } finally {
       _isLoading = false;
     }
+  }
+
+  /// Полная выгрузка каталога. Нужна на первом запуске, после сброса и когда
+  /// прошлая запись оборвалась на середине.
+  ///
+  /// Ключ в боксе — uuid позиции: только так потом можно обновить и удалить
+  /// точечно. Прежде ключи были автоинкрементными, поэтому первый проход
+  /// после обновления приложения обязательно полный — он и перекладывает
+  /// каталог на новые ключи.
+  Future<bool> _syncSparePartsFull() async {
+    // Запрашиваем окно «с начала времён», а не просто список: так тем же
+    // запросом приходит серверная граница `sync_until`, от которой потом
+    // считается инкрементальный проход. Без неё каталог качался бы целиком
+    // всегда — отметку было бы неоткуда взять.
+    //
+    // Если сервер инкрементальный режим не понимает, он отдаст обычный
+    // список, границы не будет, и клиент останется на полных проходах.
+    final since = DateTime.utc(1970);
+    final first =
+        await api.getSparePartsPage(limit: 100, offset: 0, updatedSince: since);
+    final all = <SparePart>[...first.items];
+    if (first.items.length == 100) {
+      for (var offset = 100;; offset += 100) {
+        final page = await api.getSparePartsPage(
+          limit: 100,
+          offset: offset,
+          updatedSince: since,
+          syncUntil: first.syncUntil,
+        );
+        all.addAll(page.items);
+        if (page.items.length < 100) break;
+        if (_pagingLimitReached(offset)) break;
+      }
+    }
+    all.sort((a, b) => a.name.compareTo(b.name));
+    _spareParts = all;
+    _rebuildSparePartIndex();
+    // Между clear() и putAll() бокс пуст или неполон. Флаг снаружи этой пары
+    // помечает такое состояние как незавершённое — см.
+    // markSparePartsWriteStarted.
+    await markSparePartsWriteStarted();
+    await sparePartBox.clear();
+    await sparePartBox.putAll({for (final part in all) part.uuid: part});
+    await markSparePartsWriteFinished();
+    await _saveSparePartsCursor(first.syncUntil);
+    await saveSparePartsSyncDate();
+    return true;
+  }
+
+  /// Догружает только изменившееся с момента [cursor].
+  ///
+  /// Ради этого и затевалось: каталог рассчитан на десятки тысяч позиций, а
+  /// полная перезапись шла на каждый проход — и раз в минуту фоновым циклом.
+  /// Здесь запросов ровно столько, сколько страниц изменений, и почти всегда
+  /// это одна пустая страница.
+  ///
+  /// Отметку двигаем последней: если проход оборвётся, следующий повторит то
+  /// же окно. Повтор безвреден — записи кладутся по ключу, а удаление уже
+  /// удалённого ничего не делает.
+  Future<bool> _syncSparePartsIncremental(DateTime cursor) async {
+    final changed = <SparePart>[];
+    final deleted = <String>{};
+    DateTime? until;
+
+    for (var offset = 0;; offset += 100) {
+      final page = await api.getSparePartsPage(
+        limit: 100,
+        offset: offset,
+        updatedSince: cursor,
+        syncUntil: until,
+      );
+      // Сервер не понял инкрементальный режим — откатываемся на полный
+      // проход, чтобы не принять «всё подряд» за список изменений.
+      if (page.syncUntil == null) return _syncSparePartsFull();
+      until ??= page.syncUntil;
+      changed.addAll(page.items);
+      deleted.addAll(page.deletedUuids);
+      if (page.items.length < 100) break;
+      if (_pagingLimitReached(offset)) break;
+    }
+
+    if (changed.isNotEmpty) {
+      await sparePartBox.putAll({for (final part in changed) part.uuid: part});
+    }
+    for (final uuid in deleted) {
+      await sparePartBox.delete(uuid);
+    }
+    // Порядок на диске после точечных правок уже не отсортирован — сортируем
+    // список в памяти. На старте приложения это делает конструктор.
+    final all = sparePartBox.values.toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    _spareParts = all;
+    _rebuildSparePartIndex();
+    await _saveSparePartsCursor(until);
+    await saveSparePartsSyncDate();
+    return true;
   }
 
   /// Перекачивает активные ремонты обходчика в офлайн-кэш.

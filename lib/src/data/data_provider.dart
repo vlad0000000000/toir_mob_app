@@ -86,7 +86,12 @@ class DataProvider {
       required this.consumptionNormBox,
       required this.periodicTaskBox,
       required this.periodicTaskPendingBox}) {
-    _spareParts = sparePartBox.values.toList();
+    // Сортируем на старте, а не полагаемся на порядок записи в Hive: после
+    // инкрементального прохода новые позиции лежат в конце бокса, и порядок
+    // на диске отсортированным быть перестал. Один проход по каталогу при
+    // запуске дешевле сортировки в `build` экрана.
+    _spareParts = sparePartBox.values.toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
     _rebuildSparePartIndex();
     _repairs = repairBox.values.toList();
     _refreshActiveRepairsCount();
@@ -540,6 +545,35 @@ class DataProvider {
 
   Future<void> markSparePartsWriteFinished() =>
       stringBox.delete(_sparePartsWriteKey);
+
+  /// Ключ отметки инкрементальной синхронизации ЗИП.
+  ///
+  /// Отдельно от [_sparePartsSyncKey]: та хранит локальное время для подписи
+  /// «Остатки на …», а здесь — `sync_until` **сервера**. Часы телефона с
+  /// сервером расходятся, и подставить местное «сейчас» в окно запроса
+  /// значило бы либо потерять изменения, либо тянуть их повторно.
+  static const String _sparePartsCursorKey = 'spare_parts_cursor';
+
+  /// Момент, до которого каталог ЗИП уже согласован с сервером. `null` — ни
+  /// разу, нужен полный проход.
+  DateTime? getSparePartsCursor() {
+    final raw = stringBox.get(_sparePartsCursorKey);
+    if (raw == null || raw.isEmpty) return null;
+    return DateTime.tryParse(raw);
+  }
+
+  Future<void> _saveSparePartsCursor(DateTime? value) async {
+    if (value == null) {
+      // Сервер границу не назвал — забываем отметку, иначе следующий проход
+      // считал бы окно от устаревшего момента.
+      await stringBox.delete(_sparePartsCursorKey);
+      return;
+    }
+    await stringBox.put(
+      _sparePartsCursorKey,
+      value.toUtc().toIso8601String(),
+    );
+  }
 
   saveSparePartsSyncDate() async {
     await stringBox.put(

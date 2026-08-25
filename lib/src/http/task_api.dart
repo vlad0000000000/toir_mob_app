@@ -58,8 +58,19 @@ extension TaskApi on API {
       throw Exception('Not authenticated');
     }
 
-    final url = Uri.parse(
-        '${API.baseUrl}/v1/company/fault_inspections/?limit=${limit}&skip=${offset}&status=scheduled');
+    // `only_my_roles` — серверный отбор по должности обходчика. Плановые
+    // осмотры назначаются не на человека, а на должность, и без этого
+    // параметра сервер отдавал их все: на стенде 2217 записей, 23 страницы
+    // подряд — и повторялось это на каждый вход в «Задачи», «Сканер», после
+    // каждой отправки осмотра и фоновым циклом раз в минуту. Заодно на
+    // телефон переставали приезжать задачи чужих должностей.
+    final url = Uri.parse('${API.baseUrl}/v1/company/fault_inspections/')
+        .replace(queryParameters: <String, dynamic>{
+      'limit': '$limit',
+      'skip': '$offset',
+      'status': 'scheduled',
+      'only_my_roles': 'true',
+    });
 
     final response = await _client.get(
       url,
