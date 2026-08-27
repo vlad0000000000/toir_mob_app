@@ -695,9 +695,14 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
                     // же порядка — второе после «Добавить позицию». Гаснет,
                     // когда уменьшать нечего, — как и кнопка нормы, когда
                     // добавлять уже нечего.
+                    //
+                    // Своей строкой, а не рядом: подпись длиннее, чем
+                    // «Заполнить из нормы», и в половине ширины переносилась
+                    // на вторую строку внутри кнопки.
                     secondaryAction: ConsumptionSecondaryAction(
                       icon: Icons.south_rounded,
                       label: ScanConflictStrings.reduceToAvailable,
+                      below: true,
                       onPressed:
                           _isBusy || !_canReduce ? null : _reduceToAvailable,
                     ),

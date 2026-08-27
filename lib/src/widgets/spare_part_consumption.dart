@@ -64,10 +64,20 @@ class ConsumptionSecondaryAction {
   final String label;
   final VoidCallback? onPressed;
 
+  /// Поставить кнопку **под** «Добавить позицию», а не справа от неё.
+  ///
+  /// Справа кнопки делят ширину пополам, и длинная подпись переносится на
+  /// вторую строку внутри самой кнопки. «Заполнить из нормы» это переживает —
+  /// подпись короткая и привычная, — а «Уменьшить до остатка» в половине
+  /// ширины разваливается, и читать ряд становится тяжело. Своя строка даёт
+  /// подписи всю ширину: значок и текст остаются в одну линию.
+  final bool below;
+
   const ConsumptionSecondaryAction({
     required this.icon,
     required this.label,
     this.onPressed,
+    this.below = false,
   });
 }
 
@@ -271,50 +281,78 @@ class SparePartConsumptionSection extends StatelessWidget {
           ],
         if (editable) ...[
           const SizedBox(height: AppConstants.spacingSM),
-          // Две кнопки в одну строку, каждая на половине ширины: вторая всегда
-          // стоит справа от «Добавить позицию» и никогда не уезжает под неё.
-          //
-          // Половина ширины вместо «по содержимому» — потому что подписи
-          // длинные, и на узком экране (или при увеличенном системном шрифте)
-          // они в строку по своей ширине не помещаются. Раньше это решал Wrap,
-          // но он переносил вторую кнопку на отдельную строку, ломая пару.
-          // Теперь тесноту разбирает сама кнопка: подпись переносится по
-          // словам внутри неё (см. [_ActionButton]), а место остаётся прежним.
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: _ActionButton(
-                  icon: Icons.add_rounded,
-                  label: RepairCardStrings.addPosition,
-                  onPressed: onAdd,
+          if (secondaryAction?.below == true) ...[
+            // Кнопки друг под другом. Каждой достаётся вся ширина, поэтому
+            // значок и подпись остаются в одну линию — ради этого раскладку и
+            // разводят: «Уменьшить до остатка» в половине ширины переносилась
+            // на вторую строку.
+            //
+            // `Align`, а не растянутая кнопка: заливки у неё нет, растянутая
+            // на всю ширину она превратилась бы в полосу с текстом посередине.
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _ActionButton(
+                icon: Icons.add_rounded,
+                label: RepairCardStrings.addPosition,
+                onPressed: onAdd,
+              ),
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _ActionButton(
+                icon: secondaryAction!.icon,
+                label: secondaryAction!.label,
+                onPressed: secondaryAction!.onPressed,
+              ),
+            ),
+          ] else
+            // Две кнопки в одну строку, каждая на половине ширины: вторая
+            // всегда стоит справа от «Добавить позицию» и никогда не уезжает
+            // под неё.
+            //
+            // Половина ширины вместо «по содержимому» — потому что подписи
+            // длинные, и на узком экране (или при увеличенном системном
+            // шрифте) они в строку по своей ширине не помещаются. Раньше это
+            // решал Wrap, но он переносил вторую кнопку на отдельную строку,
+            // ломая пару. Теперь тесноту разбирает сама кнопка: подпись
+            // переносится по словам внутри неё (см. [_ActionButton]), а место
+            // остаётся прежним.
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _ActionButton(
+                    icon: Icons.add_rounded,
+                    label: RepairCardStrings.addPosition,
+                    onPressed: onAdd,
+                  ),
                 ),
-              ),
-              // Вторая кнопка ряда. Экран мог подставить сюда своё действие;
-              // если нет — это «Заполнить из нормы», и только при наличии
-              // нормы: заполнять нечем, если она не привязана.
-              //
-              // Нет ни того, ни другого — пустая ячейка вместо кнопки:
-              // «Добавить позицию» остаётся на своём месте слева, а не
-              // растягивается на всю ширину.
-              const SizedBox(width: AppConstants.spacingSM),
-              Expanded(
-                child: secondaryAction != null
-                    ? _ActionButton(
-                        icon: secondaryAction!.icon,
-                        label: secondaryAction!.label,
-                        onPressed: secondaryAction!.onPressed,
-                      )
-                    : hasNorm
-                        ? _ActionButton(
-                            icon: Icons.download_rounded,
-                            label: RepairCardStrings.fillFromNorm,
-                            onPressed: canFillFromNorm ? onFillFromNorm : null,
-                          )
-                        : const SizedBox.shrink(),
-              ),
-            ],
-          ),
+                // Вторая кнопка ряда. Экран мог подставить сюда своё действие;
+                // если нет — это «Заполнить из нормы», и только при наличии
+                // нормы: заполнять нечем, если она не привязана.
+                //
+                // Нет ни того, ни другого — пустая ячейка вместо кнопки:
+                // «Добавить позицию» остаётся на своём месте слева, а не
+                // растягивается на всю ширину.
+                const SizedBox(width: AppConstants.spacingSM),
+                Expanded(
+                  child: secondaryAction != null
+                      ? _ActionButton(
+                          icon: secondaryAction!.icon,
+                          label: secondaryAction!.label,
+                          onPressed: secondaryAction!.onPressed,
+                        )
+                      : hasNorm
+                          ? _ActionButton(
+                              icon: Icons.download_rounded,
+                              label: RepairCardStrings.fillFromNorm,
+                              onPressed:
+                                  canFillFromNorm ? onFillFromNorm : null,
+                            )
+                          : const SizedBox.shrink(),
+                ),
+              ],
+            ),
         ],
         if (lines.isNotEmpty) ...[
           const SizedBox(height: AppConstants.spacingSM),
