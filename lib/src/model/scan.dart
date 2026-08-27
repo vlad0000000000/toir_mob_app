@@ -29,6 +29,23 @@ class Scan {
   /// сервер прислал `spare_part_usage`.
   final String? actualConsumptions;
 
+  /// Названия позиций расхода — строкой JSON `{"<uuid>": "Болт 6009-40"}`.
+  ///
+  /// Отдельно от [actualConsumptions] и **на сервер не уходит**: тот формат
+  /// принадлежит запросу, добавлять в него лишние поля нельзя. Это чисто
+  /// клиентская подпись.
+  ///
+  /// Зачем хранить то, что есть в справочнике: экран разрешения конфликта
+  /// открывается и через сутки, и без связи, а позицию к тому моменту могли
+  /// удалить на сервере — тогда инкрементальная синхронизация честно убирает
+  /// её из каталога, и подпись брать неоткуда. Раньше в этом случае
+  /// показывался голый uuid. Причём именно такой отказ («на складе 0») чаще
+  /// всего и означает, что позиции больше нет.
+  ///
+  /// В [key] не входит: ключ обязан оставаться прежним у уже поставленных в
+  /// очередь осмотров — по той же причине, что и [actualConsumptions].
+  final String? consumptionNames;
+
   /// Причина, по которой сервер отказался принять осмотр.
   ///
   /// Отличает «сервер ответил и отказал» от «связи нет»: во втором случае
@@ -88,6 +105,7 @@ class Scan {
       this.createdAt,
       this.closedAt,
       this.actualConsumptions,
+      this.consumptionNames,
       this.lastError,
       this.lastShortages});
 
@@ -154,6 +172,14 @@ class ScanAdapter extends TypeAdapter<Scan> {
     } catch (_) {
       lastShortages = null; // записи до появления серверных данных о нехватке
     }
+    String? consumptionNames;
+    try {
+      consumptionNames = reader.read() as String?;
+    } catch (_) {
+      // Записи до появления названий: подпись возьмётся из справочника, а не
+      // найдётся — останется прежний запасной путь.
+      consumptionNames = null;
+    }
     return Scan(
       files: files,
       periodicTaskUuid: periodicTaskUuid,
@@ -167,6 +193,7 @@ class ScanAdapter extends TypeAdapter<Scan> {
       closedAt: closedAt,
       isOtherFault: isOtherFault,
       actualConsumptions: actualConsumptions,
+      consumptionNames: consumptionNames,
       lastError: lastError,
       lastShortages: lastShortages,
     );
@@ -189,5 +216,6 @@ class ScanAdapter extends TypeAdapter<Scan> {
     writer.write(obj.actualConsumptions);
     writer.write(obj.lastError);
     writer.write(obj.lastShortages);
+    writer.write(obj.consumptionNames);
   }
 }

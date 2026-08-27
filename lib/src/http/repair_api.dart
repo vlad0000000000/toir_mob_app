@@ -1,5 +1,24 @@
 part of 'api.dart';
 
+/// Одна страница списка ремонтов — вместе с удалёнными, если проход
+/// инкрементальный.
+class RepairsPage {
+  final List<Repair> items;
+
+  /// Ремонты, которых на сервере больше нет. Сервер ведёт для них отдельную
+  /// таблицу; без этого списка удалённый ремонт остался бы в кэше навсегда.
+  final List<String> deletedUuids;
+
+  /// Момент, до которого сервер посчитал изменения, — граница следующего окна.
+  final DateTime? syncUntil;
+
+  const RepairsPage({
+    required this.items,
+    this.deletedUuids = const [],
+    this.syncUntil,
+  });
+}
+
 extension RepairApi on API {
   /// Список ремонтов.
   ///
@@ -11,6 +30,31 @@ extension RepairApi on API {
     List<String>? statuses,
     int limit = 100,
     int offset = 0,
+  }) async {
+    final page = await getRepairsPage(
+      statuses: statuses,
+      limit: limit,
+      offset: offset,
+    );
+    return page.items;
+  }
+
+  /// Страница списка ремонтов.
+  ///
+  /// С [updatedSince] сервер отдаёт `{items, deleted, sync_until}` — только
+  /// изменившееся плюс uuid удалённых. Устроено так же, как у каталога ЗИП,
+  /// см. [SparePartApi.getSparePartsPage].
+  ///
+  /// [statuses] в инкрементальном проходе передавать **не нужно**: закрытый
+  /// ремонт должен приехать в `items` со своим новым статусом, чтобы клиент
+  /// убрал его из кэша активных. С фильтром он бы просто не пришёл и остался
+  /// в кэше открытым навсегда.
+  Future<RepairsPage> getRepairsPage({
+    List<String>? statuses,
+    int limit = 100,
+    int offset = 0,
+    DateTime? updatedSince,
+    DateTime? syncUntil,
   }) async {
     _guardOffline();
     if (API.jwtToken == null) {
@@ -24,6 +68,9 @@ extension RepairApi on API {
         'limit': '$limit',
         'skip': '$offset',
         if (statuses != null && statuses.isNotEmpty) 'status': statuses,
+        if (updatedSince != null)
+          'updated_since': updatedSince.toUtc().toIso8601String(),
+        if (syncUntil != null) 'sync_until': syncUntil.toUtc().toIso8601String(),
       },
     );
 
@@ -34,14 +81,34 @@ extension RepairApi on API {
       },
     ).timeout(API._readTimeout);
 
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      const utf8Decoder = Utf8Decoder(allowMalformed: true);
-      final decodedBytes = utf8Decoder.convert(response.bodyBytes);
-      final List<dynamic> data = jsonDecode(decodedBytes);
-      return data.map((json) => Repair.fromJson(json)).toList();
-    } else {
+    if (response.statusCode != 200 && response.statusCode != 201) {
       throw Exception('Failed to load repairs: ${response.statusCode}');
     }
+    const utf8Decoder = Utf8Decoder(allowMalformed: true);
+    final decoded = jsonDecode(utf8Decoder.convert(response.bodyBytes));
+
+    // Форму ответа определяем по самому ответу: сервер, не знающий про
+    // инкрементальный режим, на незнакомый параметр отдаст обычный список.
+    if (decoded is List) {
+      return RepairsPage(
+        items: [for (final json in decoded) Repair.fromJson(json)],
+      );
+    }
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception('Failed to load repairs: unexpected payload');
+    }
+    return RepairsPage(
+      items: [
+        for (final json in (decoded['items'] as List<dynamic>? ?? const []))
+          Repair.fromJson(json),
+      ],
+      deletedUuids: [
+        for (final item in (decoded['deleted'] as List<dynamic>? ?? const []))
+          if (item is Map<String, dynamic> && item['uuid'] is String)
+            item['uuid'] as String,
+      ],
+      syncUntil: DateTime.tryParse(decoded['sync_until']?.toString() ?? ''),
+    );
   }
 
   /// Последние 10 закрытых ремонтов, доступных текущему пользователю.

@@ -15,6 +15,18 @@ class InventoryRecord {
   final List<UsageParameter> usageParameters;
   final String? state;
 
+  /// По оборудованию есть незакрытый ремонт — `open` или `under_review`.
+  ///
+  /// Считает сервер (`has_open_repair` с коммита `48ac528`), и это важно:
+  /// приложение само знает только ремонты **своего** обходчика — их приносит
+  /// `syncMyRepairs`. Если станок занял ремонт другого сотрудника, локально
+  /// об этом узнать неоткуда, и обходчик упирался в отказ сервера уже после
+  /// заполнения формы.
+  ///
+  /// `false` у записей, синхронизированных до появления поля, — тогда
+  /// работает прежняя проверка по кэшу своих ремонтов.
+  final bool hasOpenRepair;
+
   String get descriptionText {
     final List<String> parts = [];
     parts.add('**Наименование оборудования**: $name');
@@ -63,6 +75,7 @@ class InventoryRecord {
     this.imageData = '',
     this.usageParameters = const [],
     this.state,
+    this.hasOpenRepair = false,
   });
 
   InventoryRecord copyWith({
@@ -94,6 +107,7 @@ class InventoryRecord {
       imageData: imageData ?? this.imageData,
       usageParameters: usageParameters ?? this.usageParameters,
       state: state ?? this.state,
+      hasOpenRepair: hasOpenRepair ?? this.hasOpenRepair,
     );
   }
 
@@ -145,6 +159,7 @@ class InventoryRecord {
                   .toList() ??
               const [],
           state: json['state'] as String?,
+          hasOpenRepair: json['has_open_repair'] as bool? ?? false,
         ),
       _ => throw const FormatException('Failed to load InventoryRecord.'),
     };
@@ -171,7 +186,19 @@ class InventoryAdapter extends TypeAdapter<InventoryRecord> {
       imageData: reader.read(),
       usageParameters: reader.read().cast<UsageParameter>(),
       state: reader.read(),
+      // Новое поле — строго в конец и под try/catch: записи, сохранённые до
+      // его появления, его не содержат.
+      hasOpenRepair: _readTrailingBool(reader),
     );
+  }
+
+  /// Читает необязательное поле в хвосте записи. `false`, если его там нет.
+  static bool _readTrailingBool(BinaryReader reader) {
+    try {
+      return reader.read() as bool? ?? false;
+    } catch (_) {
+      return false;
+    }
   }
 
   @override
@@ -189,6 +216,7 @@ class InventoryAdapter extends TypeAdapter<InventoryRecord> {
     writer.write(obj.imageData);
     writer.write(obj.usageParameters);
     writer.write(obj.state);
+    writer.write(obj.hasOpenRepair);
   }
 }
 

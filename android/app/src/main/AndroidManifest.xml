@@ -59,6 +59,21 @@
             android:name="flutterEmbedding"
             android:value="2" />
 
+        <!-- Рендерер Skia вместо Impeller.
+
+             На Flutter 3.29 Impeller на Android портит кэш глифов: кириллица
+             в статичных подписях осыпается — часть букв не рисуется вовсе,
+             часть подменяется чужими начертаниями. Ловится это на подсказке
+             поля «Комментарий» после добавления фотографии и отправки
+             осмотра: строка там не меняется, меняется только то, как её
+             растеризуют.
+
+             Снимать флаг можно после перехода на Flutter, где эта ошибка
+             исправлена, — и только проверив тот же сценарий на устройстве. -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
+
         <!-- flutter_foreground_task: hold SSE in background.
              foregroundServiceType=specialUse — у dataSync на Android 15 (API 35)
              лимит 6ч/24ч + краш по onTimeout (плагин его не обрабатывает) +

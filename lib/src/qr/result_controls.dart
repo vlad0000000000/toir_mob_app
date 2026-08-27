@@ -357,14 +357,22 @@ class _ResultControlsState extends State<ResultControls> {
   @override
   Widget build(BuildContext context) {
     // Сохраняем поведение «при наличии задач — сразу показать модалку выбора».
-    if (Settings.qrResultShowTasksFirst && firstPaint) {
-      if (_hasMachineTasks) {
-        scheduler.SchedulerBinding.instance.addPostFrameCallback((_) {
-          firstPaint = false;
-          SelectTaskButton.showModal(
-              context, widget.machine, widget.equipmentDetailController);
-        });
-      }
+    //
+    // Флаг гасим **здесь, в build**, а не внутри колбэка. Раньше проверка шла
+    // в build, а сброс — после кадра, и между ними экран успевал
+    // перестроиться: на нём висят слушатели пяти контроллеров, а сразу после
+    // первого кадра `qr_result_screen` делает `setState`. Каждый такой проход
+    // ставил ещё один пост-кадровый колбэк, и окно выбора задач открывалось
+    // столько раз, сколько было перестроений.
+    if (Settings.qrResultShowTasksFirst && firstPaint && _hasMachineTasks) {
+      firstPaint = false;
+      scheduler.SchedulerBinding.instance.addPostFrameCallback((_) {
+        // Между планированием и кадром экран могли закрыть — например
+        // кнопкой «назад» сразу после скана.
+        if (!mounted) return;
+        SelectTaskButton.showModal(
+            context, widget.machine, widget.equipmentDetailController);
+      });
     }
 
     final cs = Theme.of(context).colorScheme;

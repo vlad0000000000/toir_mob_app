@@ -93,6 +93,7 @@ class DataProvider {
     _spareParts = sparePartBox.values.toList()
       ..sort((a, b) => a.name.compareTo(b.name));
     _rebuildSparePartIndex();
+    _rebuildClosedTaskIndex();
     _repairs = repairBox.values.toList();
     _refreshActiveRepairsCount();
     refreshRejectedScansCount();
@@ -495,7 +496,51 @@ class DataProvider {
 
   bool get isLoading => _isLoading;
 
-  static Map<String, String> closedTasks = {};
+  /// Префикс ключа отметки «задачу закрыл этот обходчик».
+  static const String _closedTaskPrefix = 'closed_task_';
+
+  /// Задачи, по которым осмотр уже отправлен, — индекс в памяти поверх Hive.
+  ///
+  /// Раньше это была статическая карта, и жила она до первого события
+  /// жизненного цикла: `didChangeAppLifecycleState` чистил её безусловно, на
+  /// любое состояние. Хватало заблокировать экран или открыть камеру — и
+  /// закрытая задача снова появлялась в списке, а обходчик выполнял её
+  /// второй раз.
+  ///
+  /// Индекс, а не чтение бокса на каждую задачу: список задач фильтруется в
+  /// цикле по всему ящику, и поход в Hive на каждой итерации был бы дороже
+  /// самой фильтрации.
+  Set<String> _closedTaskUuids = {};
+
+  /// Закрыл ли обходчик эту задачу сам — осмотр отправлен либо ждёт в очереди.
+  bool isTaskClosedLocally(String uuid) => _closedTaskUuids.contains(uuid);
+
+  Future<void> markTaskClosedLocally(String uuid) async {
+    if (uuid.isEmpty || _closedTaskUuids.contains(uuid)) return;
+    _closedTaskUuids = {..._closedTaskUuids, uuid};
+    await stringBox.put('$_closedTaskPrefix$uuid', '1');
+  }
+
+  /// Снимает отметки с задач, которых сервер больше не отдаёт.
+  ///
+  /// Отметка нужна ровно до того момента, как сервер сам перестанет считать
+  /// задачу активной. Дальше она бесполезна и только копилась бы в боксе.
+  Future<void> pruneClosedTasks(Set<String> stillReturned) async {
+    final stale = _closedTaskUuids.difference(stillReturned);
+    if (stale.isEmpty) return;
+    for (final uuid in stale) {
+      await stringBox.delete('$_closedTaskPrefix$uuid');
+    }
+    _closedTaskUuids = _closedTaskUuids.difference(stale);
+  }
+
+  void _rebuildClosedTaskIndex() {
+    _closedTaskUuids = {
+      for (final key in stringBox.keys)
+        if (key is String && key.startsWith(_closedTaskPrefix))
+          key.substring(_closedTaskPrefix.length),
+    };
+  }
 
   saveLastSyncDate() async {
     final dateFormat = DateFormat('dd-MM-yyyy HH:mm:ss');
@@ -545,6 +590,14 @@ class DataProvider {
 
   Future<void> markSparePartsWriteFinished() =>
       stringBox.delete(_sparePartsWriteKey);
+
+  /// Граница последнего согласованного окна для ремонтов.
+  ///
+  /// В памяти, а не в Hive: окно не сообщает о переназначении ремонта другому
+  /// сотруднику — такой ремонт просто уходит из выдачи, не попадая ни в
+  /// `items`, ни в `deleted`. Полный проход на каждом холодном старте
+  /// ограничивает расхождение одним сеансом.
+  DateTime? _repairsCursor;
 
   /// Ключ отметки инкрементальной синхронизации ЗИП.
   ///
@@ -646,8 +699,8 @@ class DataProvider {
           isMaintenance) {
         await stringBox.put('maintenance_task_$taskUuid', '1');
       }
-      closedTasks[taskUuid] = taskUuid;
-      taskBox.delete(taskUuid);
+      await markTaskClosedLocally(taskUuid);
+      await taskBox.delete(taskUuid);
     }
   }
 
@@ -829,8 +882,7 @@ class DataProvider {
   /// Показывать ли задачу текущему пользователю: не закрыта локально,
   /// периодическая — по его роли, назначенная — по ответственному.
   bool _isTaskAvailable(Task task, Map<String, String?> tasksInScans) {
-    if (tasksInScans.containsKey(task.uuid) ||
-        closedTasks.containsKey(task.uuid)) {
+    if (tasksInScans.containsKey(task.uuid) || isTaskClosedLocally(task.uuid)) {
       return false;
     }
     if (GlobalState.authUser == null) {

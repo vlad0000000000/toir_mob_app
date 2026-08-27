@@ -108,14 +108,14 @@ extension DataProviderSync on DataProvider {
 
   /// Подтягивает каталог ЗИП, если его ещё нет.
   ///
-  /// Вызывают экраны, которым каталог нужен: раздел ЗИП, список ремонтов и
-  /// карточка ремонта (подбор позиций и остатки в расходе). В [mainSync]
-  /// каталога больше нет, поэтому у обходчика, который ни разу не заходил в
-  /// эти экраны, он пуст — и подобрать позицию в расходе было бы не из чего.
+  /// Вызывают экраны, которым каталог нужен прямо сейчас: раздел ЗИП, список
+  /// ремонтов и карточка ремонта (подбор позиций и остатки в расходе). Нужно
+  /// это ровно для первого захода — [mainSync] мог ещё не отработать, и
+  /// подобрать позицию в расходе было бы не из чего.
   ///
-  /// Ничего не ждёт, если каталог уже загружен: это дешёвая проверка на
-  /// входе в экран, а не обновление. Освежает его фоновый цикл и жест
-  /// «потянуть вниз» в самом разделе ЗИП.
+  /// Ничего не ждёт, если каталог уже загружен: это проверка на входе в
+  /// экран, а не обновление. Освежает каталог [mainSync] — он же и держит
+  /// остатки свежими, — а также жест «потянуть вниз» в разделе ЗИП.
   Future<void> ensureSparePartsLoaded() async {
     // Непустого списка мало: прерванная запись оставляет в боксе половину
     // каталога, и она выглядит как готовая.
@@ -252,11 +252,29 @@ extension DataProviderSync on DataProvider {
   /// Ремонты, только что созданные очередью, из кэша не выбрасываем, даже
   /// если их нет в ответе: список мог быть запрошен до их появления. Такой
   /// ремонт помнит свой черновик — по `serverUuid`.
+  /// Перекачивает активные ремонты обходчика в офлайн-кэш.
+  ///
+  /// Инкрементально, если в этом запуске уже был полный проход. Курсор живёт
+  /// **в памяти**, а не в Hive, и это осознанно: окно сообщает об изменениях
+  /// и удалениях, но не о том, что ремонт передали другому сотруднику — тогда
+  /// он просто уходит из выдачи, не попадая ни в `items`, ни в `deleted`, и
+  /// завис бы в кэше. Полный проход на каждом холодном старте ограничивает
+  /// такое расхождение одним сеансом. Ремонтов у обходчика единицы, так что
+  /// цена этой страховки — один запрос при запуске.
   Future<void> syncMyRepairs() async {
+    final cursor = _repairsCursor;
+    if (cursor != null && repairBox.isNotEmpty) {
+      return _syncMyRepairsIncremental(cursor);
+    }
+    return _syncMyRepairsFull();
+  }
+
+  Future<void> _syncMyRepairsFull() async {
     _isLoading = true;
 
     try {
-      final fresh = await loadAllActiveRepairs();
+      final (fresh, until) = await _loadActiveRepairsWithCursor();
+      _repairsCursor = until;
       final keep = {for (final repair in fresh) repair.uuid};
       for (final draft in pendingRepairBox.values) {
         final uuid = draft.serverUuid;
@@ -275,6 +293,98 @@ extension DataProviderSync on DataProvider {
       }
       _repairs = repairBox.values.toList();
       _refreshActiveRepairsCount();
+    } catch (e) {
+      print('Failed sync repairs: $e');
+    } finally {
+      _isLoading = false;
+    }
+  }
+
+  /// Активные ремонты постранично — вместе с серверной границей окна.
+  ///
+  /// Окно «с начала времён» вместо простого списка: тем же запросом приходит
+  /// `sync_until`, от которого дальше считается инкрементальный проход. Без
+  /// него отметку было бы неоткуда взять, и каждый проход оставался бы полным.
+  Future<(List<Repair>, DateTime?)> _loadActiveRepairsWithCursor() async {
+    const statuses = [RepairStatuses.open, RepairStatuses.underReview];
+    final since = DateTime.utc(1970);
+    final first = await api.getRepairsPage(
+      statuses: statuses,
+      limit: 100,
+      offset: 0,
+      updatedSince: since,
+    );
+    final all = <Repair>[...first.items];
+    if (first.items.length == 100) {
+      for (var offset = 100;; offset += 100) {
+        final page = await api.getRepairsPage(
+          statuses: statuses,
+          limit: 100,
+          offset: offset,
+          updatedSince: since,
+          syncUntil: first.syncUntil,
+        );
+        all.addAll(page.items);
+        if (page.items.length < 100) break;
+        if (_pagingLimitReached(offset)) break;
+      }
+    }
+    return (all, first.syncUntil);
+  }
+
+  /// Догружает ремонты, изменившиеся с момента [cursor].
+  ///
+  /// **Без фильтра по статусу** — намеренно. Закрытый ремонт должен приехать
+  /// в `items` со своим новым статусом, чтобы уйти из кэша активных; с
+  /// фильтром он бы просто не пришёл и остался в кэше открытым.
+  ///
+  /// Черновики, чей ремонт сервер уже принял, не трогаем: их удерживает та же
+  /// проверка, что и в полном проходе.
+  Future<void> _syncMyRepairsIncremental(DateTime cursor) async {
+    _isLoading = true;
+    try {
+      final changed = <Repair>[];
+      final deleted = <String>{};
+      DateTime? until;
+
+      for (var offset = 0;; offset += 100) {
+        final page = await api.getRepairsPage(
+          limit: 100,
+          offset: offset,
+          updatedSince: cursor,
+          syncUntil: until,
+        );
+        // Сервер не понял режим — откатываемся на полный проход, иначе
+        // приняли бы «все ремонты подряд» за список изменений.
+        if (page.syncUntil == null) {
+          _repairsCursor = null;
+          return _syncMyRepairsFull();
+        }
+        until ??= page.syncUntil;
+        changed.addAll(page.items);
+        deleted.addAll(page.deletedUuids);
+        if (page.items.length < 100) break;
+        if (_pagingLimitReached(offset)) break;
+      }
+
+      for (final repair in changed) {
+        if (repair.isActive) {
+          await repairBox.put(repair.uuid, repair);
+        } else {
+          // Ремонт закрыли: в кэше активных ему больше не место. Закрытые
+          // приложение не кэширует вовсе — их отдаёт отдельный эндпоинт.
+          await repairBox.delete(repair.uuid);
+        }
+      }
+      for (final uuid in deleted) {
+        await repairBox.delete(uuid);
+      }
+
+      _repairs = repairBox.values.toList();
+      _refreshActiveRepairsCount();
+      // Отметку двигаем последней: оборванный проход повторит то же окно, а
+      // повтор безвреден — записи кладутся по ключу.
+      _repairsCursor = until;
     } catch (e) {
       print('Failed sync repairs: $e');
     } finally {
@@ -360,8 +470,27 @@ extension DataProviderSync on DataProvider {
       for (final task in await loadPprInspections(tasksDict.keys.toSet())) {
         tasksDict[task.uuid] = task;
       }
+      // Что сервер вообще отдал в этот раз — считаем до фильтрации: по этому
+      // набору ниже снимаются отработавшие отметки.
+      final returned = tasksDict.keys.toSet();
+      // Закрытые обходчиком в ящик не возвращаем. Иначе полная перезапись
+      // отменяла бы `taskBox.delete` из `addScan`: осмотр в этот момент ещё
+      // лежит в очереди, сервер честно отдаёт задачу как `scheduled`, и она
+      // всплывала обратно в списке. Сам же экран и запускал эту гонку —
+      // `mainSync()` вызывается сразу после отправки.
+      tasksDict.removeWhere((uuid, _) => isTaskClosedLocally(uuid));
       await taskBox.clear();
       await taskBox.putAll(tasksDict);
+      // Отметка нужна ровно до тех пор, пока сервер сам не перестанет считать
+      // задачу активной. Как только он её не вернул — снимаем, иначе отметки
+      // копились бы в боксе без конца.
+      //
+      // Осмотры действующих ППР исключаем: [loadPprInspections] их и не
+      // запрашивает, пока стоит отметка, — значит в `returned` их нет по
+      // нашей же вине. Сняли бы отметку — на следующем проходе осмотр
+      // подгрузился бы по uuid и вернулся в список. Их отметки снимутся
+      // сами, когда осмотр уйдёт из состава актуального ППР.
+      await pruneClosedTasks(returned.union(_pprInspectionUuids));
     } catch (e, stack) {
       print('Error syncing tasks: $e');
       print(stack);
@@ -440,8 +569,7 @@ extension DataProviderSync on DataProvider {
     final Set<String> missing = {};
     for (final ppr in activePprs) {
       for (final uuid in ppr.inspectionUuids) {
-        if (!have.contains(uuid) &&
-            !DataProvider.closedTasks.containsKey(uuid)) {
+        if (!have.contains(uuid) && !isTaskClosedLocally(uuid)) {
           missing.add(uuid);
         }
       }
@@ -508,6 +636,16 @@ extension DataProviderSync on DataProvider {
       syncConsumptionNorms(),
       syncMyRepairs(),
       syncCompany(),
+      // Каталог ЗИП вернулся в общий проход — теперь он инкрементальный.
+      // Исключали его, когда каждый проход перекачивал десятки тысяч позиций
+      // сотнями страниц; сейчас в устоявшемся состоянии это один запрос с
+      // пустым ответом. За это остатки на складе перестали ждать: раньше они
+      // обновлялись раз в десять минут фоновым тиком или вручную в разделе
+      // ЗИП, и в расходе по ремонту обходчик видел вчерашние числа.
+      //
+      // Полным проход бывает только на первом заходе и после оборванной
+      // записи — то есть худший случай остался прежним, но разовым.
+      syncSpareParts(),
     ]);
     // Отметку ставим после всех: она значит «справочники обновлены», а не
     // «начали обновлять».
@@ -571,26 +709,14 @@ extension DataProviderSync on DataProvider {
     });
   }
 
-  /// Как часто фоновый цикл обновляет каталог ЗИП — раз в 10 проходов, то
-  /// есть примерно раз в 10 минут.
-  ///
-  /// Каждую минуту его гонять незачем: это сотни последовательных страниц и
-  /// полная перезапись бокса ради справочника, который меняется куда реже
-  /// задач и осмотров. Совсем не обновлять тоже нельзя — остатки на складе
-  /// должны подтягиваться сами, без похода в раздел ЗИП.
-  static const int _sparePartsSyncEveryTicks = 10;
-
   void startSyncing() {
     Future.sync(() async {
-      var tick = 0;
       while (true) {
         await Future.delayed(Duration(seconds: 60));
         if (await GlobalState.hasConnectionToServer) {
+          // Отдельного редкого прохода по каталогу ЗИП больше нет: он внутри
+          // mainSync и стоит один запрос.
           await mainSync();
-          tick++;
-          if (tick % _sparePartsSyncEveryTicks == 0) {
-            await syncSpareParts();
-          }
         }
       }
     });

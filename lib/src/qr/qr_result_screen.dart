@@ -368,11 +368,79 @@ class _QRResultScreenState extends State<QRResultScreen> {
     return _activeRepairForMachine();
   }
 
+  /// Оборудование занято ремонтом — состояние менять нельзя.
+  ///
+  /// Четыре признака, любого достаточно:
+  /// * `has_open_repair` от сервера — единственный, который видит **чужие**
+  ///   ремонты: `syncMyRepairs` приносит только ремонты этого обходчика;
+  /// * состояние уже «В ремонте»;
+  /// * активный ремонт в кэше — работает без связи, когда серверный признак
+  ///   успел устареть;
+  /// * черновик в очереди — ремонта на сервере ещё нет, но он вот-вот будет.
+  bool get _isLockedByRepair =>
+      widget.machine.hasOpenRepair ||
+      stateController.value == _inRepairState ||
+      _activeRepairForMachine() != null ||
+      GlobalState.dataProvider.pendingRepairs
+          .any((draft) => draft.equipmentUuid == widget.machine.uuid);
+
+  /// Объясняет, почему состояние заблокировано. Молчаливо неактивная пилюля
+  /// вернула бы ровно ту жалобу, с которой всё началось: «нажимаю — ничего
+  /// не происходит».
+  void _explainLockedState() {
+    final active = _activeRepairForMachine();
+    if (active != null) {
+      _showAlreadyInRepair(active);
+      return;
+    }
+    final hasDraft = GlobalState.dataProvider.pendingRepairs
+        .any((draft) => draft.equipmentUuid == widget.machine.uuid);
+    if (hasDraft) {
+      _showDraftAlreadyQueued();
+      return;
+    }
+    // Остался единственный случай: ремонт есть, но чужой — его видит только
+    // сервер, в кэше обходчика таких ремонтов нет. Говорить про черновик
+    // здесь нельзя: черновика не существует.
+    _showBusyByOtherRepair();
+  }
+
+  /// Оборудование занято ремонтом другого сотрудника.
+  void _showBusyByOtherRepair() {
+    final cs = Theme.of(context).colorScheme;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text(RepairStrings.busyByOtherTitle),
+        content: Container(
+          padding: const EdgeInsets.all(AppConstants.spacingMD),
+          decoration: BoxDecoration(
+            color: cs.error.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+          ),
+          child: Text(
+            RepairStrings.busyByOtherBody,
+            style:
+                Theme.of(context).textTheme.bodyMedium?.copyWith(color: cs.error),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text(RepairStrings.understand),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget passport() {
     return _HeroPassport(
       machine: widget.machine,
       stateController: stateController,
       showDetails: !Settings.qrResultShowSimplifiedView,
+      lockedByRepair: _isLockedByRepair,
+      onLockedTap: _explainLockedState,
     );
   }
 
@@ -403,12 +471,30 @@ class _QRResultScreenState extends State<QRResultScreen> {
     ]);
   }
 
+  /// Названия позиций расхода — для показа, а не для сервера.
+  ///
+  /// Кладём их в осмотр вместе с расходом, потому что в самой очереди имён
+  /// нет: `actual_consumptions` — это формат запроса, там только uuid. Если
+  /// позицию удалят на сервере (а отказ «на складе 0» ровно об этом и
+  /// говорит), справочник её потеряет, и подписать расход будет нечем.
+  String? _consumptionNamesPayload() {
+    final lines = (consumptionController.value ?? const <ConsumptionLine>[])
+        .where((line) => line.quantity > 0)
+        .toList();
+    if (lines.isEmpty) return null;
+    return jsonEncode({
+      for (final line in lines) line.sparePartUuid: line.sparePartName,
+    });
+  }
+
   List<Scan>? createScans() {
     List<Scan> result = [];
     // Считаем один раз: расход относится к единственной выбранной задаче.
     final consumptionTask = consumptionTaskOf(equipmentController);
     final consumptionsPayload =
         consumptionTask == null ? null : _consumptionsPayload();
+    final consumptionNames =
+        consumptionTask == null ? null : _consumptionNamesPayload();
 
     // Если у компании включён множественный выбор задач и выбрано 2+ —
     // поля фото и комментария в UI заблокированы, поэтому не отправляем их
@@ -458,6 +544,8 @@ class _QRResultScreenState extends State<QRResultScreen> {
             createdAt: widget.openDateTime,
             actualConsumptions:
                 task.uuid == consumptionTask?.uuid ? consumptionsPayload : null,
+            consumptionNames:
+                task.uuid == consumptionTask?.uuid ? consumptionNames : null,
             periodicTaskUuid: task.periodicTask!.uuid));
         hasTasks = true;
       }
@@ -474,6 +562,8 @@ class _QRResultScreenState extends State<QRResultScreen> {
             createdAt: widget.openDateTime,
             actualConsumptions:
                 task.uuid == consumptionTask?.uuid ? consumptionsPayload : null,
+            consumptionNames:
+                task.uuid == consumptionTask?.uuid ? consumptionNames : null,
             periodicTaskUuid: ''));
         hasTasks = true;
       }
@@ -817,10 +907,18 @@ class _HeroPassport extends StatelessWidget {
   final AnyController<String> stateController;
   final bool showDetails;
 
+  /// Оборудование в ремонте — пилюля состояния заперта.
+  final bool lockedByRepair;
+
+  /// Что делать по нажатию на запертую пилюлю: объяснить причину.
+  final VoidCallback onLockedTap;
+
   const _HeroPassport({
     required this.machine,
     required this.stateController,
     required this.showDetails,
+    required this.lockedByRepair,
+    required this.onLockedTap,
   });
 
   String? _subtitle() {
@@ -922,6 +1020,8 @@ class _HeroPassport extends StatelessWidget {
                       _StateChip(
                         controller: stateController,
                         initialValue: machine.state,
+                        locked: lockedByRepair,
+                        onLockedTap: onLockedTap,
                       ),
                     ],
                   ),
@@ -1004,7 +1104,23 @@ class _StateChip extends StatefulWidget {
   final AnyController<String> controller;
   final String? initialValue;
 
-  const _StateChip({required this.controller, this.initialValue});
+  /// Состояние менять нельзя — оборудование занято ремонтом.
+  ///
+  /// Так же ведёт себя админка: пока ремонт не закрыт, состояние принадлежит
+  /// ему. Раньше список состояний открывался, «В ремонте» было подписано
+  /// «Откроется форма создания ремонта», и нажатие ничего не давало — форма
+  /// не открывалась, потому что ремонт уже есть.
+  final bool locked;
+
+  /// Нажатие на запертую пилюлю — объяснить причину, а не промолчать.
+  final VoidCallback? onLockedTap;
+
+  const _StateChip({
+    required this.controller,
+    this.initialValue,
+    this.locked = false,
+    this.onLockedTap,
+  });
 
   @override
   State<_StateChip> createState() => _StateChipState();
@@ -1126,38 +1242,54 @@ class _StateChipState extends State<_StateChip> with ControllerListenerMixin {
     if (states == null || states.isEmpty) return const SizedBox.shrink();
     final hasValue = _value != null;
     final label = _label(_value);
+    final locked = widget.locked;
+
+    // Запертая пилюля — красная, с замком вместо шеврона и без точки:
+    // точка отмечает выбранное состояние, а выбирать здесь не из чего.
+    final foreground = locked
+        ? cs.error
+        : hasValue
+            ? cs.onPrimaryContainer
+            : cs.onSurfaceVariant;
+
     return Material(
-      color: hasValue ? cs.primaryContainer : cs.surfaceContainerHigh,
+      color: locked
+          ? cs.error.withValues(alpha: 0.12)
+          : hasValue
+              ? cs.primaryContainer
+              : cs.surfaceContainerHigh,
       borderRadius: BorderRadius.circular(20),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: _pick,
+        onTap: locked ? widget.onLockedTap : _pick,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(10, 6, 8, 6),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: hasValue ? cs.primary : cs.onSurfaceVariant,
-                  shape: BoxShape.circle,
+              if (!locked) ...[
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: hasValue ? cs.primary : cs.onSurfaceVariant,
+                    shape: BoxShape.circle,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 6),
+                const SizedBox(width: 6),
+              ],
               Text(
                 label ?? 'Состояние',
                 style: tt.labelMedium?.copyWith(
-                  color: hasValue ? cs.onPrimaryContainer : cs.onSurfaceVariant,
+                  color: foreground,
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(width: 2),
+              const SizedBox(width: 4),
               Icon(
-                Icons.expand_more_rounded,
-                size: 18,
-                color: hasValue ? cs.onPrimaryContainer : cs.onSurfaceVariant,
+                locked ? Icons.lock_outline_rounded : Icons.expand_more_rounded,
+                size: locked ? 15 : 18,
+                color: foreground,
               ),
             ],
           ),

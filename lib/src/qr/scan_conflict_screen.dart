@@ -61,6 +61,33 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
       (_scan.lastShortages ?? '').isNotEmpty ||
       _reason == ScanQueueStrings.errorInsufficientStock;
 
+  /// Названия позиций, сохранённые вместе с осмотром. Разбираем один раз на
+  /// построение экрана: список короткий, а обращений к нему несколько.
+  late final Map<String, String> _names = _parseNames();
+
+  Map<String, String> _parseNames() {
+    final raw = _scan.consumptionNames;
+    if (raw == null || raw.isEmpty) return const {};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return const {};
+      return {
+        for (final entry in decoded.entries)
+          if (entry.key is String && entry.value is String)
+            entry.key as String: entry.value as String,
+      };
+    } catch (_) {
+      // Строку писало само приложение — сюда можно попасть только при
+      // повреждении базы. Экран должен остаться рабочим.
+      return const {};
+    }
+  }
+
+  String? _storedName(String uuid) {
+    final name = _names[uuid];
+    return (name == null || name.isEmpty) ? null : name;
+  }
+
   String _equipmentName() {
     final uuid = _scan.equipmentUuid;
     if (uuid != null && uuid.isNotEmpty) {
@@ -88,7 +115,10 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
               final part = GlobalState.dataProvider.sparePartByUuid(uuid);
               return ConsumptionLine(
                 sparePartUuid: uuid,
-                sparePartName: part?.name ?? uuid,
+                // Сохранённое имя — первым: справочник мог потерять позицию,
+                // если её удалили на сервере, а отказ «на складе 0» ровно об
+                // этом обычно и говорит.
+                sparePartName: _storedName(uuid) ?? part?.name ?? uuid,
                 unitName:
                     (part?.unitLabel ?? '').isEmpty ? null : part!.unitLabel,
                 quantity: (item['quantity'] as num?)?.toDouble() ?? 0,
@@ -156,7 +186,10 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
               final part = GlobalState.dataProvider
                   .sparePartByUuid(parsed.sparePartUuid);
               return (
-                line?.sparePartName ?? part?.name ?? parsed.sparePartUuid,
+                line?.sparePartName ??
+                    _storedName(parsed.sparePartUuid) ??
+                    part?.name ??
+                    parsed.sparePartUuid,
                 parsed.required,
                 parsed.available,
                 line?.unitName ?? part?.unitLabel ?? '',

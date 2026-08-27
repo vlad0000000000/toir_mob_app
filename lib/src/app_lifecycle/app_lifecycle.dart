@@ -49,7 +49,13 @@ class _AppLifecycleObserverState extends State<AppLifecycleObserver>
     // GlobalState.dataProvider.syncInventory();
     // GlobalState.dataProvider.syncScans();
     GlobalState.updateDebug();
-    DataProvider.closedTasks = {};
+    // Здесь стоял безусловный сброс отметок о закрытых задачах
+    // (`DataProvider.closedTasks = {}`). Он срабатывал на любое состояние —
+    // `inactive`, `paused`, `hidden`, — то есть на блокировку экрана и на
+    // открытие камеры. После этого закрытая задача снова появлялась в списке,
+    // и обходчик выполнял её второй раз. Теперь отметки живут в Hive и
+    // снимаются там, где это осмысленно: когда сервер перестал отдавать
+    // задачу (см. `DataProvider.pruneClosedTasks`).
     if (state == AppLifecycleState.resumed) {
       PushNotificationsController.instance.ensureRunning();
     }
