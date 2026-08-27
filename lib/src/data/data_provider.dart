@@ -37,6 +37,14 @@ part 'data_provider_remote.dart';
 part 'data_provider_sync.dart';
 part 'data_provider_outbox.dart';
 
+/// Журнал самого хранилища и сетевых загрузок.
+///
+/// Третий и последний в этой библиотеке — рядом с `_outboxLog` (очереди
+/// отправки) и `_syncLog` (синхронизация справочников). Разделены по имени
+/// логгера намеренно: в записи оно печатается, и по нему сразу видно, откуда
+/// пришло сообщение.
+final _dataLog = Logger('DataProvider');
+
 /// Хранилище приложения (Hive-боксы + in-memory кэш). Сетевые загрузки,
 /// фоновая синхронизация и офлайн-очереди вынесены в part-файлы
 /// (`*_remote`, `*_sync`, `*_outbox`) как extension на [DataProvider].
@@ -91,8 +99,7 @@ class DataProvider {
     // инкрементального прохода новые позиции лежат в конце бокса, и порядок
     // на диске отсортированным быть перестал. Один проход по каталогу при
     // запуске дешевле сортировки в `build` экрана.
-    _spareParts = sparePartBox.values.toList()
-      ..sort(SparePart.compareByName);
+    _spareParts = sparePartBox.values.toList()..sort(SparePart.compareByName);
     _rebuildSparePartIndex();
     _rebuildClosedTaskIndex();
     _repairs = repairBox.values.toList();
@@ -124,7 +131,7 @@ class DataProvider {
         _pprCompletedByMe = read('mine');
         _pprCompletedByMeChecked = read('checked');
       } catch (e) {
-        print('Failed to read PPR progress cache: $e');
+        _dataLog.warning('Failed to read PPR progress cache: $e');
       }
     }
     final cached = stringBox.get(pprCacheKey);
@@ -134,7 +141,7 @@ class DataProvider {
       setActivePprs(
           raw.map((e) => Ppr.fromJson(e as Map<String, dynamic>)).toList());
     } catch (e) {
-      print('Failed to read PPR cache: $e');
+      _dataLog.warning('Failed to read PPR cache: $e');
     }
   }
 

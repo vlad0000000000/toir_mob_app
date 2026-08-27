@@ -16,7 +16,7 @@ const int _maxPagedItems = 100000;
 /// диагностировать невозможно.
 bool _pagingLimitReached(int loaded) {
   if (loaded < _maxPagedItems) return false;
-  print('Paging guard: загрузка остановлена на $loaded записях — '
+  _dataLog.severe('Paging guard: загрузка остановлена на $loaded записях — '
       'похоже, сервер не учитывает skip');
   return true;
 }

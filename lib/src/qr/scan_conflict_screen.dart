@@ -402,21 +402,27 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
   /// сервер всё равно не уйдёт.
   void _reduceToAvailable() {
     final available = _availableByUuid;
-    setState(() {
-      _lines = [
-        for (final line in _lines)
-          if (_availableFor(line, available) > 0)
-            ConsumptionLine(
-              sparePartUuid: line.sparePartUuid,
-              sparePartName: line.sparePartName,
-              unitName: line.unitName,
-              quantity: line.quantity <= _availableFor(line, available)
-                  ? line.quantity
-                  : _availableFor(line, available),
-              normQuantity: line.normQuantity,
-            ),
-      ];
-    });
+    final reduced = <ConsumptionLine>[];
+    for (final line in _lines) {
+      // Остаток считаем один раз на строку: в списочном литерале он выходил
+      // трижды — в условии и в обеих ветках тернарника.
+      final left = _availableFor(line, available);
+      // Нулевой остаток — позицию убираем целиком: списывать нечего, а строка
+      // с нулём на сервер всё равно не уйдёт.
+      if (left <= 0) continue;
+      reduced.add(
+        line.quantity <= left
+            ? line
+            : ConsumptionLine(
+                sparePartUuid: line.sparePartUuid,
+                sparePartName: line.sparePartName,
+                unitName: line.unitName,
+                quantity: left,
+                normQuantity: line.normQuantity,
+              ),
+      );
+    }
+    setState(() => _lines = reduced);
   }
 
   /// Есть ли что уменьшать — иначе кнопка бессмысленна.

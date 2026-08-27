@@ -70,7 +70,8 @@ extension RepairApi on API {
         if (statuses != null && statuses.isNotEmpty) 'status': statuses,
         if (updatedSince != null)
           'updated_since': updatedSince.toUtc().toIso8601String(),
-        if (syncUntil != null) 'sync_until': syncUntil.toUtc().toIso8601String(),
+        if (syncUntil != null)
+          'sync_until': syncUntil.toUtc().toIso8601String(),
       },
     );
 
@@ -284,8 +285,16 @@ extension RepairApi on API {
         ));
       } catch (e) {
         // Битый снимок пропускаем — из-за него не должна срываться отправка
-        // остальных, как и в sendScan.
-        print('Ошибка декодирования фото ремонта $i: $e');
+        // остальных.
+        //
+        // `sendScan` в такой ситуации, наоборот, прекращает отправку: там
+        // осмотр после успешного ответа исчезает из очереди, и кадр пропал бы
+        // навсегда. Здесь иначе — очередь ремонта держит путь к файлу, пока
+        // сервер снимок не примет, так что бросить исключение значило бы
+        // крутить заведомо битый файл на каждом проходе вечно. Отделить
+        // «повторяемый» отказ от «никогда не уедет» очередь снимков ремонта
+        // пока не умеет; до тех пор — не молча, но и не в цикл.
+        _apiLog.severe('Ошибка декодирования фото ремонта $i: $e');
       }
     }
 

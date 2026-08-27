@@ -5,6 +5,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:http_parser/http_parser.dart';
+import 'package:logging/logging.dart';
 import '../../src/model/usage_update.dart';
 import '../../global_state.dart';
 import '../../src/model/company.dart';
@@ -35,6 +36,14 @@ part 'notifications_api.dart';
 part 'spare_part_api.dart';
 part 'repair_api.dart';
 part 'ppr_api.dart';
+
+/// Журнал сетевого слоя.
+///
+/// Пишет только о том, что иначе исчезло бы бесследно, — сейчас это неразбор
+/// снимка перед отправкой. Уровень `severe`: в релизной сборке
+/// `Logger.root.level` поднят до `Level.WARNING` (`main.dart`), а именно эти
+/// сообщения нужны, когда фотография не доехала до администратора.
+final _apiLog = Logger('API');
 
 /// Соединение, которое живёт дольше одного запроса и сдаётся быстро.
 ///

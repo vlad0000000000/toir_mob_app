@@ -124,19 +124,31 @@ extension EquipmentApi on API {
         )
         .timeout(API._readTimeout);
 
-    final responseBody = response.body;
-    final Map<String, dynamic> responseData = jsonDecode(responseBody);
-
+    // Сперва код ответа, только потом разбор тела.
+    //
+    // Раньше `jsonDecode` стоял выше и был типизирован как `Map`: ответ шлюза
+    // 502 с HTML-телом или JSON-массив вместо объекта давали `FormatException`
+    // или `TypeError` вместо заготовленного сообщения. Для очереди наработки
+    // это стало важно с тех пор, как она научилась отличать временный сбой от
+    // отказа по существу: нераспознаваемое исключение классифицировать нечем.
+    //
+    // `_throwServerError` вместо голого `Exception` — по той же причине: он
+    // выделяет 401 в `AuthExpiredException` и несёт код ответа в
+    // `ServerFailureException`, по которому `isRetryableScanError` и решает,
+    // повторять отправку или пометить наработку отклонённой.
     if (response.statusCode != 200 && response.statusCode != 201) {
-      throw Exception(
-          'Failed to update usage params: ${response.statusCode} - $responseBody');
+      _throwServerError(response, 'Не удалось сохранить наработку');
     }
 
-    if (responseData.containsKey('uuid')) {
-      return true;
+    try {
+      final decoded = jsonDecode(response.body);
+      return decoded is Map<String, dynamic> && decoded.containsKey('uuid');
+    } catch (_) {
+      // Успешный код, но тело не разобралось — считаем неудачей: наработка
+      // останется в очереди и уйдёт следующим проходом. Так же поступает
+      // `sendScan`.
+      return false;
     }
-
-    return false;
   }
 
   Future<bool> updateEquipmentState(String equipmentUuid, String state) async {

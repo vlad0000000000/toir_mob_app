@@ -1,5 +1,15 @@
 part of 'data_provider.dart';
 
+/// Журнал синхронизации справочников.
+///
+/// Отдельный от `_outboxLog` — у них разные поводы для разбора: очередь
+/// отвечает за то, что обходчик уже сделал и не может потерять, а
+/// синхронизация лишь освежает справочники. Уровень `warning`: неудачный
+/// проход не страшен, следующий повторит его через минуту, — но в релизной
+/// сборке `Logger.root.level` поднят до `Level.WARNING`, и всё, что тише,
+/// туда не доедет.
+final _syncLog = Logger('DataProviderSync');
+
 /// Результат ручной синхронизации (кнопка «Синхронизировать данные»).
 enum SyncResult {
   noConnection,
@@ -19,7 +29,7 @@ extension DataProviderSync on DataProvider {
     try {
       setCurrentSession(await api.getCurrentSession());
     } catch (e) {
-      print('Failed sync session: $e');
+      _syncLog.warning('Failed sync session: $e');
     } finally {
       _isLoading = false;
     }
@@ -34,8 +44,9 @@ extension DataProviderSync on DataProvider {
       await inventoryBox.addAll(inventoryRecords);
       updateInventoryRecords();
     } catch (e, s) {
-      print('Failed sync inventory: $e');
-      print(s);
+      // Стек кладём в само сообщение: слушатель в `main.dart` печатает только
+      // `record.message`, поэтому третьим аргументом он бы просто потерялся.
+      _syncLog.severe('Failed sync inventory: $e\n$s');
     } finally {
       _isLoading = false;
     }
@@ -49,7 +60,7 @@ extension DataProviderSync on DataProvider {
       await typicalProblemBox.clear();
       await typicalProblemBox.addAll(_typicalProblems);
     } catch (e) {
-      print('Failed sync typical problems: $e');
+      _syncLog.warning('Failed sync typical problems: $e');
     } finally {
       _isLoading = false;
     }
@@ -63,7 +74,7 @@ extension DataProviderSync on DataProvider {
       await periodicityRuleBox.clear();
       await periodicityRuleBox.addAll(_periodicityRules);
     } catch (e) {
-      print('Failed sync periodicity rules: $e');
+      _syncLog.warning('Failed sync periodicity rules: $e');
     } finally {
       _isLoading = false;
     }
@@ -77,7 +88,7 @@ extension DataProviderSync on DataProvider {
       await usageUnitBox.clear();
       await usageUnitBox.addAll(_usageUnits);
     } catch (e) {
-      print('Failed sync usage unit types: $e');
+      _syncLog.warning('Failed sync usage unit types: $e');
     } finally {
       _isLoading = false;
     }
@@ -138,7 +149,7 @@ extension DataProviderSync on DataProvider {
       }
       return await _syncSparePartsFull();
     } catch (e) {
-      print('Failed sync spare parts: $e');
+      _syncLog.warning('Failed sync spare parts: $e');
       return false;
     } finally {
       _isLoading = false;
@@ -232,8 +243,7 @@ extension DataProviderSync on DataProvider {
     }
     // Порядок на диске после точечных правок уже не отсортирован — сортируем
     // список в памяти. На старте приложения это делает конструктор.
-    final all = sparePartBox.values.toList()
-      ..sort(SparePart.compareByName);
+    final all = sparePartBox.values.toList()..sort(SparePart.compareByName);
     _spareParts = all;
     _rebuildSparePartIndex();
     await _saveSparePartsCursor(until);
@@ -294,7 +304,7 @@ extension DataProviderSync on DataProvider {
       _repairs = repairBox.values.toList();
       _refreshActiveRepairsCount();
     } catch (e) {
-      print('Failed sync repairs: $e');
+      _syncLog.warning('Failed sync repairs: $e');
     } finally {
       _isLoading = false;
     }
@@ -386,7 +396,7 @@ extension DataProviderSync on DataProvider {
       // повтор безвреден — записи кладутся по ключу.
       _repairsCursor = until;
     } catch (e) {
-      print('Failed sync repairs: $e');
+      _syncLog.warning('Failed sync repairs: $e');
     } finally {
       _isLoading = false;
     }
@@ -399,7 +409,7 @@ extension DataProviderSync on DataProvider {
       _company = await api.getCompany();
       await companyBox.put('company', _company!);
     } catch (e) {
-      print('Failed sync company: $e');
+      _syncLog.warning('Failed sync company: $e');
     } finally {
       _isLoading = false;
     }
@@ -412,7 +422,7 @@ extension DataProviderSync on DataProvider {
       _equipmentState = await api.getEquipmentStates();
       await equipmentStateBox.put('equipment_state', _equipmentState!);
     } catch (e) {
-      print('Failed sync equipment states: $e');
+      _syncLog.warning('Failed sync equipment states: $e');
     } finally {
       _isLoading = false;
     }
@@ -450,7 +460,7 @@ extension DataProviderSync on DataProvider {
       await markNormsWriteFinished();
     } catch (e) {
       // Как и остальные справочники: при сбое остаётся прошлый снимок.
-      print('Failed sync consumption norms: $e');
+      _syncLog.warning('Failed sync consumption norms: $e');
     } finally {
       _isLoading = false;
     }
@@ -496,8 +506,7 @@ extension DataProviderSync on DataProvider {
       // сами, когда осмотр уйдёт из состава актуального ППР.
       await pruneClosedTasks(returned.union(_pprInspectionUuids));
     } catch (e, stack) {
-      print('Error syncing tasks: $e');
-      print(stack);
+      _syncLog.severe('Error syncing tasks: $e\n$stack');
     } finally {
       _isLoading = false;
     }
@@ -521,7 +530,7 @@ extension DataProviderSync on DataProvider {
           jsonEncode(pprs.map((ppr) => ppr.toJson()).toList()));
       await syncPprCompletedByMe();
     } catch (e) {
-      print('Failed sync PPR: $e');
+      _syncLog.warning('Failed sync PPR: $e');
     } finally {
       _isLoading = false;
     }
@@ -550,7 +559,7 @@ extension DataProviderSync on DataProvider {
           mine.add(uuid);
         }
       } catch (e) {
-        print('Failed to load completed PPR inspection $uuid: $e');
+        _syncLog.warning('Failed to load completed PPR inspection $uuid: $e');
       }
     }
 
@@ -586,7 +595,7 @@ extension DataProviderSync on DataProvider {
           tasks.add(task);
         }
       } catch (e) {
-        print('Failed to load PPR inspection $uuid: $e');
+        _syncLog.warning('Failed to load PPR inspection $uuid: $e');
       }
     }
     return tasks;

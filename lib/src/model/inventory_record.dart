@@ -92,6 +92,7 @@ class InventoryRecord {
     String? imageData,
     List<UsageParameter>? usageParameters,
     String? state,
+    bool? hasOpenRepair,
   }) {
     return InventoryRecord(
       id: id ?? this.id,
@@ -107,6 +108,11 @@ class InventoryRecord {
       imageData: imageData ?? this.imageData,
       usageParameters: usageParameters ?? this.usageParameters,
       state: state ?? this.state,
+      // Параметра с этим именем в сигнатуре не было, и выражение сравнивало
+      // поле само с собой — анализатор ругался `dead_null_aware_expression`.
+      // Признак при этом сохранялся, так что данные не страдали, но строка
+      // выглядела рабочей передачей аргумента, а `copyWith` признак открытого
+      // ремонта менять не умел, хотя по виду должен.
       hasOpenRepair: hasOpenRepair ?? this.hasOpenRepair,
     );
   }
