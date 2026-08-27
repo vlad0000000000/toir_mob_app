@@ -316,7 +316,13 @@ class _QRResultScreenState extends State<QRResultScreen> {
       if (!mounted) return;
       // push: карточка оборудования остаётся под формой, и закрытие формы
       // возвращает обходчика ровно туда, откуда он её открыл.
-      GoRouter.of(context).push('/repair_create', extra: widget.machine);
+      //
+      // Ждём возврата и перестраиваем экран: пока форма была открыта, ремонт
+      // мог появиться — на сервере или черновиком в очереди. Пилюля читает
+      // это в `build`, и без перестроения она осталась бы прежней.
+      await GoRouter.of(context).push('/repair_create', extra: widget.machine);
+      if (!mounted) return;
+      setState(() {});
       return;
     }
 
@@ -439,7 +445,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
       machine: widget.machine,
       stateController: stateController,
       showDetails: !Settings.qrResultShowSimplifiedView,
-      lockedByRepair: _isLockedByRepair,
+      lockedByRepair: () => _isLockedByRepair,
       onLockedTap: _explainLockedState,
     );
   }
@@ -908,7 +914,11 @@ class _HeroPassport extends StatelessWidget {
   final bool showDetails;
 
   /// Оборудование в ремонте — пилюля состояния заперта.
-  final bool lockedByRepair;
+  ///
+  /// Функция, а не готовое значение: пилюля пересчитывает признак на каждое
+  /// изменение списка ремонтов. Иначе она застывала бы в том виде, в каком
+  /// экран построился, — а ремонт появляется, пока экран уже открыт.
+  final bool Function() lockedByRepair;
 
   /// Что делать по нажатию на запертую пилюлю: объяснить причину.
   final VoidCallback onLockedTap;
@@ -1017,11 +1027,20 @@ class _HeroPassport extends StatelessWidget {
                         ),
                       ],
                       const SizedBox(height: 8),
-                      _StateChip(
-                        controller: stateController,
-                        initialValue: machine.state,
-                        locked: lockedByRepair,
-                        onLockedTap: onLockedTap,
+                      // Перестраиваем пилюлю на любое изменение списка
+                      // ремонтов: создание, отправку черновика, закрытие.
+                      // Так замок и подпись «В ремонте» появляются сразу
+                      // после создания ремонта, не дожидаясь ни возврата на
+                      // экран, ни синхронизации инвентаря.
+                      ValueListenableBuilder<int>(
+                        valueListenable:
+                            GlobalState.dataProvider.activeRepairsCount,
+                        builder: (context, _, __) => _StateChip(
+                          controller: stateController,
+                          initialValue: machine.state,
+                          locked: lockedByRepair(),
+                          onLockedTap: onLockedTap,
+                        ),
                       ),
                     ],
                   ),
@@ -1240,9 +1259,17 @@ class _StateChipState extends State<_StateChip> with ControllerListenerMixin {
     final tt = Theme.of(context).textTheme;
     final states = GlobalState.dataProvider.equipmentState?.states;
     if (states == null || states.isEmpty) return const SizedBox.shrink();
-    final hasValue = _value != null;
-    final label = _label(_value);
     final locked = widget.locked;
+    final hasValue = _value != null;
+    // У запертой пилюли подпись всегда «В ремонте», а не то, что лежит в
+    // контроллере. Состояние оборудования ставит сервер при создании ремонта,
+    // и до ближайшей синхронизации инвентаря в кэше остаётся прежнее: сразу
+    // после создания ремонта обходчик видел замок рядом со старым
+    // состоянием. Раз замок висит — ремонт есть, а значит и состояние на
+    // сервере уже «В ремонте».
+    final label = locked
+        ? (_label(_inRepairState) ?? RepairStrings.equipmentInRepair)
+        : _label(_value);
 
     // Запертая пилюля — красная, с замком вместо шеврона и без точки:
     // точка отмечает выбранное состояние, а выбирать здесь не из чего.

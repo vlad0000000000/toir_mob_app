@@ -31,6 +31,17 @@ class _BarcodeScannerWithControllerState
   );
   bool _demoModalShown = false;
 
+  /// Карточка оборудования уже открывается — новые распознавания пропускаем.
+  ///
+  /// `MobileScanner` зовёт `onDetect` на каждом кадре, где видит код, то есть
+  /// десятки раз в секунду. Камера при этом продолжает работать и после
+  /// перехода: экран сканера намеренно остаётся в стеке под карточкой, чтобы
+  /// «назад» возвращал к камере. Без этого флага каждый кадр, пока QR в
+  /// объективе, добавлял в стек ещё одну карточку того же оборудования — а
+  /// при включённой настройке «сразу открывать задачи» каждая открывала свою
+  /// шторку выбора задач.
+  bool _navigating = false;
+
   bool get _isOnboardingScanner =>
       Settings.onboardingInProgress && Settings.onboardingStep == 2;
 
@@ -41,6 +52,18 @@ class _BarcodeScannerWithControllerState
     unawaited(controller.start());
     if (_isOnboardingScanner) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _showDemoModal());
+    }
+  }
+
+  /// Останавливает камеру, не роняя экран.
+  ///
+  /// `stop()` бросает, если камера уже не работает, — а её мог погасить
+  /// системный обработчик жизненного цикла ровно перед нашим вызовом.
+  Future<void> _stopCamera() async {
+    try {
+      await controller.stop();
+    } catch (_) {
+      // Уже остановлена — делать нечего.
     }
   }
 
@@ -102,6 +125,7 @@ class _BarcodeScannerWithControllerState
                     child: MobileScanner(
                       onDetect: (barcodes) async {
                         if (_isOnboardingScanner) return;
+                        if (_navigating) return;
                         if (barcodes.barcodes.length > 0) {
                           for (var barcode in barcodes.barcodes) {
                             var barcodeUUID = "";
@@ -116,8 +140,28 @@ class _BarcodeScannerWithControllerState
                                   barcodeUUID.toLowerCase()) {
                                 // push, а не сброс стека: сканер остаётся под
                                 // карточкой, и «назад» возвращает к камере.
-                                GoRouter.of(context)
-                                    .push('/qr_result', extra: machine);
+                                //
+                                // Флаг снимаем после возврата с карточки, а
+                                // не сразу: иначе тот же QR, всё ещё
+                                // висящий в объективе, тут же открыл бы её
+                                // второй раз.
+                                _navigating = true;
+                                // Роутер берём до `await`: после него
+                                // обращаться к `context` уже нельзя.
+                                final router = GoRouter.of(context);
+                                // Гасим камеру на время карточки. Смена
+                                // маршрута внутри приложения состояние
+                                // жизненного цикла не меняет, поэтому
+                                // штатный обработчик её не остановит — и
+                                // камера работала бы всё время, пока
+                                // обходчик заполняет осмотр: грелась и ела
+                                // батарею.
+                                await _stopCamera();
+                                await router.push('/qr_result',
+                                    extra: machine);
+                                if (!mounted) return;
+                                _navigating = false;
+                                unawaited(controller.start());
                                 return;
                               }
                             }
