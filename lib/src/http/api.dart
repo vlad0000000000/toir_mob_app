@@ -18,7 +18,6 @@ import '../../src/model/repair.dart';
 import '../../src/model/scan.dart';
 import '../../src/model/session.dart';
 import '../../src/model/spare_part.dart';
-import '../../src/model/stock_history_entry.dart';
 import '../../src/model/task.dart';
 import '../../src/model/typical_problem.dart';
 import '../../src/model/usage_unit.dart';
@@ -53,6 +52,14 @@ http.Client _newIoClient() => IOClient(
     );
 
 /// Клиент обычных запросов: помнит, что сервер только что не отозвался.
+///
+/// **Через него обязаны идти все запросы приложения.** Top-level `http.get`,
+/// `http.post` и им подобные в методах API не место: они поднимают свой
+/// клиент, мимо трёхсекундного `connectionTimeout`, и — главное — мимо отметки
+/// о недоступности. Пять таких вызовов пережили переход на общий клиент
+/// (создание, правка и взятие ремонта, создание заявки, вход) и вели себя
+/// заметно: успешный запрос мимо обёртки не снимал отметку, и очередь осмотров
+/// ещё полминуты отказывала «по памяти» после того, как сервер уже ответил.
 final http.Client _client = _OfflineAwareClient(_newIoClient());
 
 /// Клиент пинга живости. Окно недоступности он обязан игнорировать — иначе

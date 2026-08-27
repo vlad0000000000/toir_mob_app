@@ -251,27 +251,51 @@ class PendingRepairAdapter extends TypeAdapter<PendingRepair> {
 
   @override
   PendingRepair read(BinaryReader reader) {
+    // Поля читаем по одному, а не прямо в аргументах конструктора: порядок
+    // вычисления именованных аргументов в Dart совпадает с порядком записи,
+    // но полагаться на это в формате хранения не стоит. Так же написан
+    // `SparePartAdapter`.
+    final localId = reader.read();
+    final equipmentUuid = reader.read();
+    final equipmentName = reader.read();
+    final consumptionNormUuid = reader.read();
+    final consumptionNormName = reader.read();
+    final startedAt = reader.read();
+    final comment = reader.read();
+    final createdAt = reader.read();
+    final attempts = reader.read();
+    final lastError = reader.read();
+    // Дальше — поля, дописанные в конец после первого выпуска. Их порядок
+    // тоже обязан совпадать с порядком записи: первое же чтение за концом
+    // записи гасит все следующие.
+    final conflictRepairUuid = _readTrailing<String>(reader);
+    final consumptions =
+        _readTrailing<List<dynamic>>(reader)?.cast<RepairConsumption>() ??
+            const <RepairConsumption>[];
+    final serverUuid = _readTrailing<String>(reader);
+    final photoPaths =
+        _readTrailing<List<dynamic>>(reader)?.cast<String>() ?? const <String>[];
+    final submitForReview = _readTrailing<bool>(reader) ?? false;
+    final normItems =
+        _readTrailing<List<dynamic>>(reader)?.cast<RepairNormItem>() ??
+            const <RepairNormItem>[];
     return PendingRepair(
-      localId: reader.read(),
-      equipmentUuid: reader.read(),
-      equipmentName: reader.read(),
-      consumptionNormUuid: reader.read(),
-      consumptionNormName: reader.read(),
-      startedAt: reader.read(),
-      comment: reader.read(),
-      createdAt: reader.read(),
-      attempts: reader.read(),
-      lastError: reader.read(),
-      conflictRepairUuid: _readTrailing<String>(reader),
-      consumptions:
-          _readTrailing<List<dynamic>>(reader)?.cast<RepairConsumption>() ??
-              const [],
-      serverUuid: _readTrailing<String>(reader),
-      photoPaths:
-          _readTrailing<List<dynamic>>(reader)?.cast<String>() ?? const [],
-      submitForReview: _readTrailing<bool>(reader) ?? false,
-      normItems: _readTrailing<List<dynamic>>(reader)?.cast<RepairNormItem>() ??
-          const [],
+      localId: localId,
+      equipmentUuid: equipmentUuid,
+      equipmentName: equipmentName,
+      consumptionNormUuid: consumptionNormUuid,
+      consumptionNormName: consumptionNormName,
+      startedAt: startedAt,
+      comment: comment,
+      createdAt: createdAt,
+      attempts: attempts,
+      lastError: lastError,
+      conflictRepairUuid: conflictRepairUuid,
+      consumptions: consumptions,
+      serverUuid: serverUuid,
+      photoPaths: photoPaths,
+      submitForReview: submitForReview,
+      normItems: normItems,
     );
   }
 

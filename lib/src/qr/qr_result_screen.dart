@@ -426,8 +426,10 @@ class _QRResultScreenState extends State<QRResultScreen> {
           ),
           child: Text(
             RepairStrings.busyByOtherBody,
-            style:
-                Theme.of(context).textTheme.bodyMedium?.copyWith(color: cs.error),
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(color: cs.error),
           ),
         ),
         actions: [
@@ -535,13 +537,32 @@ class _QRResultScreenState extends State<QRResultScreen> {
     var hasTypicalProblem = (problemController.value != null &&
         problemController.value != TypicalProblem.other);
 
+    // Снимки прикладываем ровно к одной записи пачки, а не к каждой.
+    //
+    // Раньше `files: images` стояло и у осмотра задачи, и у заявки, а
+    // `sendScan` грузит файлы отдельно на каждый запрос — одни и те же кадры
+    // уезжали дважды. В цеху со слабой связью очередь из-за этого разбиралась
+    // вдвое дольше.
+    //
+    // Отдаём их **заявке**, а не первой записи пачки, как предлагал план:
+    // заявка — это сообщение о неисправности, и снимок там доказательство, а
+    // у закрытой периодической задачи он иллюстрация. Если заявки нет, снимки
+    // остаются у осмотра.
+    //
+    // Третья ветка условия создания заявки (`hasDesc && … && !hasTasks`) сюда
+    // не входит намеренно: она срабатывает только когда задач нет вовсе, и
+    // делить снимки не с кем.
+    final willCreateProblem =
+        (hasDesc && hasOtherProblem && hasPriority) || hasTypicalProblem;
+    final taskImages = willCreateProblem ? const <String>[] : images;
+
     var hasTasks = false;
     for (var task in equipmentController.value) {
       if (task.resultStatus == 'scheduled') {
         result.add(Scan(
             taskUuid: task.uuid,
             resultStatus: 'closed',
-            files: images,
+            files: taskImages,
             comment: taskComment,
             priority: '',
             equipmentUuid: widget.machine.uuid,
@@ -559,7 +580,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
         result.add(Scan(
             taskUuid: task.uuid,
             resultStatus: 'closed',
-            files: images,
+            files: taskImages,
             comment: taskComment,
             priority: '',
             equipmentUuid: widget.machine.uuid,
@@ -656,7 +677,11 @@ class _QRResultScreenState extends State<QRResultScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final dataProvider = context.watch<DataProvider>();
+    // `read`, а не `watch`: DataProvider не ChangeNotifier и положен в дерево
+    // обычным Provider, так что подписываться тут не на что — `watch` лишь
+    // выглядел реактивным. За изменениями данных следят ревизии кэша
+    // (`repairsRevision`, `sparePartsRevision`).
+    final dataProvider = context.read<DataProvider>();
 
     WidgetsBinding.instance.addPostFrameCallback(
       (timeStamp) {
@@ -719,10 +744,38 @@ class _QRResultScreenState extends State<QRResultScreen> {
     // каждой периодической задачи, и без этой проверки подтверждение вылезало
     // бы при закрытии любого обычного осмотра — там пустой расход не забывчивость,
     // а норма жизни.
+    //
+    // Считаем по всем выбранным задачам, а не по единственной. Раньше проверка
+    // начиналась с `consumptionTask != null`, а он пуст при двух и более
+    // выбранных, — и предупреждение молчало ровно там, где нужнее всего:
+    // расход в этом случае не только не заполнен, но и заполнить его негде.
     final consumptionTask = consumptionTaskOf(equipmentController);
-    final skipsWriteOff = consumptionTask != null &&
-        consumptionTask.sparePartUsage!.isConfigured &&
-        _consumptionsPayload() == null;
+    final configuredTasks = configuredConsumptionTasksOf(equipmentController);
+    final skipsWriteOff = configuredTasks.isNotEmpty &&
+        (consumptionTask == null || _consumptionsPayload() == null);
+    // Причина разная — «забыли заполнить» или «выбрано несколько задач», — и
+    // текст подтверждения тоже.
+    final multipleTasks = equipmentController.selectedTasks.length > 1;
+
+    // Второй повод переспросить: расход заполнен, но на складе столько нет.
+    // С первым он не пересекается — при пустом расходе нехватке взяться
+    // неоткуда, — поэтому это не «или/или», а два независимых случая.
+    //
+    // Считаем по локальному справочнику, и потому именно спрашиваем, а не
+    // запрещаем: без сети остатки могли устареть, и «сервер откажет» здесь
+    // предположение, пусть и почти всегда верное.
+    final shortages = consumptionTask == null
+        ? const <ConsumptionShortage>[]
+        : consumptionShortages(
+            consumptionController.value ?? const <ConsumptionLine>[]);
+    final shortageList = [
+      for (final shortage in shortages)
+        shortage.available <= 0
+            ? InspectionConsumptionStrings.shortagePositionEmpty(
+                shortage.sparePartName)
+            : InspectionConsumptionStrings.shortagePosition(
+                shortage.sparePartName, shortage.availableLabel),
+    ].join(', ');
 
     Dialogs.areYouSure(context, onOk: () async {
       await addScans(scans, usageScans);
@@ -746,11 +799,20 @@ class _QRResultScreenState extends State<QRResultScreen> {
       );
     },
         rewriteMessage: skipsWriteOff
-            ? InspectionConsumptionStrings.confirmEmptyTitle
-            : null,
+            ? (multipleTasks
+                ? InspectionConsumptionStrings.confirmMultiTaskTitle
+                : InspectionConsumptionStrings.confirmEmptyTitle)
+            : (shortages.isEmpty
+                ? null
+                : InspectionConsumptionStrings.confirmShortageTitle),
         desc: skipsWriteOff
-            ? InspectionConsumptionStrings.confirmEmptyBody
-            : null);
+            ? (multipleTasks
+                ? InspectionConsumptionStrings.confirmMultiTaskBody
+                : InspectionConsumptionStrings.confirmEmptyBody)
+            : (shortages.isEmpty
+                ? null
+                : InspectionConsumptionStrings.confirmShortageBody(
+                    shortageList)));
   }
 
   void _clearValidationHighlights() {

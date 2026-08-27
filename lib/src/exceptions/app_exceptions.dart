@@ -22,11 +22,25 @@ class InsufficientStockException implements Exception {
 /// Одна строка нехватки: сколько нужно и сколько есть по данным сервера.
 class InsufficientStockItem {
   final String sparePartUuid;
+
+  /// Название позиции, как его прислал сервер вместе с отказом.
+  ///
+  /// Сервер кладёт его в `shortages` (`crud/fault_inspection.py:513`), но
+  /// разбор его раньше терял, и экран конфликта искал подпись в четырёх
+  /// запасных источниках — вплоть до голого uuid. При этом самое авторитетное
+  /// название приезжало прямо в отказе: оно взято из той же записи склада, по
+  /// которой сервер и посчитал нехватку.
+  ///
+  /// Пустая строка — сервер прислал `null` (позицию удалили между проверкой и
+  /// формированием ответа) либо это отказ старого формата.
+  final String sparePartName;
+
   final double required;
   final double available;
 
   const InsufficientStockItem({
     required this.sparePartUuid,
+    this.sparePartName = '',
     required this.required,
     required this.available,
   });
@@ -40,13 +54,19 @@ class InsufficientStockItem {
 
     return InsufficientStockItem(
       sparePartUuid: json['spare_part_uuid'] as String? ?? '',
+      sparePartName: json['spare_part_name'] as String? ?? '',
       required: parse(json['required']),
       available: parse(json['available']),
     );
   }
 
+  /// Формат намеренно совпадает с серверным: отказ сохраняется в осмотре
+  /// (`Scan.lastShortages`) и разбирается тем же `fromJson`. Название сюда
+  /// обязано попасть — иначе оно терялось бы при первой же записи в Hive, и
+  /// правка не пережила бы перезапуск приложения.
   Map<String, dynamic> toJson() => {
         'spare_part_uuid': sparePartUuid,
+        if (sparePartName.isNotEmpty) 'spare_part_name': sparePartName,
         'required': required,
         'available': available,
       };

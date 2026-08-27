@@ -44,11 +44,19 @@ class EquipmentDetailController {
     value = selectedTasks.toList();
   }
 
-  void selectAll(List<Task> allTasks) {
+  /// Оставить выбранной одну задачу — первую из списка.
+  ///
+  /// Раньше метод назывался `selectAll`, хотя всех никогда не выбирал: он
+  /// сбрасывает выбор и берёт `tasks.first`. Пока выбор был только одиночным,
+  /// расхождение было безобидным, но с появлением `allowMultiSelect` имя стало
+  /// прямой ловушкой — вызвавший «выбрать все» молча потерял бы остальные
+  /// задачи. Вызовов нет ни одного; метод оставлен как часть multi-select API
+  /// контроллера.
+  void selectFirst(List<Task> tasks) {
     selectedTasks.clear();
-    if (allTasks.isNotEmpty) {
-      selectedTasks.add(allTasks.first);
-      value = [allTasks.first];
+    if (tasks.isNotEmpty) {
+      selectedTasks.add(tasks.first);
+      value = [tasks.first];
     } else {
       value = [];
     }

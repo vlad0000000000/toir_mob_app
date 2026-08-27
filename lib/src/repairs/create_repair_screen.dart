@@ -534,8 +534,16 @@ class _NormPickerSheetState extends State<_NormPickerSheet> {
   Future<void> _load() async {
     // Сначала кэш: без связи это единственное, из чего можно выбрать, а при
     // живой — список рисуется сразу и через миг обновляется свежим.
-    final cached =
-        GlobalState.dataProvider.consumptionNormsFor(widget.equipmentUuid);
+    //
+    // Исключение — оборвавшаяся запись справочника: между `clear()` и
+    // `putAll()` в боксе могла остаться половина норм, и отличить её от
+    // полного набора нельзя. Такой кэш не показываем вовсе — иначе обходчик
+    // выбирал бы из неполного списка, не зная об этом. Запрос ниже вернёт
+    // нормы этого оборудования и заодно починит их в кэше.
+    final provider = GlobalState.dataProvider;
+    final cached = provider.isNormsWriteIncomplete
+        ? const <ConsumptionNorm>[]
+        : provider.consumptionNormsFor(widget.equipmentUuid);
     setState(() {
       _failed = false;
       if (cached.isNotEmpty) _norms = cached;

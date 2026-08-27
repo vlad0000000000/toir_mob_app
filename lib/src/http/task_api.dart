@@ -234,7 +234,7 @@ extension TaskApi on API {
 
     final url = Uri.parse('${API.baseUrl}/v1/company/periodic_task/');
 
-    final response = await http
+    final response = await _client
         .post(
           url,
           headers: {

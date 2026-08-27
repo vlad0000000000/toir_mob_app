@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:intl/intl.dart';
+import 'package:logging/logging.dart';
 import 'dart:convert';
 import 'dart:io';
 import '../../global_state.dart';
@@ -91,12 +92,13 @@ class DataProvider {
     // на диске отсортированным быть перестал. Один проход по каталогу при
     // запуске дешевле сортировки в `build` экрана.
     _spareParts = sparePartBox.values.toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
+      ..sort(SparePart.compareByName);
     _rebuildSparePartIndex();
     _rebuildClosedTaskIndex();
     _repairs = repairBox.values.toList();
     _refreshActiveRepairsCount();
     refreshRejectedScansCount();
+    refreshRejectedUsageCount();
     _users = userBox.values.toList();
     _inventoryRecords = inventoryBox.values.toList();
     _typicalProblems = typicalProblemBox.values.toList();
@@ -332,7 +334,73 @@ class DataProvider {
   /// Пересобирает индекс. Зовётся везде, где меняется [_spareParts].
   void _rebuildSparePartIndex() {
     _sparePartsByUuid = {for (final part in _spareParts) part.uuid: part};
+    sparePartsRevision.value++;
   }
+
+  /// Уменьшает локальные остатки на только что принятый сервером расход.
+  ///
+  /// Сервер списывает ЗИП в момент закрытия осмотра, а каталог у клиента
+  /// освежается фоновым циклом раз в минуту. Всю эту минуту раздел «ЗИП»,
+  /// карточка позиции и — что важнее — предупреждение о нехватке в блоке
+  /// расхода работали по числу, которого на складе уже нет: обходчик закрывал
+  /// вторую задачу на том же оборудовании, красной плашки не видел и получал
+  /// отказ 409, который приложение могло предсказать.
+  ///
+  /// Это заплатка на минуту, а не источник правды: ближайшая синхронизация
+  /// перезапишет остаток серверным значением. Поэтому ошибку разбора глотаем
+  /// молча и ниже нуля не опускаемся — заплатка не вправе сломать каталог.
+  ///
+  /// [actualConsumptions] — та же строка, что ушла на сервер в поле формы
+  /// (`[{"spare_part_uuid": "...", "quantity": 2}]`).
+  Future<void> applyLocalStockWriteOff(String? actualConsumptions) async {
+    final writeOff = parseConsumptionWriteOff(actualConsumptions);
+    if (writeOff.isEmpty) return;
+
+    final updated = <String, SparePart>{};
+    writeOff.forEach((uuid, quantity) {
+      final part = _sparePartsByUuid[uuid];
+      // Позиции нет в каталоге — её удалили на сервере между списанием и
+      // синхронизацией. Уменьшать нечего.
+      if (part == null) return;
+      final left = part.quantity - quantity;
+      updated[uuid] = part.copyWithQuantity(left < 0 ? 0 : left);
+    });
+    if (updated.isEmpty) return;
+
+    await sparePartBox.putAll(updated);
+    // Порядок списка не трогаем: он отсортирован по названию, а название
+    // списание не меняет.
+    _spareParts = [
+      for (final part in _spareParts) updated[part.uuid] ?? part,
+    ];
+    _rebuildSparePartIndex();
+  }
+
+  /// Ревизия каталога ЗИП: растёт на каждое его изменение.
+  ///
+  /// [DataProvider] не `ChangeNotifier` (он положен в дерево обычным
+  /// `Provider`), поэтому `context.watch` по нему ничего не перерисовывает.
+  /// Экраны, которым нужно узнавать об изменениях, подписываются на это число.
+  ///
+  /// Считать «сколько позиций» бесполезно: инкрементальная синхронизация чаще
+  /// всего меняет остатки, не трогая состав каталога, — а остаток и есть то,
+  /// ради чего экран перерисовывают.
+  ///
+  /// Увеличивается в [_rebuildSparePartIndex] — через него проходит любое
+  /// изменение [_spareParts], и отдельный вызов на каждой стороне забыть
+  /// нельзя.
+  final ValueNotifier<int> sparePartsRevision = ValueNotifier<int>(0);
+
+  /// Ревизия кэша ремонтов — по той же причине и с той же механикой.
+  ///
+  /// Отдельно от [activeRepairsCount]: тот меняется, только когда меняется
+  /// **число** ремонтов, а список обязан перерисовываться и когда у ремонта
+  /// поменялся статус, комментарий или появилась неотправленная правка.
+  ///
+  /// Увеличивается в [_refreshActiveRepairsCount] — общей точке всех
+  /// изменений кэша — и в мутаторах очереди правок, которые счётчик не
+  /// трогают.
+  final ValueNotifier<int> repairsRevision = ValueNotifier<int>(0);
 
   /// Активные ремонты (открытые и на рассмотрении), доступные обходчику.
   /// Закрытые здесь не лежат: их тянет с сервера сам экран, в офлайн-кэш
@@ -369,6 +437,49 @@ class DataProvider {
     rejectedScansCount.value = rejectedScans.length;
   }
 
+  /// Сколько записей наработки сервер отклонил.
+  ///
+  /// Отдельно от [rejectedScansCount], хотя показываются они рядом: разбор у
+  /// них разный. У осмотра есть экран разрешения конфликта — там правят
+  /// расход ЗИП; наработка же это одно число, и сделать с ней можно только
+  /// два: повторить (если администратор поправил на сервере) или выбросить.
+  final ValueNotifier<int> rejectedUsageCount = ValueNotifier<int>(0);
+
+  /// Отклонённая наработка — для полосы на главной и списка причин.
+  List<UsageUpdate> get rejectedUsage =>
+      scanUsageBox.values.where((usage) => usage.isRejected).toList();
+
+  void refreshRejectedUsageCount() {
+    rejectedUsageCount.value = rejectedUsage.length;
+  }
+
+  /// Снимает пометку об отказе — обходчик решил повторить отправку.
+  ///
+  /// Осмысленно после того, как причина устранена на сервере: параметр
+  /// вернули, права выдали, показание поправили. Если нет — сервер откажет
+  /// тем же текстом, и пометка вернётся.
+  Future<void> retryRejectedUsage(String key) async {
+    final usage = scanUsageBox.get(key);
+    if (usage == null || !usage.isRejected) return;
+    usage.lastError = null;
+    await scanUsageBox.put(key, usage);
+    refreshRejectedUsageCount();
+  }
+
+  /// Выбрасывает отклонённую наработку.
+  ///
+  /// Осмотр задачи ТО по этому оборудованию отклонённую наработку уже не
+  /// ждёт, так что удаление ничего не разблокирует — оно просто убирает с
+  /// главной то, с чем обходчик ничего сделать не может. Показание он снимет
+  /// заново при следующем сканировании.
+  Future<void> deleteRejectedUsage(String key) async {
+    final usage = scanUsageBox.get(key);
+    if (usage == null) return;
+    await scanUsageBox.delete(key);
+    await scanUsagePendingBox.delete(key);
+    refreshRejectedUsageCount();
+  }
+
   void _refreshActiveRepairsCount() {
     // Черновики тоже активные ремонты — просто ещё не доехавшие. Не считать их
     // значило бы: обходчик создал ремонт в цеху, вернулся в меню, а счётчик
@@ -385,6 +496,10 @@ class DataProvider {
       return uuid == null || !known.contains(uuid);
     }).length;
     activeRepairsCount.value = active.length + drafts;
+    // Число могло и не измениться — например, администратор поменял ремонту
+    // статус или обходчик правил комментарий. Список ремонтов всё равно обязан
+    // перерисоваться, поэтому ревизию двигаем безусловно.
+    repairsRevision.value++;
   }
 
   /// Черновики ремонтов, ждущие отправки. Порядок — от новых к старым, как в
@@ -416,16 +531,34 @@ class DataProvider {
   PendingRepairUpdate? pendingUpdateFor(String repairUuid) =>
       pendingRepairUpdateBox.get(repairUuid);
 
+  /// Черновик, из которого создан этот ремонт, если он ещё в очереди.
+  ///
+  /// Такой черновик остаётся после первого шага конвейера — ремонт на сервере
+  /// уже есть, а снимки или финальная правка ещё нет. Ключ бокса — `localId`
+  /// черновика, а не uuid ремонта, поэтому ищем перебором: черновиков у
+  /// обходчика единицы.
+  PendingRepair? draftForRepair(String repairUuid) {
+    if (repairUuid.isEmpty) return null;
+    for (final draft in pendingRepairBox.values) {
+      if (draft.serverUuid == repairUuid) return draft;
+    }
+    return null;
+  }
+
   /// Кладёт правку в очередь. Ключ — uuid ремонта: одному ремонту
   /// соответствует одна правка, повторное сохранение накрывает предыдущую.
   Future<void> savePendingRepairUpdate(PendingRepairUpdate update) async {
     await pendingRepairUpdateBox.put(update.repairUuid, update);
+    // Число ремонтов от правки не меняется, поэтому счётчик здесь не при чём —
+    // а вот пометка «не отправлено» в списке появиться обязана.
+    repairsRevision.value++;
   }
 
   Future<void> deletePendingRepairUpdate(String repairUuid) async {
     final update = pendingRepairUpdateBox.get(repairUuid);
     await pendingRepairUpdateBox.delete(repairUuid);
     if (update != null) await RepairPhotoFiles.deleteAll(update.photoPaths);
+    repairsRevision.value++;
   }
 
   /// Все пути к файлам снимков, на которые ссылаются очереди. По этому набору
@@ -590,6 +723,20 @@ class DataProvider {
 
   Future<void> markSparePartsWriteFinished() =>
       stringBox.delete(_sparePartsWriteKey);
+
+  /// То же самое для норм расхода.
+  ///
+  /// Между `clear()` и `putAll()` бокс норм тоже пуст, и обрыв в этот момент
+  /// оставляет форму создания ремонта без единой нормы на выбор — а без связи
+  /// ремонт чаще всего и заводят. Справочник маленький и окно короткое, но
+  /// приём готовый, а цена ошибки та же.
+  static const String _normsWriteKey = 'consumption_norms_write_in_progress';
+
+  bool get isNormsWriteIncomplete => stringBox.get(_normsWriteKey) == '1';
+
+  Future<void> markNormsWriteStarted() => stringBox.put(_normsWriteKey, '1');
+
+  Future<void> markNormsWriteFinished() => stringBox.delete(_normsWriteKey);
 
   /// Граница последнего согласованного окна для ремонтов.
   ///

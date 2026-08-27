@@ -14,6 +14,8 @@ import '../../src/utils/go_router_ext.dart';
 import '../../strings.dart';
 import '../../settings.dart';
 import '../widgets/app_bottom_sheet.dart';
+import '../model/usage_update.dart';
+import '../repairs/repair_delete_dialog.dart';
 import 'scan_conflict_screen.dart';
 
 /// Главный hub-экран: hero-карточка «Сканировать», ряд вторичных действий,
@@ -149,6 +151,27 @@ class _QRActionsState extends State<QRActions> {
   /// обходчик уже закрывал не решив, — в отличие от автоматического показа.
   Future<void> _onRejectedScans() => _openConflict(force: true);
 
+  /// Разбор отклонённой наработки.
+  ///
+  /// Не экран, а лист: правь тут нечего — наработка это одно число, которое
+  /// сервер отказался принять. Выбор только между «повторить» (причину
+  /// устранили на сервере) и «удалить» (снять показание заново при следующем
+  /// сканировании).
+  ///
+  /// Сам по себе, без тапа, этот лист не всплывает — в отличие от конфликта
+  /// осмотра. Отклонённая наработка больше ничего не блокирует, поэтому
+  /// вырывать обходчика из его дел ради неё незачем: полоса подождёт.
+  Future<void> _onRejectedUsage() async {
+    await showAppModalSheet<void>(
+      context,
+      isDismissible: true,
+      enableDrag: true,
+      child: const _RejectedUsageSheet(),
+    );
+    if (!mounted) return;
+    setState(() {});
+  }
+
   void _onRejectedCountChanged() => _openConflict();
 
   /// Открывает разбор конфликта, если он есть и мы сейчас на главной.
@@ -238,8 +261,28 @@ class _QRActionsState extends State<QRActions> {
                     padding:
                         const EdgeInsets.only(bottom: AppConstants.spacingMD),
                     child: _RejectedScansBanner(
+                      title: ScanQueueStrings.rejectedTitle,
                       count: count,
+                      countLabel: ScanQueueStrings.rejectedCount,
                       onTap: _onRejectedScans,
+                    ),
+                  ),
+          ),
+          // Вторая полоса — отклонённая наработка. Отдельно от осмотров,
+          // потому что и разбор другой: у осмотра правят расход ЗИП, у
+          // наработки выбор только между «повторить» и «удалить».
+          ValueListenableBuilder<int>(
+            valueListenable: GlobalState.dataProvider.rejectedUsageCount,
+            builder: (context, count, _) => count == 0
+                ? const SizedBox.shrink()
+                : Padding(
+                    padding:
+                        const EdgeInsets.only(bottom: AppConstants.spacingMD),
+                    child: _RejectedScansBanner(
+                      title: UsageQueueStrings.rejectedTitle,
+                      count: count,
+                      countLabel: UsageQueueStrings.rejectedCount,
+                      onTap: _onRejectedUsage,
                     ),
                   ),
           ),
@@ -992,11 +1035,24 @@ class _SettingsSheetState extends State<_SettingsSheet> {
 /// Оформление — как у `_Banner` в карточке ремонта: заливка цветом на 12%,
 /// заголовок и пояснение тем же цветом. Красная, а не оранжевая: это не
 /// «подождите», а «без вас не решится».
+/// Красная полоса наверху главной: что-то не уехало и само не уедет.
+///
+/// Одна на два случая — отклонённый осмотр и отклонённая наработка. Выглядят
+/// они одинаково намеренно: обходчику важно, что запись застряла и ждёт его
+/// решения, а не какая именно очередь её держит. Различаются только тексты и
+/// то, что открывается по нажатию.
 class _RejectedScansBanner extends StatelessWidget {
+  final String title;
   final int count;
+  final String Function(int) countLabel;
   final VoidCallback onTap;
 
-  const _RejectedScansBanner({required this.count, required this.onTap});
+  const _RejectedScansBanner({
+    required this.title,
+    required this.count,
+    required this.countLabel,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1024,7 +1080,7 @@ class _RejectedScansBanner extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      ScanQueueStrings.rejectedTitle,
+                      title,
                       textAlign: TextAlign.center,
                       style: tt.bodyMedium?.copyWith(
                         color: cs.error,
@@ -1033,7 +1089,7 @@ class _RejectedScansBanner extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      ScanQueueStrings.rejectedCount(count),
+                      countLabel(count),
                       textAlign: TextAlign.center,
                       style: tt.bodySmall?.copyWith(color: cs.error),
                     ),
@@ -1045,6 +1101,148 @@ class _RejectedScansBanner extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Лист разбора отклонённой наработки.
+///
+/// Список записей, каждая с оборудованием, показанием и причиной отказа.
+/// Действий два — повторить и удалить; править число здесь нельзя намеренно:
+/// показание снимается при сканировании, у прибора, и выдумывать его в
+/// диалоге обходчик не должен.
+class _RejectedUsageSheet extends StatefulWidget {
+  const _RejectedUsageSheet();
+
+  @override
+  State<_RejectedUsageSheet> createState() => _RejectedUsageSheetState();
+}
+
+class _RejectedUsageSheetState extends State<_RejectedUsageSheet> {
+  /// Название оборудования по локальному кэшу: в самой записи наработки
+  /// лежит только uuid.
+  String _equipmentName(String? uuid) {
+    if (uuid == null || uuid.isEmpty) {
+      return UsageQueueStrings.unknownEquipment;
+    }
+    for (final record in GlobalState.dataProvider.inventoryRecords) {
+      if (record.uuid == uuid) return record.name;
+    }
+    return UsageQueueStrings.unknownEquipment;
+  }
+
+  Future<void> _retry(String key) async {
+    await GlobalState.dataProvider.retryRejectedUsage(key);
+    if (!mounted) return;
+    // Отправку не ждём: очередь подхватит запись своим проходом, а лист
+    // должен закрыться сразу, если разбирать больше нечего.
+    setState(() {});
+    _closeIfEmpty();
+  }
+
+  Future<void> _delete(UsageUpdate usage) async {
+    final confirmed = await confirmRepairDelete(
+      context,
+      title: UsageQueueStrings.deleteTitle,
+      body: UsageQueueStrings.deleteBody(_equipmentName(usage.equipmentUuid)),
+      note: RepairStrings.deleteIrreversible,
+    );
+    if (!confirmed || !mounted) return;
+    await GlobalState.dataProvider.deleteRejectedUsage(usage.key());
+    if (!mounted) return;
+    setState(() {});
+    _closeIfEmpty();
+  }
+
+  void _closeIfEmpty() {
+    if (GlobalState.dataProvider.rejectedUsage.isNotEmpty) return;
+    if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final items = GlobalState.dataProvider.rejectedUsage;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          UsageQueueStrings.sheetTitle,
+          textAlign: TextAlign.center,
+          style: tt.titleLarge,
+        ),
+        const SizedBox(height: AppConstants.spacingSM),
+        Text(
+          UsageQueueStrings.sheetHint,
+          style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+        ),
+        const SizedBox(height: AppConstants.spacingMD),
+        // Записей единицы: список строится целиком, без itemBuilder.
+        for (final usage in items) ...[
+          Container(
+            margin: const EdgeInsets.only(bottom: AppConstants.spacingSM),
+            padding: const EdgeInsets.all(AppConstants.spacingMD),
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerLowest,
+              borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+              border: Border.all(color: cs.outlineVariant, width: 0.5),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _equipmentName(usage.equipmentUuid),
+                  style: tt.titleSmall,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  UsageQueueStrings.value(
+                    '${usage.usageParameterValue ?? ''}',
+                  ),
+                  style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                ),
+                const SizedBox(height: AppConstants.spacingSM),
+                Text(
+                  usage.lastError ?? '',
+                  style: tt.bodySmall?.copyWith(color: cs.error),
+                ),
+                const SizedBox(height: AppConstants.spacingSM),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => _retry(usage.key()),
+                        child: const Text(UsageQueueStrings.retry),
+                      ),
+                    ),
+                    const SizedBox(width: AppConstants.spacingSM),
+                    Expanded(
+                      child: TextButton(
+                        onPressed: () => _delete(usage),
+                        style: TextButton.styleFrom(
+                          foregroundColor: cs.error,
+                        ),
+                        child: const Text(UsageQueueStrings.delete),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: AppConstants.spacingSM),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text(UsageQueueStrings.close),
+        ),
+      ],
     );
   }
 }

@@ -1,5 +1,13 @@
 part of 'data_provider.dart';
 
+/// Журнал очередей отправки.
+///
+/// Сообщения ниже пишутся только из веток `catch`, зато именно они нужны при
+/// разборе жалобы «расход не списался» или «осмотр пропал». Уровень не ниже
+/// `warning` намеренно: в релизной сборке `Logger.root.level` поднят до
+/// `Level.WARNING` (`main.dart`), и всё, что тише, туда не доедет.
+final _outboxLog = Logger('DataProviderOutbox');
+
 /// Перевод отказа «No access to this repair» — по нему очередь узнаёт, что
 /// ремонт передали другому сотруднику. Сравниваем с переводом, а не с
 /// английским оригиналом, чтобы источник строки был ровно один.
@@ -33,6 +41,13 @@ extension DataProviderOutbox on DataProvider {
       return await _syncPendingRepairsImpl();
     } finally {
       _isSyncingPendingRepairs = false;
+      // Проход правит черновики прямо в боксе: записывает `serverUuid`,
+      // причину отказа, оставшиеся снимки. Число ремонтов при этом не
+      // меняется, поэтому счётчик молчит, — а список ремонтов обязан показать
+      // и «отправляется», и «не отправлено». Двигаем ревизию в `finally`:
+      // проход мог оборваться на середине, но то, что он успел записать,
+      // экран всё равно должен увидеть.
+      repairsRevision.value++;
     }
   }
 
@@ -130,7 +145,8 @@ extension DataProviderOutbox on DataProvider {
                 : null,
           ),
         );
-        print('Error sending pending repair: $e');
+        _outboxLog.severe(
+            'черновик ремонта ${current.localId} отклонён сервером: $e');
       }
     }
     return sent;
@@ -179,7 +195,8 @@ extension DataProviderOutbox on DataProvider {
         if (e is AuthExpiredException) authExpired.value = true;
         failed = true;
         left.add(path);
-        print('Error uploading repair photo: $e');
+        _outboxLog.warning(
+            'снимок $path не загрузился в ремонт $repairUuid: $e');
       }
     }
     return left;
@@ -208,7 +225,7 @@ extension DataProviderOutbox on DataProvider {
         if (e is AuthExpiredException) authExpired.value = true;
         failed = true;
         left.add(uuid);
-        print('Error deleting repair photo: $e');
+        _outboxLog.warning('снимок $uuid не удалён из ремонта $repairUuid: $e');
       }
     }
     return left;
@@ -260,6 +277,9 @@ extension DataProviderOutbox on DataProvider {
       return await _syncPendingRepairUpdatesImpl();
     } finally {
       _isSyncingRepairUpdates = false;
+      // По той же причине, что и у черновиков: пометка «не отправлено» в
+      // строке списка появляется и снимается прямо здесь.
+      repairsRevision.value++;
     }
   }
 
@@ -352,7 +372,8 @@ extension DataProviderOutbox on DataProvider {
             conflictKind: kind.code,
           ),
         );
-        print('Error sending pending repair update: $e');
+        _outboxLog.severe(
+            'правка ремонта ${current.repairUuid} отклонена сервером: $e');
       }
     }
     return sent;
@@ -429,9 +450,23 @@ extension DataProviderOutbox on DataProvider {
     await syncPendingRepairUpdates();
   }
 
+  /// Отправляет наработку, снятую обходчиком при сканировании.
+  ///
+  /// Отказ по существу помечается и больше не повторяется — как у осмотров и
+  /// ремонтов. Раньше эта очередь была единственной без такой пометки: любая
+  /// ошибка возвращала запись в бокс, и невыполнимый запрос (значение меньше
+  /// предыдущего, параметр удалён, отозваны права) крутился в ней вечно.
+  ///
+  /// Стоило это дорого не самой наработке, а осмотрам: закрытие задачи ТО
+  /// намеренно ждёт, пока уедет наработка по тому же оборудованию, — и
+  /// зависало вместе с ней навсегда, вместе со списанием ЗИП и без единого
+  /// слова на экране.
   Future<void> syncUsageScans() async {
     final scans = scanUsageBox.values.toList();
     for (final scan in scans) {
+      // Отклонённые не долбим на каждом проходе: причина сама не изменится,
+      // решение за обходчиком — повторить или выбросить.
+      if (scan.isRejected) continue;
       try {
         await GlobalState.dataProvider.scanUsageBox.delete(scan.key());
         await GlobalState.dataProvider.scanUsagePendingBox.delete(scan.key());
@@ -446,10 +481,27 @@ extension DataProviderOutbox on DataProvider {
           await GlobalState.dataProvider.scanUsageBox.put(scan.key(), scan);
         }
       } catch (e) {
-        await GlobalState.dataProvider.scanUsageBox.delete(scan.key());
         await GlobalState.dataProvider.scanUsagePendingBox.delete(scan.key());
+        if (e is AuthExpiredException) {
+          // Токен протух — наработка не виновата. Возвращаем без пометки:
+          // после повторного входа уйдёт сама.
+          await GlobalState.dataProvider.scanUsageBox.put(scan.key(), scan);
+          authExpired.value = true;
+          continue;
+        }
+        if (isRetryableScanError(e)) {
+          await GlobalState.dataProvider.scanUsageBox.put(scan.key(), scan);
+          _outboxLog.warning(
+              'наработка ${scan.key()} не отправлена, осталась в очереди: $e');
+          continue;
+        }
+        // Сервер ответил и отказал. Запоминаем причину и перестаём повторять,
+        // иначе очередь ТО по этому оборудованию не сдвинется никогда.
+        scan.lastError = scanErrorMessage(e);
         await GlobalState.dataProvider.scanUsageBox.put(scan.key(), scan);
-        print('Error syncing data: $e');
+        refreshRejectedUsageCount();
+        _outboxLog.severe(
+            'наработка ${scan.key()} отклонена сервером: ${scan.lastError}');
       }
     }
   }
@@ -507,8 +559,14 @@ extension DataProviderOutbox on DataProvider {
       if (isMaintenancePeriodicTask &&
           scan.equipmentUuid != null &&
           scan.equipmentUuid!.isNotEmpty) {
+        // Отклонённую наработку не ждём: она уже не уедет сама, и ждать её —
+        // значит не отправить осмотр ТО никогда. Пометка о ней висит на
+        // главной, разбирать её обходчику; закрытие задачи и списание ЗИП это
+        // держать не должно.
         final hasPendingUsage = scanUsageBox.values.any(
-              (usage) => usage.equipmentUuid == scan.equipmentUuid,
+              (usage) =>
+                  usage.equipmentUuid == scan.equipmentUuid &&
+                  !usage.isRejected,
             ) ||
             scanUsagePendingBox.values.any(
               (usage) => usage.equipmentUuid == scan.equipmentUuid,
@@ -534,6 +592,10 @@ extension DataProviderOutbox on DataProvider {
           if (scan.taskUuid != null) {
             await stringBox.delete('maintenance_task_${scan.taskUuid}');
           }
+          // Сервер списал ЗИП — уменьшаем локальные остатки, не дожидаясь
+          // синхронизации каталога: до неё целую минуту предупреждение о
+          // нехватке считалось бы по числу, которого на складе уже нет.
+          await applyLocalStockWriteOff(scan.actualConsumptions);
         } else {
           // Неуспешно - оставляем в pending с timestamp, вернется через 120 секунд
           // Ничего не делаем, скан уже в scanPendingBox с timestamp
@@ -558,6 +620,9 @@ extension DataProviderOutbox on DataProvider {
           if (scan.taskUuid != null) {
             await stringBox.delete('maintenance_task_${scan.taskUuid}');
           }
+          // Наш прошлый запрос дошёл — значит списание сервер выполнил, а мы
+          // об этом не узнали. Остатки уменьшаем так же, как при успехе.
+          await applyLocalStockWriteOff(scan.actualConsumptions);
           continue;
         }
         if (!isRetryableScanError(e)) {
@@ -576,13 +641,15 @@ extension DataProviderOutbox on DataProvider {
           await stringBox.delete(timestampKey);
           await scanBox.put(scan.key(), scan);
           refreshRejectedScansCount();
-          print('Scan rejected by server: ${scan.lastError}');
+          _outboxLog.severe(
+              'осмотр ${scan.key()} отклонён сервером: ${scan.lastError}');
           continue;
         }
         // Временный сбой: оставляем в pending с timestamp, вернётся сам.
         await scanPendingBox.put(scan.key(), scan);
         await stringBox.put(timestampKey, now.toString());
-        print('Error syncing data: $e');
+        _outboxLog.warning(
+            'осмотр ${scan.key()} не отправлен, вернётся через 120 с: $e');
       }
     }
   }
@@ -596,7 +663,44 @@ extension DataProviderOutbox on DataProvider {
     final scan = scanBox.get(key);
     if (scan == null || !scan.isRejected) return;
     scan.lastError = null;
+    // Числа нехватки принадлежали прошлому отказу. Не снять их — и после
+    // отказа по другой причине экран показал бы позиции, к которым новый
+    // отказ отношения не имеет.
+    scan.lastShortages = null;
     await scanBox.put(key, scan);
+    refreshRejectedScansCount();
+    invalidateScanTaskCache();
+    await syncScans();
+  }
+
+  /// Отправляет отклонённый осмотр заново с исправленным расходом ЗИП.
+  ///
+  /// Единственный случай, когда расход уже поставленного в очередь осмотра
+  /// меняется: сервер отказал по нехватке на складе, и обходчик уменьшил
+  /// количества до того, что там есть. Раньше выбора не было — либо ждать,
+  /// пока склад пополнят, либо удалить осмотр целиком вместе с фотографиями,
+  /// комментарием и фактом закрытия задачи.
+  ///
+  /// Запись кладётся под тем же ключом: `Scan.key()` расход не учитывает,
+  /// поэтому копия заменяет оригинал, а не появляется второй.
+  ///
+  /// [actualConsumptions] и [consumptionNames] — уже готовые строки JSON, в
+  /// том же виде, в каком их собирает экран результата скана. `null` означает
+  /// «расхода нет»: поле тогда не уйдёт на сервер вовсе, и списания не будет.
+  Future<void> retryRejectedScanWithConsumption(
+    String key, {
+    required String? actualConsumptions,
+    required String? consumptionNames,
+  }) async {
+    final scan = scanBox.get(key);
+    if (scan == null) return;
+    final updated = scan.copyWithConsumption(
+      actualConsumptions: actualConsumptions,
+      consumptionNames: consumptionNames,
+    )
+      ..lastError = null
+      ..lastShortages = null;
+    await scanBox.put(key, updated);
     refreshRejectedScansCount();
     invalidateScanTaskCache();
     await syncScans();
@@ -667,7 +771,8 @@ extension DataProviderOutbox on DataProvider {
         await periodicTaskPendingBox.put(task.key(), task);
         final timestampKey = 'periodic_task_pending_${task.key()}';
         await stringBox.put(timestampKey, now.toString());
-        print('Error syncing periodic task: $e');
+        _outboxLog.warning('периодическая задача ${task.key()} не отправлена,'
+            ' вернётся через 120 с: $e');
       }
     }
   }

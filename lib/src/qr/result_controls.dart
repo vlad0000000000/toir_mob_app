@@ -26,8 +26,17 @@ import '../widgets/spare_part_consumption.dart';
 /// Условие ровно то же, что и на бэкенде: блок `spare_part_usage` приходит у
 /// любой периодической задачи, а у заявки без задачи его нет — списывать не по
 /// чему. Настроена задаче норма или нет, значения больше не имеет: сервер
-/// принимает и внеплановый расход. Выбор задачи в приложении одиночный,
-/// поэтому берём единственную.
+/// принимает и внеплановый расход.
+///
+/// Ровно одна выбранная задача — обязательное условие, и это **решение
+/// заказчика**, а не техническое ограничение: при двух и более выбранных
+/// задачах указать и списать фактический расход нельзя вовсе. Так и должно
+/// быть — не «пока не сделали».
+///
+/// Технически сервер принял бы расход по каждой задаче отдельным `PATCH`, так
+/// что соблазн «починить» это есть. Не надо: раздел расхода при множественном
+/// выборе не показывается намеренно, а о том, что списания не будет, обходчика
+/// предупреждает [configuredConsumptionTasksOf] перед отправкой.
 ///
 /// Живёт здесь, а не в модели: правило описывает поведение формы осмотра, и
 /// нужно оно двоим — самой форме и сборке осмотра на экране результата.
@@ -37,6 +46,22 @@ Task? consumptionTaskOf(EquipmentDetailController controller) {
   final task = selected.first;
   return task.sparePartUsage == null ? null : task;
 }
+
+/// Выбранные задачи, которым администратор настроил расход ЗИП.
+///
+/// Считается по **всем** выбранным, а не по единственной, — и в этом всё дело.
+/// Предупреждение о незаполненном расходе раньше опиралось на
+/// [consumptionTaskOf], то есть молчало при двух и более выбранных задачах:
+/// настроенное ТО закрывалось без единой позиции и без единого вопроса, а
+/// расхождение всплывало уже у администратора, в остатках склада.
+///
+/// Пустой список — предупреждать не о чем: по ненастроенной задаче пустой
+/// расход обычное дело, и переспрашивать про каждый рядовой осмотр незачем.
+List<Task> configuredConsumptionTasksOf(EquipmentDetailController controller) =>
+    [
+      for (final task in controller.selectedTasks)
+        if (task.sparePartUsage?.isConfigured == true) task,
+    ];
 
 class ResultControls extends StatefulWidget {
   final TextEditingController descController;
@@ -109,6 +134,13 @@ class _ResultControlsState extends State<ResultControls> {
     widget.priorityController.valueNotifier.addListener(_onValueChanged);
     widget.equipmentDetailController.valueNotifier.addListener(_onTaskChanged);
     widget.consumptionController.valueNotifier.addListener(_onValueChanged);
+    // Каталог ЗИП грузится на входе в экран и не мгновенно. Пока он не приехал,
+    // `_unitOf` и остатки отдают пустоту: строки расхода стоят без единиц
+    // измерения, а предупреждения о нехватке на складе не показываются вовсе.
+    // Экран об этом не узнавал — `context.watch<DataProvider>()` ничего не
+    // перерисовывает, провайдер не реактивный, — и так и оставался до
+    // переоткрытия. Подписываемся на ревизию каталога.
+    GlobalState.dataProvider.sparePartsRevision.addListener(_onValueChanged);
   }
 
   @override
@@ -118,6 +150,7 @@ class _ResultControlsState extends State<ResultControls> {
     widget.equipmentDetailController.valueNotifier
         .removeListener(_onTaskChanged);
     widget.consumptionController.valueNotifier.removeListener(_onValueChanged);
+    GlobalState.dataProvider.sparePartsRevision.removeListener(_onValueChanged);
     super.dispose();
   }
 
@@ -191,13 +224,17 @@ class _ResultControlsState extends State<ResultControls> {
 
   void _changeConsumptionQuantity(int index, double delta) {
     final next = _consumptions[index].quantity + delta;
-    if (next < 1) return;
+    // Граница — «больше нуля», а не «не меньше единицы». Прежняя проверка
+    // блокировала «−» у любой дробной позиции: у 0,5 следующим значением было
+    // бы 0,4, и кнопка молча переставала работать без всякого объяснения.
+    if (next <= 0) return;
     _setConsumptionQuantity(index, next);
   }
 
   /// Ноль и отрицательные не принимаем: позиция с нулём всё равно не списалась
   /// бы на сервере, а в списке выглядела бы заполненной.
   void _setConsumptionQuantity(int index, double value) {
+    value = roundConsumptionQuantity(value);
     if (value <= 0) return;
     final item = _consumptions[index];
     if (item.quantity == value) return;
@@ -493,9 +530,8 @@ class _ResultControlsState extends State<ResultControls> {
                   color: cs.onSurfaceVariant.withValues(alpha: 0.7),
                 ),
                 alignLabelWithHint: true,
-                errorText: widget.highlightDescError
-                    ? 'Укажите комментарий'
-                    : null,
+                errorText:
+                    widget.highlightDescError ? 'Укажите комментарий' : null,
               ),
             ),
 
@@ -604,7 +640,8 @@ class _LockedFieldsHint extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.info_outline_rounded, size: 20, color: cs.onSurfaceVariant),
+            Icon(Icons.info_outline_rounded,
+                size: 20, color: cs.onSurfaceVariant),
             const SizedBox(width: 12),
             Expanded(
               child: Text(

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:hive_ce/hive.dart';
 
 import 'server_decimal.dart';
@@ -30,6 +32,30 @@ class SparePart {
   /// позиции — в поиске и фильтрах не участвует.
   final String? accountingAccount;
 
+  /// Копия с другим остатком. См. [parseConsumptionWriteOff].
+  ///
+  /// Единственный случай — списание, только что принятое сервером: до
+  /// ближайшей синхронизации каталога (раз в минуту) приложение обязано
+  /// показывать уже уменьшенный остаток, иначе предупреждение о нехватке
+  /// считалось бы по числу, которого на складе больше нет. Все остальные поля
+  /// списание не меняет, поэтому отдельного полноценного `copyWith` тут не
+  /// заводим — он только приглашал бы менять каталог мимо синхронизации.
+  SparePart copyWithQuantity(double quantity) => SparePart(
+        uuid: uuid,
+        name: name,
+        supplierCode: supplierCode,
+        unitCode: unitCode,
+        unitName: unitName,
+        warehouseUuid: warehouseUuid,
+        warehouseName: warehouseName,
+        nomenclatureGroupUuid: nomenclatureGroupUuid,
+        nomenclatureGroupName: nomenclatureGroupName,
+        quantity: quantity,
+        minimumStock: minimumStock,
+        stockNorm: stockNorm,
+        accountingAccount: accountingAccount,
+      );
+
   SparePart({
     required this.uuid,
     required this.name,
@@ -56,6 +82,35 @@ class SparePart {
   /// В Hive не пишутся — адаптер сохраняет только перечисленные в нём поля.
   late final String _nameLower = name.toLowerCase();
   late final String _codeLower = supplierCode?.toLowerCase() ?? '';
+
+  /// Ключ сортировки каталога по русскому алфавиту.
+  ///
+  /// `String.compareTo` сравнивает кодовые единицы UTF-16, а не буквы, и на
+  /// кириллице это заметно ломает порядок:
+  ///
+  /// * `Ё` (U+0401) стоит до `А` (U+0410) — «Ёмкость» уезжала в самое начало
+  ///   каталога;
+  /// * все строчные (`а` — U+0430) идут после всех прописных (`Я` — U+042F) —
+  ///   «болт М6» оказывался ниже «Ящика», а «Болт М6» — в начале.
+  ///
+  /// В справочнике, где часть номенклатуры заведена с заглавной, а часть нет,
+  /// список выглядел перемешанным, и найти позицию прокруткой было нельзя.
+  ///
+  /// Нижний регистр убирает вторую беду, замена `ё` → `е` — первую. Настоящей
+  /// локале-зависимой коллации в Dart без сторонних пакетов нет, но эти два
+  /// шага закрывают практически все реальные названия.
+  ///
+  /// Считается лениво и кэшируется, как и ключи поиска: сортировка идёт по
+  /// всему каталогу, и пересчитывать строку на каждое сравнение нельзя.
+  late final String _nameSortKey = _nameLower.replaceAll('ё', 'е');
+
+  /// Сравнение двух позиций для сортировки каталога.
+  static int compareByName(SparePart a, SparePart b) {
+    final byName = a._nameSortKey.compareTo(b._nameSortKey);
+    // При совпадении ключей — по исходному названию, чтобы порядок не «плавал»
+    // между проходами: «Болт» и «болт» иначе вставали бы в случайном порядке.
+    return byName != 0 ? byName : a.name.compareTo(b.name);
+  }
 
   /// Совпадение с уже приведённым к нижнему регистру запросом.
   ///
@@ -179,4 +234,45 @@ class SparePartAdapter extends TypeAdapter<SparePart> {
     writer.write(obj.stockNorm);
     writer.write(obj.accountingAccount);
   }
+}
+
+/// Разбирает строку фактического расхода в «uuid → сколько списать».
+///
+/// На вход — то же, что уходит на сервер в поле формы `actual_consumptions`:
+/// `[{"spare_part_uuid": "...", "quantity": 2}]`. Строкой, потому что именно
+/// строкой расход и хранится в осмотре (`Scan.actualConsumptions`) — разбирать
+/// его обратно приходится ровно здесь.
+///
+/// Всё сомнительное отбрасывается молча: результат нужен для локальной
+/// заплатки на остаток (см. `DataProvider.applyLocalStockWriteOff`), а не для
+/// отчётности, и испортить каталог из-за кривой записи она не вправе. Нулевые
+/// и отрицательные количества не проходят: сервер такие и не принял бы.
+///
+/// Повторы одной позиции складываются — на случай, если расход всё же придёт
+/// с двумя строками на один uuid.
+Map<String, double> parseConsumptionWriteOff(String? actualConsumptions) {
+  if (actualConsumptions == null || actualConsumptions.isEmpty) return const {};
+  final Object? parsed;
+  try {
+    parsed = jsonDecode(actualConsumptions);
+  } catch (_) {
+    return const {};
+  }
+  if (parsed is! List) return const {};
+
+  final result = <String, double>{};
+  for (final raw in parsed) {
+    if (raw is! Map) continue;
+    final uuid = raw['spare_part_uuid'];
+    final quantity = raw['quantity'];
+    if (uuid is! String || uuid.isEmpty) continue;
+    // Число сервер и клиент пишут числом, но строка тоже разбирается: то же
+    // послабление, что и в `parseServerDecimal`.
+    final value = quantity is num
+        ? quantity.toDouble()
+        : (quantity is String ? double.tryParse(quantity) : null);
+    if (value == null || value <= 0) continue;
+    result[uuid] = (result[uuid] ?? 0) + value;
+  }
+  return result;
 }

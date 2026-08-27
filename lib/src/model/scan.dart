@@ -68,6 +68,43 @@ class Scan {
 
   bool get isRejected => (lastError ?? '').isNotEmpty;
 
+  /// Копия с другим фактическим расходом — для экрана разрешения конфликта.
+  ///
+  /// Поля расхода объявлены `final`, потому что при обычной жизни осмотра они
+  /// не меняются: расход собирают один раз при отправке. Исключение одно —
+  /// сервер отказал по нехватке на складе, и обходчик правит количества, чтобы
+  /// отправить снова. Через копию, а не через изменяемое поле: так остаётся
+  /// видно, что это особый случай, а не рядовая правка.
+  ///
+  /// Ключ записи при этом **не меняется** — [key] расход не учитывает
+  /// намеренно (см. комментарий рядом с ним), поэтому копия ложится в бокс на
+  /// место оригинала, а не второй записью.
+  ///
+  /// Отметки об отказе переносятся как есть: снимать их — дело вызывающего,
+  /// он же решает, отправлять осмотр заново или просто сохранить правку.
+  Scan copyWithConsumption({
+    required String? actualConsumptions,
+    required String? consumptionNames,
+  }) {
+    return Scan(
+      files: files,
+      periodicTaskUuid: periodicTaskUuid,
+      equipmentUuid: equipmentUuid,
+      resultStatus: resultStatus,
+      comment: comment,
+      faultUuid: faultUuid,
+      isOtherFault: isOtherFault,
+      taskUuid: taskUuid,
+      priority: priority,
+      createdAt: createdAt,
+      closedAt: closedAt,
+      actualConsumptions: actualConsumptions,
+      consumptionNames: consumptionNames,
+      lastError: lastError,
+      lastShortages: lastShortages,
+    );
+  }
+
   String key() {
     return GlobalState.digest(jsonEncode({
       'files': files,

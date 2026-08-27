@@ -177,7 +177,7 @@ extension DataProviderSync on DataProvider {
         if (_pagingLimitReached(offset)) break;
       }
     }
-    all.sort((a, b) => a.name.compareTo(b.name));
+    all.sort(SparePart.compareByName);
     _spareParts = all;
     _rebuildSparePartIndex();
     // Между clear() и putAll() бокс пуст или неполон. Флаг снаружи этой пары
@@ -233,7 +233,7 @@ extension DataProviderSync on DataProvider {
     // Порядок на диске после точечных правок уже не отсортирован — сортируем
     // список в памяти. На старте приложения это делает конструктор.
     final all = sparePartBox.values.toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
+      ..sort(SparePart.compareByName);
     _spareParts = all;
     _rebuildSparePartIndex();
     await _saveSparePartsCursor(until);
@@ -441,9 +441,13 @@ extension DataProviderSync on DataProvider {
         // загонял бы этот цикл в бесконечную загрузку.
         if (_pagingLimitReached(all.length)) break;
       }
+      // Между clear() и putAll() бокс пуст. Флаг снаружи этой пары помечает
+      // такое состояние как незавершённое — тот же приём, что у каталога ЗИП.
+      await markNormsWriteStarted();
       await consumptionNormBox.clear();
       await consumptionNormBox
           .putAll({for (final norm in all) norm.uuid: norm});
+      await markNormsWriteFinished();
     } catch (e) {
       // Как и остальные справочники: при сбое остаётся прошлый снимок.
       print('Failed sync consumption norms: $e');

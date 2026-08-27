@@ -104,7 +104,11 @@ class _BarcodeScannerWithControllerState
 
   @override
   Widget build(BuildContext context) {
-    final dataProvider = context.watch<DataProvider>();
+    // `read`, а не `watch`: DataProvider не ChangeNotifier и положен в дерево
+    // обычным Provider, так что подписываться тут не на что — `watch` лишь
+    // выглядел реактивным. За изменениями данных следят ревизии кэша
+    // (`repairsRevision`, `sparePartsRevision`).
+    final dataProvider = context.read<DataProvider>();
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.inverseSurface,
       appBar: MyAppBar.build(context) as AppBar,
@@ -157,8 +161,7 @@ class _BarcodeScannerWithControllerState
                                 // обходчик заполняет осмотр: грелась и ела
                                 // батарею.
                                 await _stopCamera();
-                                await router.push('/qr_result',
-                                    extra: machine);
+                                await router.push('/qr_result', extra: machine);
                                 if (!mounted) return;
                                 _navigating = false;
                                 unawaited(controller.start());
@@ -201,8 +204,7 @@ class _BarcodeScannerWithControllerState
             right: 16,
             bottom: 24,
             child: Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 8, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               decoration: BoxDecoration(
                 color: Colors.black.withValues(alpha: 0.45),
                 borderRadius: BorderRadius.circular(32),
@@ -235,10 +237,11 @@ class QRScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-
-    WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
-      UpdateManager.checkForUpdate(context);
-    },);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (timeStamp) {
+        UpdateManager.checkForUpdate(context);
+      },
+    );
 
     return BarcodeScannerWithController();
   }

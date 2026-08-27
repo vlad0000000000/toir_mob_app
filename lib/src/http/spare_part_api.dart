@@ -111,8 +111,7 @@ extension SparePartApi on API {
   /// показано крупное число, которому обходчик поверит буквально.
   ///
   /// Ответ (`SparePartDetailSchema`) содержит ещё и вложенную `stock_history`,
-  /// но мы её игнорируем: лента грузится постранично отдельным запросом, а
-  /// вложенная отдаётся целиком и без пагинации.
+  /// но мы её игнорируем: ленты движений в приложении нет.
   Future<SparePart> getSparePart(String uuid) async {
     _guardOffline();
     if (API.jwtToken == null) {
@@ -134,42 +133,6 @@ extension SparePartApi on API {
     throw Exception(_serverDetail(
       response,
       'Failed to load spare part: ${response.statusCode}',
-    ));
-  }
-
-  /// История движений позиции. Сервер отдаёт записи от новых к старым и на
-  /// первой странице (`skip=0`) кладёт общее число в заголовок
-  /// `X-Total-Count` — из него берётся счётчик «показано N из M».
-  Future<StockHistoryPage> getStockHistory({
-    required String sparePartUuid,
-    int limit = 50,
-    int offset = 0,
-  }) async {
-    _guardOffline();
-    if (API.jwtToken == null) {
-      throw Exception('Not authenticated');
-    }
-
-    final response = await _client.get(
-      Uri.parse('${API.baseUrl}/v1/company/spare_parts/history'
-          '?spare_part_uuid=$sparePartUuid&limit=$limit&skip=$offset'),
-      headers: {
-        'Authorization': 'Bearer ${API.jwtToken}',
-      },
-    ).timeout(API._readTimeout);
-
-    if (response.statusCode == 200) {
-      const utf8Decoder = Utf8Decoder(allowMalformed: true);
-      final decodedBytes = utf8Decoder.convert(response.bodyBytes);
-      final List<dynamic> data = jsonDecode(decodedBytes);
-      return StockHistoryPage(
-        entries: data.map((json) => StockHistoryEntry.fromJson(json)).toList(),
-        total: int.tryParse(response.headers['x-total-count'] ?? ''),
-      );
-    }
-    throw Exception(_serverDetail(
-      response,
-      'Failed to load stock history: ${response.statusCode}',
     ));
   }
 }

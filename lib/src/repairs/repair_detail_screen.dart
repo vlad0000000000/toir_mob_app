@@ -781,13 +781,16 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
 
   void _changeQuantity(int index, double delta) {
     final next = _consumptions[index].quantity + delta;
-    if (next < 1) return;
+    // Граница — «больше нуля», а не «не меньше единицы»: 0,5 литра расхода
+    // законны, а «−» на такой позиции раньше просто ничего не делал.
+    if (next <= 0) return;
     _setQuantity(index, next);
   }
 
   /// Ввод количества руками. Ноль и отрицательные не принимаем: сервер
   /// требует `quantity > 0`, а позиция с нулём молча пропала бы при отправке.
   void _setQuantity(int index, double value) {
+    value = roundConsumptionQuantity(value);
     if (value <= 0) return;
     final item = _consumptions[index];
     if (item.quantity == value) return;

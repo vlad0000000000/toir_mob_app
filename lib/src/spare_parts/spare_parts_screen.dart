@@ -58,14 +58,26 @@ class _SparePartsScreenState extends State<SparePartsScreen> {
       _isSyncing = true;
       _syncCatalog();
     }
+    // Каталог обновляется и без участия экрана — фоновым циклом раз в минуту.
+    // Инкрементальный проход чаще всего меняет именно остатки, а они и есть
+    // главное, ради чего сюда заходят: без подписки на экране оставались бы
+    // числа с момента открытия, притом что подпись «Остатки на …» уверяла бы
+    // в обратном.
+    GlobalState.dataProvider.sparePartsRevision.addListener(_onCatalogChanged);
   }
 
   @override
   void dispose() {
+    GlobalState.dataProvider.sparePartsRevision
+        .removeListener(_onCatalogChanged);
     _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
+
+  /// Отобранный список лежит в поле, поэтому одной перерисовки мало — отбор
+  /// надо прогнать заново по новому каталогу.
+  void _onCatalogChanged() => _recompute();
 
   Future<void> _syncCatalog() async {
     await GlobalState.dataProvider.syncSpareParts();
@@ -437,24 +449,47 @@ class _SparePartsFilterSheetState extends State<_SparePartsFilterSheet> {
   bool _warehousesExpanded = false;
   bool _groupsExpanded = false;
 
+  /// Варианты секций и число совпадений — в полях, а не в геттерах.
+  ///
+  /// Раньше это были три геттера, каждый из которых проходил по всему каталогу,
+  /// и все три вызывались из `build`. Вместе с двумя проходами в [_updateDraft]
+  /// выходило пять проходов на каждое касание чипа. На стенде с 802 позициями
+  /// незаметно, но каталог рассчитан на десятки тысяч — там это уже подвисание
+  /// листа на каждое нажатие.
+  ///
+  /// Сам экран этой ошибки не делает: отобранный список лежит у него в поле с
+  /// явным замечанием, что считать его в `build` нельзя. Лист фильтра — тот же
+  /// код, написанный без этой предосторожности.
+  Map<String, String> _warehouses = const {};
+  Map<String, String> _groups = const {};
+  int _resultCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _recomputeOptions();
+    _recomputeCount();
+  }
+
   /// Варианты секции считаются с учётом **остальных** условий фильтра, но не
   /// своего собственного. Иначе выбор одного склада спрятал бы все прочие
   /// склады, и второй уже нельзя было бы добавить.
-  Map<String, String> get _warehouseOptions =>
-      GlobalState.dataProvider.sparePartWarehouses(
-        where: _draft.copyWith(warehouseUuids: const {}).matches,
-      );
+  void _recomputeOptions() {
+    _warehouses = GlobalState.dataProvider.sparePartWarehouses(
+      where: _draft.copyWith(warehouseUuids: const {}).matches,
+    );
+    _groups = GlobalState.dataProvider.sparePartNomenclatureGroups(
+      where: _draft.copyWith(groupUuids: const {}).matches,
+    );
+  }
 
-  Map<String, String> get _groupOptions =>
-      GlobalState.dataProvider.sparePartNomenclatureGroups(
-        where: _draft.copyWith(groupUuids: const {}).matches,
-      );
-
-  int get _resultCount => _applySparePartFilter(
-        GlobalState.dataProvider.spareParts,
-        filter: _draft,
-        query: widget.query,
-      ).length;
+  void _recomputeCount() {
+    _resultCount = _applySparePartFilter(
+      GlobalState.dataProvider.spareParts,
+      filter: _draft,
+      query: widget.query,
+    ).length;
+  }
 
   /// Любое изменение фильтра сужает списки вариантов — как переключение
   /// «В наличии», так и выбор склада или группы. Выбранное значение могло
@@ -467,12 +502,24 @@ class _SparePartsFilterSheetState extends State<_SparePartsFilterSheet> {
   void _updateDraft(_SparePartsFilter next) {
     setState(() {
       _draft = next;
-      final warehouses = _warehouseOptions.keys.toSet();
-      final groups = _groupOptions.keys.toSet();
-      _draft = _draft.copyWith(
-        warehouseUuids: _draft.warehouseUuids.intersection(warehouses),
-        groupUuids: _draft.groupUuids.intersection(groups),
-      );
+      _recomputeOptions();
+      final warehouses =
+          _draft.warehouseUuids.intersection(_warehouses.keys.toSet());
+      final groups = _draft.groupUuids.intersection(_groups.keys.toSet());
+      // Пересчитываем варианты второй раз, только если выбор действительно
+      // сузился. Снятие выбора расширяет варианты соседней секции, поэтому
+      // посчитанные до отсечения оказались бы неполными — но случается это
+      // редко, и платить лишним проходом на каждое касание незачем.
+      // Пересечение только уменьшает множество, так что сравнения длин хватает.
+      if (warehouses.length != _draft.warehouseUuids.length ||
+          groups.length != _draft.groupUuids.length) {
+        _draft = _draft.copyWith(
+          warehouseUuids: warehouses,
+          groupUuids: groups,
+        );
+        _recomputeOptions();
+      }
+      _recomputeCount();
     });
   }
 
@@ -483,6 +530,9 @@ class _SparePartsFilterSheetState extends State<_SparePartsFilterSheet> {
       _draft = const _SparePartsFilter();
       _warehousesExpanded = false;
       _groupsExpanded = false;
+      // Сброс снимает все условия, значит варианты и счётчик меняются тоже.
+      _recomputeOptions();
+      _recomputeCount();
     });
   }
 
@@ -490,8 +540,8 @@ class _SparePartsFilterSheetState extends State<_SparePartsFilterSheet> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    final warehouses = _warehouseOptions;
-    final groups = _groupOptions;
+    final warehouses = _warehouses;
+    final groups = _groups;
     final count = _resultCount;
 
     return SafeArea(

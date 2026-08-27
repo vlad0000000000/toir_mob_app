@@ -46,7 +46,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final dataProvider = context.watch<DataProvider>();
+    // `read`, а не `watch`: DataProvider не ChangeNotifier и положен в дерево
+    // обычным Provider, так что подписываться тут не на что — `watch` лишь
+    // выглядел реактивным. За изменениями данных следят ревизии кэша
+    // (`repairsRevision`, `sparePartsRevision`).
+    final dataProvider = context.read<DataProvider>();
 
     WidgetsBinding.instance.addPostFrameCallback(
       (timeStamp) {

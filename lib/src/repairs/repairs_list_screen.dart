@@ -95,6 +95,24 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
     // обходчик выбирает ремонт, каталог успевает подтянуться, и подбор
     // позиции в расходе открывается уже с данными. Экран этого не ждёт.
     GlobalState.dataProvider.ensureSparePartsLoaded();
+    // Пока экран открыт, кэш ремонтов меняется без его участия: фоновый цикл
+    // раз в минуту, очередь отправки черновиков, сигнал `repair_changed` по
+    // SSE. Раньше список этого не замечал — данные обновлялись, а на экране
+    // оставалось прежнее до жеста «потянуть вниз» или ухода и возврата.
+    GlobalState.dataProvider.repairsRevision.addListener(_onRepairsChanged);
+  }
+
+  @override
+  void dispose() {
+    GlobalState.dataProvider.repairsRevision.removeListener(_onRepairsChanged);
+    super.dispose();
+  }
+
+  /// Список считается в `build` (`_visibleRepairs`), поэтому достаточно
+  /// перерисовки — пересчитывать тут нечего.
+  void _onRepairsChanged() {
+    if (!mounted) return;
+    setState(() {});
   }
 
   Future<void> _syncRepairs() async {
@@ -175,10 +193,28 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
   ///
   /// Показываем их только когда в фильтре есть «Открыт»: черновик и есть
   /// будущий открытый ремонт, а во вкладке «Закрыт» ему делать нечего.
-  List<PendingRepair> get _visibleDrafts =>
-      _effectiveStatuses.contains(RepairStatuses.open)
-          ? GlobalState.dataProvider.pendingRepairs
-          : const [];
+  ///
+  /// Черновик, чей ремонт уже создан, из списка убираем: очередь отправляет
+  /// его в три шага (создать → снимки → расход и статус), и после первого шага
+  /// ремонт лежит в кэше, а черновик остаётся в очереди ради недоехавших
+  /// снимков. Оба объекта — один и тот же ремонт, и без этой проверки на
+  /// экране появлялись две карточки на одно оборудование: «Черновик · Не
+  /// отправлено» и «Открыт». Расхождение было видно сразу — счётчик активных
+  /// ремонтов такие черновики вычитает (`_refreshActiveRepairsCount`), и на
+  /// плитке главного экрана стояло «1» против двух карточек в списке.
+  ///
+  /// Сверяемся со всем кэшем, а не с отобранными по фильтру: ремонт мог уже
+  /// уехать «На рассмотрение», и при фильтре «Открыт» дубль вернулся бы.
+  List<PendingRepair> get _visibleDrafts {
+    if (!_effectiveStatuses.contains(RepairStatuses.open)) return const [];
+    final known = {
+      for (final repair in GlobalState.dataProvider.repairs) repair.uuid,
+    };
+    return [
+      for (final draft in GlobalState.dataProvider.pendingRepairs)
+        if (!known.contains(draft.serverUuid ?? '')) draft,
+    ];
+  }
 
   Future<void> _deleteDraft(PendingRepair draft) async {
     // У черновика с `serverUuid` ремонт на сервере уже есть: очередь успела
@@ -214,6 +250,10 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
           // Правка ждёт отправки — помечаем прямо в списке, иначе обходчик
           // узнал бы об этом только открыв карточку.
           pendingUpdate: GlobalState.dataProvider.pendingUpdateFor(repair.uuid),
+          // Отдельной карточкой такой черновик больше не показывается — она
+          // была бы вторым экземпляром этого же ремонта. Пометку про очередь
+          // несёт эта карточка.
+          queuedDraft: GlobalState.dataProvider.draftForRepair(repair.uuid),
           // push: список остаётся под карточкой и возвращается вместе с
           // выбранным фильтром и прокруткой.
           //
@@ -386,10 +426,20 @@ class _RepairTile extends StatelessWidget {
   /// Неотправленная правка этого ремонта, если она есть.
   final PendingRepairUpdate? pendingUpdate;
 
+  /// Черновик, из которого этот ремонт создан, если он ещё в очереди.
+  ///
+  /// Очередь отправляет черновик в три шага, и после первого ремонт уже есть
+  /// на сервере, а черновик остаётся — ради недоехавших снимков или финальной
+  /// правки. Отдельной карточкой такой черновик больше не показывается (это
+  /// был бы дубль этого же ремонта), поэтому пометку «Не отправлено» несёт
+  /// карточка ремонта — иначе про застрявшие снимки не сказал бы никто.
+  final PendingRepair? queuedDraft;
+
   const _RepairTile({
     required this.repair,
     required this.onTap,
     this.pendingUpdate,
+    this.queuedDraft,
   });
 
   @override
@@ -399,6 +449,13 @@ class _RepairTile extends StatelessWidget {
     final started =
         DateFormat('dd.MM HH:mm').format(repair.startedAt.toLocal());
     final isFree = repair.isUnassigned && repair.isOpen;
+    // Источника у пометки два — неотправленная правка и неотправленный
+    // черновик, — а выглядит она одинаково: обходчику важно, что данные ещё
+    // не на сервере, а не какая именно очередь их держит.
+    final unsent = pendingUpdate != null || queuedDraft != null;
+    final unsentRejected = (pendingUpdate?.isRejected ?? false) ||
+        (queuedDraft?.isRejected ?? false);
+    final unsentColor = unsentRejected ? cs.error : cs.warning;
 
     return Card(
       child: InkWell(
@@ -431,7 +488,7 @@ class _RepairTile extends StatelessWidget {
                   ),
                   // Оранжевая точка на значке оборудования — признак
                   // неотправленного (п. 4.2.4 отчёта).
-                  if (pendingUpdate != null)
+                  if (unsent)
                     Positioned(
                       top: -2,
                       right: -2,
@@ -439,8 +496,7 @@ class _RepairTile extends StatelessWidget {
                         width: 12,
                         height: 12,
                         decoration: BoxDecoration(
-                          color:
-                              pendingUpdate!.isRejected ? cs.error : cs.warning,
+                          color: unsentColor,
                           shape: BoxShape.circle,
                           border: Border.all(color: cs.surface, width: 2),
                         ),
@@ -482,22 +538,18 @@ class _RepairTile extends StatelessWidget {
                         // перечёркнутым облаком (п. 4.2.4 отчёта): номер и
                         // дата никуда не денутся, а вот про очередь обходчик
                         // должен узнать с первого взгляда.
-                        if (pendingUpdate != null) ...[
+                        if (unsent) ...[
                           Icon(
                             Icons.cloud_off_rounded,
                             size: 14,
-                            color: pendingUpdate!.isRejected
-                                ? cs.error
-                                : cs.warning,
+                            color: unsentColor,
                           ),
                           const SizedBox(width: 4),
                           Flexible(
                             child: Text(
                               RepairStrings.draftPill,
                               style: tt.bodySmall?.copyWith(
-                                color: pendingUpdate!.isRejected
-                                    ? cs.error
-                                    : cs.warning,
+                                color: unsentColor,
                                 fontWeight: FontWeight.w600,
                               ),
                               maxLines: 1,

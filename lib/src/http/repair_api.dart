@@ -213,7 +213,7 @@ extension RepairApi on API {
       if (comment != null && comment.isNotEmpty) 'comment': comment,
     };
 
-    final response = await http
+    final response = await _client
         .post(
           Uri.parse('${API.baseUrl}/v1/repairs/'),
           headers: {
@@ -343,7 +343,7 @@ extension RepairApi on API {
       throw Exception('Not authenticated');
     }
 
-    final response = await http
+    final response = await _client
         .patch(
           Uri.parse('${API.baseUrl}/v1/repairs/$repairUuid'),
           headers: {
@@ -397,7 +397,7 @@ extension RepairApi on API {
       if (submitForReview) 'status': RepairStatuses.underReview,
     };
 
-    final response = await http
+    final response = await _client
         .patch(
           Uri.parse('${API.baseUrl}/v1/repairs/$repairUuid'),
           headers: {

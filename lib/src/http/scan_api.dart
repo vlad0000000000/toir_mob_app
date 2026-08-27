@@ -43,18 +43,32 @@ extension ScanApi on API {
             ? base64Image.split(',').last
             : base64Image;
 
+        // Кадр не разобрался — прекращаем отправку, а не отправляем осмотр
+        // без него.
+        //
+        // Раньше ошибка уходила в `print`, запрос летел с оставшимися
+        // снимками, сервер отвечал 200, и очередь считала осмотр
+        // доставленным. Снимок исчезал молча: ни обходчик, ни администратор
+        // никогда не узнали бы, что кадр вообще был. А испортиться строка
+        // может — на то она и лежит в базе на диске.
+        //
+        // Исключение намеренно не ловим здесь в отказ: `syncScans`
+        // классифицирует его как невосстановимый, осмотр останется в очереди
+        // с внятной причиной, и обходчик сможет переснять.
+        final List<int> bytes;
         try {
-          final bytes = base64Decode(cleanBase64);
-          final file = http.MultipartFile.fromBytes(
-            'files',
-            bytes,
-            filename: 'image_$i.jpg',
-            contentType: MediaType('image', 'jpeg'),
-          );
-          request.files.add(file);
+          bytes = base64Decode(cleanBase64);
         } catch (e) {
-          print('Ошибка декодирования изображения $i: $e');
+          throw Exception(
+            'Снимок ${i + 1} повреждён и не может быть отправлен: $e',
+          );
         }
+        request.files.add(http.MultipartFile.fromBytes(
+          'files',
+          bytes,
+          filename: 'image_$i.jpg',
+          contentType: MediaType('image', 'jpeg'),
+        ));
       }
     }
 

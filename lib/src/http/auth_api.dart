@@ -71,7 +71,7 @@ extension AuthApi on API {
   Future<User> login(String username, String password) async {
     try {
       _guardOffline();
-      final response = await http
+      final response = await _client
           .post(
             Uri.parse('${API.baseUrl}/v1/auth/login'),
             headers: {

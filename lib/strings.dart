@@ -543,24 +543,14 @@ class SparePartStrings {
 
   static String stockNorm(String value) => 'норма $value';
 
-  // История движений
-  static const String historyTitle = 'История движений';
-  static const String historySearchHint = 'Поиск по задаче или ремонту';
-  static const String historyUnavailableTitle = 'История недоступна';
-  static const String historyEmptyTitle = 'Движений не было';
-  static const String historyEmptyHint =
-      'По этой позиции ещё не было ни приходов, ни списаний.';
-  static const String resetFilters = 'Сбросить фильтры';
-  static const String categoryAll = 'Все';
-  static const String period = 'Период';
-  static const String periodFrom = 'С даты';
-  static const String periodTo = 'По дату';
-  static const String periodAny = 'Любая';
-  static const String done = 'Готово';
   static const String refreshFailed =
       'Не удалось обновить остатки. Показаны прежние данные.';
 
-  static String shownOf(int shown, int total) => '$shown из $total';
+  // Выбор периода — общий лист `showDateRangeSheet`, который остался у
+  // создания ремонта. Ленты движений ЗИП в приложении нет, её тексты удалены.
+  static const String periodFrom = 'С даты';
+  static const String periodTo = 'По дату';
+  static const String done = 'Готово';
 }
 
 /// Тексты раздела фактического расхода ЗИП на экране результата скана.
@@ -578,6 +568,36 @@ class InspectionConsumptionStrings {
   static const String confirmEmptyBody =
       'Задача закроется, но со склада ничего не спишется. Отправить осмотр '
       'без расхода?';
+
+  /// Тот же смысл, но для нескольких выбранных задач. Отдельный текст нужен,
+  /// потому что причина другая: расход не «забыли заполнить» — его негде было
+  /// указать, раздел при множественном выборе не показывается. Обходчик должен
+  /// понять, что дело в выборе, а не в его невнимательности.
+  static const String confirmMultiTaskTitle = 'Расход ЗИП не будет записан';
+  static const String confirmMultiTaskBody =
+      'Выбрано несколько задач — указать расход по ним нельзя. Задачи '
+      'закроются, но со склада ничего не спишется. Отправить осмотр?';
+
+  /// Указано больше, чем есть на складе по локальному справочнику.
+  ///
+  /// Не запрет, а предупреждение: без сети остатки могли устареть, и
+  /// утверждать, что списание не пройдёт, приложение не вправе. Но и молчать
+  /// нельзя — раньше обходчик видел красную плашку под расходом, отправлял
+  /// осмотр и получал отказ 409, который приходилось разбирать на отдельном
+  /// экране.
+  static const String confirmShortageTitle = 'На складе меньше, чем указано';
+
+  static String confirmShortageBody(String positions) =>
+      'Не хватает: $positions.\n\nПо данным справочника списать столько '
+      'нельзя — сервер, скорее всего, отклонит осмотр. Всё равно отправить?';
+
+  /// Одна строка перечня: «Болт 6009-40 (на складе 3 шт)».
+  static String shortagePosition(String name, String available) =>
+      '$name (на складе $available)';
+
+  /// Позиции, которой на складе нет вовсе, остаток не пишем — «на складе 0»
+  /// читается хуже, чем прямая формулировка.
+  static String shortagePositionEmpty(String name) => '$name (нет на складе)';
 }
 
 /// Тексты очереди отправки осмотров: причины отказа и полоса на главной.
@@ -608,6 +628,51 @@ class ScanQueueStrings {
   }
 }
 
+/// Тексты отклонённой наработки.
+///
+/// Отдельно от [ScanQueueStrings]: разбор у них разный. У осмотра есть экран
+/// разрешения конфликта — там правят расход ЗИП; наработка это одно число, и
+/// сделать с ней можно только два — повторить или выбросить.
+class UsageQueueStrings {
+  UsageQueueStrings._();
+
+  static const String rejectedTitle = 'Наработка не отправлена';
+
+  static String rejectedCount(int count) {
+    final mod10 = count % 10;
+    final mod100 = count % 100;
+    if (mod10 == 1 && mod100 != 11) return '$count запись отклонена сервером';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
+      return '$count записи отклонено сервером';
+    }
+    return '$count записей отклонено сервером';
+  }
+
+  static const String sheetTitle = 'Отклонённая наработка';
+
+  /// Пояснение под заголовком. Главное, что должен понять обходчик: задачи
+  /// эти записи больше не держат — раньше держали, и в этом был весь ущерб.
+  static const String sheetHint =
+      'Сервер отказался принять эти показания. Закрытие задач они больше не '
+      'задерживают: осмотры уходят своим чередом. Повторите отправку, если '
+      'причину устранили, либо удалите запись — показание снимется заново при '
+      'следующем сканировании.';
+
+  static const String unknownEquipment = 'Оборудование не указано';
+
+  static String value(String value) => 'Показание: $value';
+
+  static const String retry = 'Повторить';
+  static const String delete = 'Удалить';
+  static const String deleteTitle = 'Удалить наработку?';
+
+  static String deleteBody(String equipment) =>
+      'Показание по «$equipment» будет удалено без отправки на сервер. Снять '
+      'его заново можно при следующем сканировании оборудования.';
+
+  static const String close = 'Закрыть';
+}
+
 /// Тексты экрана разрешения конфликта при отправке осмотра.
 class ScanConflictStrings {
   static const String title = 'Осмотр не отправлен';
@@ -627,6 +692,17 @@ class ScanConflictStrings {
   static const String copied = 'Список скопирован';
 
   static const String retry = 'Повторить отправку';
+
+  /// Заголовок кнопки, когда обходчик поправил количества. Отличается от
+  /// [retry] намеренно: «повторить» и «отправить исправленное» — разные
+  /// действия, и путать их нельзя. Повтор без правки при неизменившемся складе
+  /// даст тот же отказ.
+  static const String retryEdited = 'Отправить исправленное';
+
+  /// Уменьшить всё, чего не хватает, до остатка на складе — одним нажатием
+  /// вместо перебора счётчиков. Обычно обходчику нужно ровно это.
+  static const String reduceToAvailable = 'Уменьшить до остатка';
+
   static const String delete = 'Удалить осмотр';
   static const String deleteTitle = 'Удалить осмотр?';
   static const String deleteBody =

@@ -6,7 +6,6 @@ import '../../global_state.dart';
 import '../../strings.dart';
 import '../design/app_constants.dart';
 import '../design/app_theme.dart';
-import '../model/spare_part.dart';
 
 /// Блок «Фактический расход ЗИП», общий для карточки ремонта и экрана
 /// результата скана.
@@ -49,10 +48,103 @@ class ConsumptionLine {
   });
 }
 
+/// Вторая кнопка в ряду действий — та, что стоит справа от «Добавить позицию».
+///
+/// Её место в раскладке занято по умолчанию «Заполнить из нормы» (см.
+/// [SparePartConsumptionSection.hasNorm]). Но норма есть не везде: на экране
+/// разрешения конфликта плана у осмотра нет вовсе, зато нужно «Уменьшить до
+/// остатка». Действие разное — место одно, поэтому кнопка описывается снаружи,
+/// а не выбирается флагом внутри.
+///
+/// [onPressed] `null` — кнопка видна, но погашена: ровно как «Заполнить из
+/// нормы», когда добавлять уже нечего. Гасим, а не прячем, чтобы ряд действий
+/// не менял высоту и не «прыгал» под пальцем.
+class ConsumptionSecondaryAction {
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+
+  const ConsumptionSecondaryAction({
+    required this.icon,
+    required this.label,
+    this.onPressed,
+  });
+}
+
 /// Целое — без дробной части: «4», а не «4.0».
 String formatConsumptionQuantity(double value) {
   if (value == value.roundToDouble()) return value.toInt().toString();
   return value.toString();
+}
+
+/// Шаг кнопок «−» и «+» — по масштабу самого количества.
+///
+/// Количество на сервере — `Numeric(14, 4)`, то есть литры, килограммы и метры
+/// вполне законны. Жёсткий шаг ±1 к ним не подходил: «Заполнить из нормы»
+/// подставляло плановые 0,25, а «+» делал из них 1,25 — величину, которой
+/// обходчик не имел в виду.
+double consumptionStep(double quantity) =>
+    quantity == quantity.roundToDouble() ? 1 : 0.1;
+
+/// Округление до четырёх знаков — ровно столько хранит сервер.
+///
+/// Без него дробный шаг сразу даёт мусор: `0.3 - 0.1` в double равно
+/// `0.19999999999999998`, и это уходило бы и на экран (`formatConsumptionQuantity`
+/// печатает такие значения как есть), и на сервер.
+double roundConsumptionQuantity(double value) =>
+    (value * 10000).roundToDouble() / 10000;
+
+/// Позиция расхода, которой на складе меньше указанного.
+class ConsumptionShortage {
+  final String sparePartUuid;
+  final String sparePartName;
+
+  /// Остаток по локальному справочнику. Ноль — списывать нечего вовсе, и это
+  /// другая по тяжести беда, чем «есть, но меньше».
+  final double available;
+
+  final String unitLabel;
+
+  const ConsumptionShortage({
+    required this.sparePartUuid,
+    required this.sparePartName,
+    required this.available,
+    required this.unitLabel,
+  });
+
+  /// «3 шт» — остаток с единицей измерения, если она известна.
+  String get availableLabel => unitLabel.isEmpty
+      ? formatConsumptionQuantity(available)
+      : '${formatConsumptionQuantity(available)} $unitLabel';
+}
+
+/// Позиции расхода, которых на складе меньше, чем указано.
+///
+/// Считается по локальному справочнику — без сети это последние
+/// синхронизированные остатки, и утверждать по ним, что списание не пройдёт,
+/// нельзя. Поэтому результат годится на предупреждение, но не на запрет.
+///
+/// Общая для двух мест: блок расхода рисует по ней плашки, а форма осмотра
+/// переспрашивает перед отправкой. Раньше это считалось только внутри
+/// `build`, и обходчик видел красную плашку, отправлял осмотр и получал отказ
+/// 409 — тот самый, который приложение уже умело предсказать, но никому об
+/// этом не говорило.
+List<ConsumptionShortage> consumptionShortages(List<ConsumptionLine> lines) {
+  final result = <ConsumptionShortage>[];
+  for (final item in lines) {
+    if (item.quantity <= 0) continue;
+    final part = GlobalState.dataProvider.sparePartByUuid(item.sparePartUuid);
+    // Позиции нет в каталоге — сравнивать не с чем. Молчим: это не «не
+    // хватает», это «не знаем».
+    if (part == null || item.quantity <= part.quantity) continue;
+    result.add(ConsumptionShortage(
+      sparePartUuid: item.sparePartUuid,
+      sparePartName: item.sparePartName,
+      available: part.quantity,
+      unitLabel: part.unitLabel,
+    ));
+  }
+  return result;
 }
 
 class SparePartConsumptionSection extends StatelessWidget {
@@ -74,6 +166,11 @@ class SparePartConsumptionSection extends StatelessWidget {
 
   /// Есть ли в норме позиции, которых ещё нет в расходе.
   final bool canFillFromNorm;
+
+  /// Чем занять место второй кнопки вместо «Заполнить из нормы».
+  ///
+  /// `null` — прежнее поведение: кнопка нормы, и только при [hasNorm].
+  final ConsumptionSecondaryAction? secondaryAction;
 
   /// Пояснение под замком — что произойдёт с указанными количествами.
   /// У ремонта и осмотра списание наступает в разные моменты.
@@ -99,15 +196,11 @@ class SparePartConsumptionSection extends StatelessWidget {
     required this.onChangeQuantity,
     required this.onSetQuantity,
     required this.onRemove,
+    this.secondaryAction,
     this.showStockWarnings = true,
     this.writeOffNote = RepairCardStrings.consumptionWriteOffNote,
     this.emptyNote = RepairCardStrings.consumptionEmptyNote,
   });
-
-  /// Остаток на складе по локальному справочнику — нужен, чтобы предупредить
-  /// о нехватке. Без сети это последние синхронизированные значения.
-  static SparePart? _stockOf(String uuid) =>
-      GlobalState.dataProvider.sparePartByUuid(uuid);
 
   @override
   Widget build(BuildContext context) {
@@ -119,15 +212,8 @@ class SparePartConsumptionSection extends StatelessWidget {
             item.normQuantity != null && item.quantity > item.normQuantity!)
         .length;
 
-    final shortages = <(String, double, String)>[];
-    if (showStockWarnings) {
-      for (final item in lines) {
-        final part = _stockOf(item.sparePartUuid);
-        if (part != null && item.quantity > part.quantity) {
-          shortages.add((item.sparePartName, part.quantity, part.unitLabel));
-        }
-      }
-    }
+    final shortages =
+        showStockWarnings ? consumptionShortages(lines) : const [];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -175,39 +261,58 @@ class SparePartConsumptionSection extends StatelessWidget {
               key: ValueKey(lines[i].sparePartUuid),
               item: lines[i],
               editable: editable,
-              onMinus: () => onChangeQuantity(i, -1),
-              onPlus: () => onChangeQuantity(i, 1),
+              onMinus: () =>
+                  onChangeQuantity(i, -consumptionStep(lines[i].quantity)),
+              onPlus: () =>
+                  onChangeQuantity(i, consumptionStep(lines[i].quantity)),
               onChanged: (value) => onSetQuantity(i, value),
               onRemove: () => onRemove(i),
             ),
           ],
         if (editable) ...[
           const SizedBox(height: AppConstants.spacingSM),
-          // Кнопки разведены по краям: «Добавить позицию» слева, «Заполнить
-          // из нормы» справа.
+          // Две кнопки в одну строку, каждая на половине ширины: вторая всегда
+          // стоит справа от «Добавить позицию» и никогда не уезжает под неё.
           //
-          // Wrap, а не Row: подписи длинные, и на узком экране (или при
-          // увеличенном системном шрифте) вдвоём в строку они не помещаются.
-          // Row при этом сжимал бы их до многоточия — «Заполнить из но…», —
-          // а Wrap переносит вторую кнопку на свою строку, где она видна
-          // целиком. Пока места хватает, обе стоят как прежде, по краям.
-          Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            runSpacing: AppConstants.spacingSM,
+          // Половина ширины вместо «по содержимому» — потому что подписи
+          // длинные, и на узком экране (или при увеличенном системном шрифте)
+          // они в строку по своей ширине не помещаются. Раньше это решал Wrap,
+          // но он переносил вторую кнопку на отдельную строку, ломая пару.
+          // Теперь тесноту разбирает сама кнопка: подпись переносится по
+          // словам внутри неё (см. [_ActionButton]), а место остаётся прежним.
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _ActionButton(
-                icon: Icons.add_rounded,
-                label: RepairCardStrings.addPosition,
-                onPressed: onAdd,
-              ),
-              // Кнопка есть только при наличии нормы: заполнять нечем, если
-              // норма не привязана.
-              if (hasNorm)
-                _ActionButton(
-                  icon: Icons.download_rounded,
-                  label: RepairCardStrings.fillFromNorm,
-                  onPressed: canFillFromNorm ? onFillFromNorm : null,
+              Expanded(
+                child: _ActionButton(
+                  icon: Icons.add_rounded,
+                  label: RepairCardStrings.addPosition,
+                  onPressed: onAdd,
                 ),
+              ),
+              // Вторая кнопка ряда. Экран мог подставить сюда своё действие;
+              // если нет — это «Заполнить из нормы», и только при наличии
+              // нормы: заполнять нечем, если она не привязана.
+              //
+              // Нет ни того, ни другого — пустая ячейка вместо кнопки:
+              // «Добавить позицию» остаётся на своём месте слева, а не
+              // растягивается на всю ширину.
+              const SizedBox(width: AppConstants.spacingSM),
+              Expanded(
+                child: secondaryAction != null
+                    ? _ActionButton(
+                        icon: secondaryAction!.icon,
+                        label: secondaryAction!.label,
+                        onPressed: secondaryAction!.onPressed,
+                      )
+                    : hasNorm
+                        ? _ActionButton(
+                            icon: Icons.download_rounded,
+                            label: RepairCardStrings.fillFromNorm,
+                            onPressed: canFillFromNorm ? onFillFromNorm : null,
+                          )
+                        : const SizedBox.shrink(),
+              ),
             ],
           ),
         ],
@@ -229,15 +334,12 @@ class SparePartConsumptionSection extends StatelessWidget {
         for (final shortage in shortages) ...[
           const SizedBox(height: AppConstants.spacingSM),
           _ShortageBanner(
-            title: shortage.$1,
-            text: shortage.$2 <= 0
+            title: shortage.sparePartName,
+            text: shortage.available <= 0
                 ? RepairCardStrings.outOfStock
-                : RepairCardStrings.shortage(
-                    '${formatConsumptionQuantity(shortage.$2)}'
-                    '${shortage.$3.isEmpty ? '' : ' ${shortage.$3}'}',
-                  ),
-            warning: shortage.$2 > 0,
-            danger: shortage.$2 <= 0,
+                : RepairCardStrings.shortage(shortage.availableLabel),
+            warning: shortage.available > 0,
+            danger: shortage.available <= 0,
           ),
         ],
       ],
@@ -532,7 +634,7 @@ class _SparePartQuantityStepperState extends State<SparePartQuantityStepper> {
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
               textInputAction: TextInputAction.done,
-              inputFormatters: const [_QuantityInputFormatter()],
+              inputFormatters: const [QuantityInputFormatter()],
               onTapOutside: (_) => _focusNode.unfocus(),
               // Поле сидит внутри пилюли счётчика, поэтому собственную рамку
               // и подложку из темы убираем.
@@ -554,15 +656,26 @@ class _SparePartQuantityStepperState extends State<SparePartQuantityStepper> {
   }
 }
 
-/// Пропускает в поле количества только цифры и десятичный разделитель и
-/// режет значение до 9 значащих цифр — ровно как `QuantityStepper` в
-/// веб-админке. Без этого обходчик мог бы набрать число, которое сервер
-/// потом не примет.
-class _QuantityInputFormatter extends TextInputFormatter {
+/// Пропускает в поле количества только цифры и **один** десятичный
+/// разделитель, режет значение до 9 значащих цифр и до 4 знаков после
+/// разделителя — ровно как `QuantityStepper` в веб-админке.
+///
+/// Раньше разделитель писался в буфер без проверки, и в поле набиралось
+/// «1.2.3» или «1,,5». `double.tryParse` на таком возвращает `null`,
+/// `onChanged` не вызывался, и при потере фокуса текст молча откатывался к
+/// прежнему значению — без единого объяснения, почему введённое пропало.
+///
+/// Четыре знака — это `Numeric(14, 4)` на сервере. Без ограничения 1,23456
+/// уходило туда и тихо округлялось: обходчик видел одно, в документе
+/// оказывалось другое.
+class QuantityInputFormatter extends TextInputFormatter {
   static const int _maxDigits = 9;
+
+  /// Столько знаков после разделителя хранит сервер.
+  static const int _maxDecimals = 4;
   static const String _digits = '0123456789';
 
-  const _QuantityInputFormatter();
+  const QuantityInputFormatter();
 
   @override
   TextEditingValue formatEditUpdate(
@@ -571,12 +684,20 @@ class _QuantityInputFormatter extends TextInputFormatter {
   ) {
     final buffer = StringBuffer();
     var digits = 0;
+    var hasSeparator = false;
+    var decimals = 0;
     for (final char in newValue.text.split('')) {
       if (_digits.contains(char)) {
         if (digits >= _maxDigits) continue;
+        if (hasSeparator && decimals >= _maxDecimals) continue;
         digits++;
+        if (hasSeparator) decimals++;
         buffer.write(char);
       } else if (char == ',' || char == '.') {
+        // Второй разделитель отбрасываем молча: набрать «1.2.3» нельзя, а
+        // курсор при этом не прыгает — символ просто не появляется.
+        if (hasSeparator) continue;
+        hasSeparator = true;
         buffer.write(char);
       }
     }
@@ -632,8 +753,8 @@ class _ActionButton extends StatelessWidget {
     return TextButton(
       onPressed: onPressed,
       style: TextButton.styleFrom(
-        // Поля меньше штатных: так две кнопки с иконками дольше держатся в
-        // одну строку на узком экране, прежде чем Wrap разведёт их по двум.
+        // Поля меньше штатных: кнопка живёт в половине ширины экрана вместе с
+        // иконкой, и штатные отступы съедали бы место у подписи.
         padding: const EdgeInsets.symmetric(
           horizontal: AppConstants.spacingSM,
         ),
@@ -646,7 +767,9 @@ class _ActionButton extends StatelessWidget {
           Icon(icon, size: 20),
           const SizedBox(width: 6),
           Flexible(
-            // Перенос по словам вместо многоточия: кнопки стоят в Wrap.
+            // Перенос по словам вместо многоточия: подпись не влезает в
+            // половину ширины на узком экране, и обрезать её нельзя —
+            // «Заполнить из но…» не говорит ничего.
             child: Text(label, softWrap: true),
           ),
         ],

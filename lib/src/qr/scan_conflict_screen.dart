@@ -11,6 +11,7 @@ import '../design/app_theme.dart';
 import '../exceptions/app_exceptions.dart';
 import '../model/scan.dart';
 import '../repairs/repair_delete_dialog.dart';
+import '../repairs/spare_part_picker_sheet.dart';
 import '../widgets/spare_part_consumption.dart';
 import 'scan_error_messages.dart';
 
@@ -38,6 +39,54 @@ class ScanConflictScreen extends StatefulWidget {
 
 class _ScanConflictScreenState extends State<ScanConflictScreen> {
   bool _isBusy = false;
+
+  /// Расход, который правит обходчик.
+  ///
+  /// Отдельно от осмотра в очереди: пока правку не отправили, очередь должна
+  /// видеть исходные количества. Заполняется один раз при открытии — экран
+  /// перечитывает осмотр из бокса, но набранные позиции при этом обязаны
+  /// уцелеть.
+  late List<ConsumptionLine> _lines = _consumptionsFromScan();
+
+  /// Количества, с которыми осмотр сейчас лежит в очереди, — чтобы понять,
+  /// правил ли обходчик что-нибудь. Пересобираются вместе с [_lines]: после
+  /// повторного отказа «исходным» становится уже исправленный расход, иначе
+  /// кнопка так и предлагала бы «отправить исправленное», когда исправлять
+  /// заново нечего.
+  late Map<String, double> _originalQuantities = _quantitiesOf(_lines);
+
+  static Map<String, double> _quantitiesOf(List<ConsumptionLine> lines) => {
+        for (final line in lines) line.sparePartUuid: line.quantity,
+      };
+
+  /// Расход изменён — значит отправлять надо исправленный, а не тот же самый.
+  bool get _hasChanges {
+    if (_lines.length != _originalQuantities.length) return true;
+    for (final line in _lines) {
+      final original = _originalQuantities[line.sparePartUuid];
+      if (original == null || original != line.quantity) return true;
+    }
+    return false;
+  }
+
+  /// Правку предлагаем только при нехватке на складе — единственном отказе,
+  /// который обходчик может устранить сам, уменьшив количества. У остальных
+  /// причин («задача не найдена», «нет доступа») расход ни при чём, и
+  /// редактируемый блок только сбивал бы с толку.
+  ///
+  /// Пустой список правку не отключает: убрав последнюю позицию, обходчик
+  /// иначе остался бы без кнопки «Добавить позицию» и не смог бы вернуть её
+  /// обратно.
+  bool get _canEditConsumption => _isStockShortage;
+
+  @override
+  void initState() {
+    super.initState();
+    // Каталог нужен окну выбора позиции: без него «Добавить позицию» открыло
+    // бы пустой список. Не ждём — экран рисуется по данным самого осмотра, а
+    // каталог понадобится только если обходчик полезет добавлять строку.
+    GlobalState.dataProvider.ensureSparePartsLoaded();
+  }
 
   /// Осмотр перечитываем из очереди, а не держим переданный объект.
   ///
@@ -101,7 +150,7 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
   /// Позиции расхода из осмотра. В очереди они лежат строкой JSON — ровно той,
   /// что уходит на сервер, — поэтому названия и остатки подтягиваем из
   /// локального справочника ЗИП по uuid.
-  List<ConsumptionLine> _consumptions() {
+  List<ConsumptionLine> _consumptionsFromScan() {
     final raw = _scan.actualConsumptions;
     if (raw == null || raw.isEmpty) return const [];
     try {
@@ -177,7 +226,7 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
       final names = {
         for (final line in consumptions) line.sparePartUuid: line,
       };
-      return [
+      final rows = <(String, double, double, String)>[
         for (final item in decoded)
           if (item is Map<String, dynamic>)
             () {
@@ -186,19 +235,74 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
               final part = GlobalState.dataProvider
                   .sparePartByUuid(parsed.sparePartUuid);
               return (
-                line?.sparePartName ??
-                    _storedName(parsed.sparePartUuid) ??
-                    part?.name ??
-                    parsed.sparePartUuid,
-                parsed.required,
+                // Название сервера — первым: оно взято из той же записи
+                // склада, по которой он и посчитал нехватку, и приезжает
+                // вместе с отказом. Остальные источники остаются запасными:
+                // у отказов старого формата поля нет, и сервер может прислать
+                // `null`, если позицию удалили между проверкой и ответом.
+                parsed.sparePartName.isNotEmpty
+                    ? parsed.sparePartName
+                    : line?.sparePartName ??
+                        _storedName(parsed.sparePartUuid) ??
+                        part?.name ??
+                        parsed.sparePartUuid,
+                // «Нужно» — из текущего списка, а не из отказа: обходчик правит
+                // количества прямо здесь, и блок обязан показывать то, что он
+                // набрал сейчас. Позиции, которой в списке уже нет, оставляем
+                // серверное число — иначе строку нечем подписать.
+                line?.quantity ?? parsed.required,
+                // «Есть» — только серверное: локальный справочник между
+                // синхронизациями отстаёт, а это то самое число, из-за
+                // которого отказали.
                 parsed.available,
                 line?.unitName ?? part?.unitLabel ?? '',
               );
             }(),
       ];
+      // Позиции, которых уже хватает, из блока убираем: обходчик уменьшил
+      // количество — строка про нехватку обязана исчезнуть, иначе непонятно,
+      // что ещё осталось поправить.
+      return [
+        for (final row in rows)
+          if (row.$2 > row.$3) row,
+      ];
     } catch (_) {
       return null;
     }
+  }
+
+  /// Остатки на складе по uuid — так, как их назвал сервер в отказе.
+  ///
+  /// Сопоставлять по uuid, а не по названию: названия у позиций повторяются, и
+  /// склеить две разные строки расхода в одну было бы легко. Пустая карта —
+  /// сервер чисел не прислал, тогда остаток берётся из локального справочника.
+  Map<String, double> get _availableByUuid {
+    final raw = _scan.lastShortages;
+    if (raw == null || raw.isEmpty) return const {};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const {};
+      return {
+        for (final item in decoded)
+          if (item is Map<String, dynamic>)
+            InsufficientStockItem.fromJson(item).sparePartUuid:
+                InsufficientStockItem.fromJson(item).available,
+      };
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  /// Сколько этой позиции есть на складе. Если сервер про неё не сказал —
+  /// считаем, что хватает: трогать такую строку незачем.
+  double _availableFor(ConsumptionLine line, Map<String, double> available) {
+    final fromServer = available[line.sparePartUuid];
+    if (fromServer != null) return fromServer;
+    if (available.isNotEmpty) return line.quantity;
+    return GlobalState.dataProvider
+            .sparePartByUuid(line.sparePartUuid)
+            ?.quantity ??
+        line.quantity;
   }
 
   String _shortageText(List<(String, double, double, String)> shortages) {
@@ -230,6 +334,130 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
     );
   }
 
+  // ── правка расхода ────────────────────────────────────────────────────
+
+  void _changeQuantity(int index, double delta) {
+    final next = _lines[index].quantity + delta;
+    if (next <= 0) return;
+    _setQuantity(index, next);
+  }
+
+  /// Ноль и отрицательные не принимаем — как и в форме осмотра: позиция с
+  /// нулём не списалась бы, а в списке выглядела бы заполненной. Убрать
+  /// позицию совсем можно корзиной.
+  ///
+  /// Округление до четырёх знаков — то же, что в карточке ремонта и в форме
+  /// осмотра, и по той же причине: шаг счётчика для дробного количества равен
+  /// 0,1, а `0.25 - 0.1` в double даёт `0.15000000000000002`. Без округления
+  /// это число и печаталось бы на экране, и уходило бы на сервер — причём
+  /// именно здесь, где количества правят чаще всего: экран открывается после
+  /// отказа по нехватке ЗИП.
+  void _setQuantity(int index, double value) {
+    value = roundConsumptionQuantity(value);
+    if (value <= 0) return;
+    final item = _lines[index];
+    if (item.quantity == value) return;
+    setState(() {
+      _lines = [..._lines];
+      _lines[index] = ConsumptionLine(
+        sparePartUuid: item.sparePartUuid,
+        sparePartName: item.sparePartName,
+        unitName: item.unitName,
+        quantity: value,
+        normQuantity: item.normQuantity,
+      );
+    });
+  }
+
+  void _removePosition(int index) {
+    setState(() => _lines = [..._lines]..removeAt(index));
+  }
+
+  Future<void> _addPosition() async {
+    final picked = await showSparePartPicker(
+      context,
+      alreadyAddedUuids: _lines.map((item) => item.sparePartUuid).toSet(),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _lines = [
+        ..._lines,
+        ConsumptionLine(
+          sparePartUuid: picked.uuid,
+          sparePartName: picked.name,
+          unitName: picked.unitLabel.isEmpty ? null : picked.unitLabel,
+          quantity: 1,
+        ),
+      ];
+    });
+  }
+
+  /// Уменьшает всё, чего не хватает, до остатка на складе.
+  ///
+  /// Числа берём те же, что показаны в списке нехватки, — серверные, если они
+  /// пришли с отказом. Нажать одну кнопку вместо перебора счётчиков: обычно
+  /// обходчику и нужно ровно это — списать столько, сколько на складе есть.
+  ///
+  /// Позиции с нулевым остатком убираем: списывать нечего, а строка с нулём на
+  /// сервер всё равно не уйдёт.
+  void _reduceToAvailable() {
+    final available = _availableByUuid;
+    setState(() {
+      _lines = [
+        for (final line in _lines)
+          if (_availableFor(line, available) > 0)
+            ConsumptionLine(
+              sparePartUuid: line.sparePartUuid,
+              sparePartName: line.sparePartName,
+              unitName: line.unitName,
+              quantity: line.quantity <= _availableFor(line, available)
+                  ? line.quantity
+                  : _availableFor(line, available),
+              normQuantity: line.normQuantity,
+            ),
+      ];
+    });
+  }
+
+  /// Есть ли что уменьшать — иначе кнопка бессмысленна.
+  bool get _canReduce {
+    final available = _availableByUuid;
+    for (final line in _lines) {
+      if (line.quantity > _availableFor(line, available)) return true;
+    }
+    return false;
+  }
+
+  /// Отправляет исправленный расход: переписывает позиции в очереди и снимает
+  /// отметку об отказе.
+  Future<void> _sendEdited() async {
+    if (_isBusy) return;
+    setState(() => _isBusy = true);
+    final kept = _lines.where((line) => line.quantity > 0).toList();
+    await GlobalState.dataProvider.retryRejectedScanWithConsumption(
+      widget.scan.key(),
+      // Пустой список нельзя отправлять строкой: сервер разбирает поле как
+      // JSON и на пустом значении списание не выполнит, а прежние позиции
+      // сотрёт. `null` означает «поля в запросе нет».
+      actualConsumptions: kept.isEmpty
+          ? null
+          : jsonEncode([
+              for (final line in kept)
+                {
+                  'spare_part_uuid': line.sparePartUuid,
+                  'quantity': line.quantity,
+                },
+            ]),
+      consumptionNames: kept.isEmpty
+          ? null
+          : jsonEncode({
+              for (final line in kept) line.sparePartUuid: line.sparePartName,
+            }),
+    );
+    if (!mounted) return;
+    _closeIfSettled();
+  }
+
   /// Повтор отправки: снимаем отметку об отказе, и очередь берёт осмотр снова.
   ///
   /// Осмысленно ровно после того, как администратор пополнил склад. Если он
@@ -239,16 +467,27 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
     setState(() => _isBusy = true);
     await GlobalState.dataProvider.retryRejectedScan(widget.scan.key());
     if (!mounted) return;
-    // Экран закрываем только когда разбирать больше нечего: осмотр уехал либо
-    // ждёт связи в очереди. Если сервер отказал снова — остаёмся здесь и
-    // показываем свежую причину. Раньше экран закрывался всегда, и повторный
-    // отказ обходчик находил заново в списке, уже без связи с нажатием.
+    _closeIfSettled();
+  }
+
+  /// Закрываем экран, только когда разбирать больше нечего: осмотр уехал либо
+  /// ждёт связи в очереди. Если сервер отказал снова — остаёмся здесь и
+  /// показываем свежую причину. Раньше экран закрывался всегда, и повторный
+  /// отказ обходчик находил заново в списке, уже без связи с нажатием.
+  ///
+  /// После правки расхода перечитываем и сами позиции: сервер мог отказать
+  /// снова, и в списке нехватки должны стоять уже исправленные количества.
+  void _closeIfSettled() {
     final left = GlobalState.dataProvider.scanBox.get(widget.scan.key());
     if (left == null || !left.isRejected) {
       _close();
       return;
     }
-    setState(() => _isBusy = false);
+    setState(() {
+      _isBusy = false;
+      _lines = _consumptionsFromScan();
+      _originalQuantities = _quantitiesOf(_lines);
+    });
   }
 
   Future<void> _delete() async {
@@ -272,9 +511,11 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    final consumptions = _consumptions();
+    // Нехватку считаем по правленому списку: обходчик уменьшает количества
+    // прямо здесь, и блок «чего не хватает» обязан гаснуть по мере правки —
+    // иначе непонятно, достаточно ли уже исправлено.
     final shortages = _isStockShortage
-        ? _shortages(consumptions)
+        ? _shortages(_lines)
         : const <(String, double, double, String)>[];
 
     return Scaffold(
@@ -418,10 +659,47 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
                 const SizedBox(height: AppConstants.spacingMD),
                 _Label(ScanConflictStrings.consumptionLabel),
                 const SizedBox(height: AppConstants.spacingXS),
-                if (consumptions.isEmpty)
+                // При нехватке на складе расход не показываем, а даём править:
+                // это единственный отказ, который обходчик устраняет сам,
+                // уменьшив количества до того, что на складе есть. Остальные
+                // причины к расходу отношения не имеют — там он остаётся
+                // справкой, простым текстом.
+                if (_canEditConsumption)
+                  SparePartConsumptionSection(
+                    lines: _lines,
+                    editable: !_isBusy,
+                    // Плана у осмотра в очереди нет: он приходит с задачей, а
+                    // не с осмотром. Значит и сравнивать не с чем — без нормы
+                    // счётчик превышений всегда нулевой.
+                    hasNorm: false,
+                    canFillFromNorm: false,
+                    // Остатки в справочнике отстают от серверных, а точные
+                    // числа уже показаны выше отдельным блоком — вторая,
+                    // менее точная тревога рядом только путала бы.
+                    showStockWarnings: false,
+                    writeOffNote: InspectionConsumptionStrings.writeOffNote,
+                    emptyNote: ScanConflictStrings.noConsumption,
+                    onAdd: _addPosition,
+                    onFillFromNorm: () {},
+                    onChangeQuantity: _changeQuantity,
+                    onSetQuantity: _setQuantity,
+                    onRemove: _removePosition,
+                    // Место кнопки нормы занимает «Уменьшить до остатка»:
+                    // нормы у осмотра в очереди нет, а действие тут ровно того
+                    // же порядка — второе после «Добавить позицию». Гаснет,
+                    // когда уменьшать нечего, — как и кнопка нормы, когда
+                    // добавлять уже нечего.
+                    secondaryAction: ConsumptionSecondaryAction(
+                      icon: Icons.south_rounded,
+                      label: ScanConflictStrings.reduceToAvailable,
+                      onPressed:
+                          _isBusy || !_canReduce ? null : _reduceToAvailable,
+                    ),
+                  )
+                else if (_lines.isEmpty)
                   Text(ScanConflictStrings.noConsumption, style: tt.bodyMedium)
                 else
-                  for (final line in consumptions)
+                  for (final line in _lines)
                     Padding(
                       padding:
                           const EdgeInsets.only(bottom: AppConstants.spacingXS),
@@ -456,10 +734,21 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
               SizedBox(
                 height: 52,
                 width: double.infinity,
+                // Правил расход — отправляем исправленное, не правил —
+                // повторяем прежнее. Разные действия и подписаны по-разному:
+                // повтор без правки при неизменившемся складе даст тот же
+                // отказ, и обходчик должен это понимать до нажатия.
                 child: ElevatedButton.icon(
-                  onPressed: _isBusy ? null : _retry,
-                  icon: const Icon(Icons.refresh_rounded),
-                  label: const Text(ScanConflictStrings.retry),
+                  onPressed:
+                      _isBusy ? null : (_hasChanges ? _sendEdited : _retry),
+                  icon: Icon(
+                    _hasChanges ? Icons.check_rounded : Icons.refresh_rounded,
+                  ),
+                  label: Text(
+                    _hasChanges
+                        ? ScanConflictStrings.retryEdited
+                        : ScanConflictStrings.retry,
+                  ),
                 ),
               ),
               const SizedBox(height: AppConstants.spacingSM),
