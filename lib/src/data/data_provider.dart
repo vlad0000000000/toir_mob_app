@@ -45,6 +45,31 @@ part 'data_provider_outbox.dart';
 /// пришло сообщение.
 final _dataLog = Logger('DataProvider');
 
+/// Выбрасывать ли кэш справочников при входе.
+///
+/// [stored] — чей кэш сейчас лежит в боксах, [incoming] — кто вошёл. Оба
+/// значения — uuid пользователя, пустая строка означает «неизвестно».
+///
+/// Три правила, и каждое стоит того, чтобы быть явным:
+///
+/// * **Вошёл неизвестно кто** ([incoming] пуст) — не трогаем ничего. Так
+///   выглядит офлайн-вход по локальной записи без uuid: выбросить рабочий кэш
+///   и остаться без сети и без данных было бы худшим из исходов.
+/// * **Тот же пользователь** — не трогаем. Кэш ровно для того и нужен, чтобы
+///   обходчик, вошедший заново, сразу видел свои задачи и остатки даже без
+///   связи.
+/// * **Другой пользователь либо кэш ничей** ([stored] пуст) — чистим. Пустой
+///   [stored] бывает у первого входа после установки и после обновления с
+///   версии, которая отметку не вела; чей кэш лежит в боксах, мы не знаем, и
+///   единственный безопасный ответ — считать его чужим.
+bool shouldResetCacheForAccount({
+  required String stored,
+  required String incoming,
+}) {
+  if (incoming.isEmpty) return false;
+  return stored != incoming;
+}
+
 /// Хранилище приложения (Hive-боксы + in-memory кэш). Сетевые загрузки,
 /// фоновая синхронизация и офлайн-очереди вынесены в part-файлы
 /// (`*_remote`, `*_sync`, `*_outbox`) как extension на [DataProvider].
@@ -326,6 +351,99 @@ class DataProvider {
     ];
     if (stale.isNotEmpty) await consumptionNormBox.deleteAll(stale);
     if (fresh.isNotEmpty) await consumptionNormBox.putAll(fresh);
+  }
+
+  /// Сбрасывает кэши, если вошёл не тот пользователь, чьи данные лежат в
+  /// боксах. `true` — кэш был сброшен.
+  ///
+  /// Зовётся из [DataProviderRemote.login] сразу после успешной проверки
+  /// учётных данных и **до** первой синхронизации: та должна наполнять уже
+  /// пустые боксы.
+  ///
+  /// Тот же пользователь — не трогаем ничего: кэш для того и нужен, чтобы
+  /// обходчик, вошедший заново, сразу видел свои задачи и остатки даже без
+  /// связи.
+  Future<bool> ensureAccountScope(String? userUuid) async {
+    final scope = (userUuid ?? '').trim();
+    final previous = stringBox.get(_accountScopeKey) ?? '';
+    if (!shouldResetCacheForAccount(stored: previous, incoming: scope)) {
+      return false;
+    }
+    await clearCachedData();
+    await stringBox.put(_accountScopeKey, scope);
+    return previous.isNotEmpty;
+  }
+
+  /// Выбрасывает всё, что принадлежит аккаунту и восстанавливается
+  /// синхронизацией.
+  ///
+  /// Границу «кэш или не кэш» проводит не этот метод, а `main.dart`: боксы,
+  /// открытые через `_openCacheBox`, объявлены восстановимыми — он их
+  /// пересоздаёт, если файл не читается. Ровно они здесь и чистятся.
+  ///
+  /// **Очереди отправки не трогаем.** В них лежит несделанная работа
+  /// обходчика — осмотры, наработка, черновики ремонтов, — и стирать её
+  /// молча при входе нельзя. Про их принадлежность прошлому аккаунту см.
+  /// комментарий в [DataProviderRemote.login].
+  Future<void> clearCachedData() async {
+    await Future.wait([
+      inventoryBox.clear(),
+      taskBox.clear(),
+      sparePartBox.clear(),
+      repairBox.clear(),
+      consumptionNormBox.clear(),
+      typicalProblemBox.clear(),
+      periodicityRuleBox.clear(),
+      usageUnitBox.clear(),
+      equipmentStateBox.clear(),
+      companyBox.clear(),
+    ]);
+
+    // Отметки синхронизации из `stringBox`. Целиком бокс чистить нельзя — в
+    // нём же лежат настройки обходчика (тема, онбординг, переключатели
+    // экрана результата), а они к аккаунту не относятся.
+    await stringBox.deleteAll([
+      _sparePartsCursorKey,
+      _sparePartsSyncKey,
+      _legacySparePartsSyncKey,
+      _sparePartsWriteKey,
+      _normsWriteKey,
+      'last_sync_date',
+      pprCacheKey,
+      pprCompletedByMeCacheKey,
+    ]);
+    // Ключи с переменной частью — отметки закрытых задач и ожидания
+    // наработки по ТО. Их имена содержат uuid, списком не перечислить.
+    //
+    // `toList()` обязателен: `where` ленив, и без него `deleteAll` удалял бы
+    // из бокса, по ключам которого сам же в этот момент идёт.
+    await stringBox.deleteAll(
+      stringBox.keys
+          .where((key) =>
+              key is String &&
+              (key.startsWith(_closedTaskPrefix) ||
+                  key.startsWith('maintenance_task_')))
+          .toList(),
+    );
+
+    // Состояние в памяти — следом за боксами, иначе экраны продолжат рисовать
+    // прошлый аккаунт до первого прохода синхронизации.
+    _inventoryRecords = [];
+    _typicalProblems = [];
+    _periodicityRules = [];
+    _usageUnits = [];
+    _spareParts = [];
+    _repairs = [];
+    _company = null;
+    _equipmentState = null;
+    _repairsCursor = null;
+    _pprCompletedByMe = {};
+    _pprCompletedByMeChecked = {};
+    setActivePprs(const []);
+    _rebuildSparePartIndex();
+    _rebuildClosedTaskIndex();
+    _refreshActiveRepairsCount();
+    invalidateScanTaskCache();
   }
 
   /// Позиция справочника по uuid — за постоянное время.
@@ -752,6 +870,22 @@ class DataProvider {
   /// `items`, ни в `deleted`. Полный проход на каждом холодном старте
   /// ограничивает расхождение одним сеансом.
   DateTime? _repairsCursor;
+
+  /// Чей кэш сейчас лежит в боксах — uuid пользователя.
+  ///
+  /// Выход из приложения кэш не чистит (и не должен: тот же обходчик, войдя
+  /// обратно, обязан увидеть свои данные сразу и без сети). Но если вошёл
+  /// **другой** — всё содержимое боксов принадлежит чужой компании, и
+  /// показывать его нельзя.
+  ///
+  /// Само по себе это не спасало бы: почти все справочники синхронизация
+  /// перезаписывает целиком (`clear()` + заливка), и чужие данные ушли бы на
+  /// первом же проходе. Не уходил ровно один — **каталог ЗИП**: он
+  /// синхронизируется инкрементально, от курсора `spare_parts_cursor`, а
+  /// курсор переживал смену аккаунта. Проход видел непустой бокс и живой
+  /// курсор, просил у сервера «что изменилось с тех пор» — и позиции прошлой
+  /// компании оставались в справочнике навсегда.
+  static const String _accountScopeKey = 'account_scope';
 
   /// Ключ отметки инкрементальной синхронизации ЗИП.
   ///
