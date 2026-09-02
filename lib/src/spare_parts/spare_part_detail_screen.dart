@@ -249,16 +249,18 @@ class _StockBlock extends StatelessWidget {
     final unit = part.unitLabel;
 
     // Формула и цвета — как в веб-админке: ниже минимума красный, ниже нормы
-    // оранжевый, иначе основной. Ширина — доля от нормы; без нормы полоса
-    // либо полная, либо пустая, сравнивать не с чем.
-    final Color barColor;
-    if (minimum != null && part.quantity < minimum) {
-      barColor = cs.error;
-    } else if (norm != null && part.quantity < norm) {
-      barColor = cs.warning;
-    } else {
-      barColor = cs.primary;
-    }
+    // оранжевый, иначе основной. Оценку берём общую с строкой справочника
+    // (`SparePart.stockLevel`), чтобы одна позиция не была в списке оранжевой,
+    // а здесь красной.
+    //
+    // Ширина — доля от нормы; без нормы полоса либо полная, либо пустая,
+    // сравнивать не с чем.
+    final barColor = switch (part.stockLevel) {
+      SparePartStockLevel.out => cs.error,
+      SparePartStockLevel.belowMinimum => cs.error,
+      SparePartStockLevel.belowNorm => cs.warning,
+      SparePartStockLevel.sufficient => cs.primary,
+    };
     final double barValue;
     if (norm != null && norm > 0) {
       barValue = (part.quantity / norm).clamp(0.0, 1.0);

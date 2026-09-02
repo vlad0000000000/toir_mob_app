@@ -103,9 +103,11 @@ void main() {
       expect(reduced.minimumStock, part.minimumStock);
       expect(reduced.stockNorm, part.stockNorm);
       expect(reduced.accountingAccount, part.accountingAccount);
-      // Признак «ниже минимума» считается от остатка — он обязан пересчитаться.
-      expect(part.isBelowMinimum, isFalse);
-      expect(reduced.isBelowMinimum, isTrue);
+      // Оценка остатка считается от количества — она обязана пересчитаться.
+      // Было 10 при минимуме 3 и норме 20 — «ниже нормы»; стало 2 — «ниже
+      // минимума».
+      expect(part.stockLevel, SparePartStockLevel.belowNorm);
+      expect(reduced.stockLevel, SparePartStockLevel.belowMinimum);
     });
   });
 }

@@ -37,14 +37,21 @@ class SparePartRow extends StatelessWidget {
     final unit = part.unitLabel;
     final stock = formatSparePartQuantity(part.quantity);
 
-    // Остаток — единственный цветной элемент строки: красный, когда позиции
-    // нет вовсе, оранжевый — когда опустилась до неснижаемого запаса.
-    Color? stockColor;
-    if (part.quantity <= 0) {
-      stockColor = cs.error;
-    } else if (part.isBelowMinimum) {
-      stockColor = cs.warning;
-    }
+    // Остаток — единственный цветной элемент строки, и оценка у него та же,
+    // что в карточке позиции (`SparePart.stockLevel`): раньше правила
+    // расходились, и одна позиция была в списке оранжевой, а в карточке
+    // красной.
+    //
+    // Отличие от карточки одно и намеренное: благополучный остаток здесь
+    // **не красится**. Цвет в строке означает «обрати внимание», и если им
+    // же отмечать норму, сигнал перестанет работать — в списке на тысячи
+    // позиций цветным станет всё.
+    final stockColor = switch (part.stockLevel) {
+      SparePartStockLevel.out => cs.error,
+      SparePartStockLevel.belowMinimum => cs.error,
+      SparePartStockLevel.belowNorm => cs.warning,
+      SparePartStockLevel.sufficient => null,
+    };
 
     final code = part.supplierCode;
 
