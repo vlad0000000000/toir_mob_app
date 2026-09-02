@@ -153,6 +153,11 @@ class PendingRepair {
       responsibleUserFullname: responsibleName,
       actualConsumptions: consumptions,
       normItems: normItems,
+      // Черновик лежит в очереди целиком: его расход, комментарий и состав
+      // нормы известны без всякой сети. Отметку ставим, чтобы карточка не
+      // приняла черновик за наполовину загруженный и не сказала «расход не
+      // загружен» про то, что обходчик сам минуту назад и заполнил.
+      detailsLoaded: true,
     );
   }
 

@@ -64,6 +64,21 @@ class Repair {
   /// работает без дополнительного запроса — и в том числе без сети.
   final List<RepairNormItem> normItems;
 
+  /// Подробности ремонта известны: запись пришла из `GET /v1/repairs/{uuid}`,
+  /// а не из списка.
+  ///
+  /// Различать обязательно. `RepairListSchema` не содержит ни `comment`, ни
+  /// `actual_consumptions`, ни `photos`, ни состава нормы — [fromJson]
+  /// подставляет вместо них пустые значения, и «поле не пришло» становится
+  /// неотличимо от «на сервере пусто».
+  ///
+  /// Из-за этого офлайн получался обманчивым: карточка ремонта «На
+  /// рассмотрении» рисовалась целиком по кэшу, а блок фактического расхода
+  /// был пуст с подписью «Расход не указан — списания со склада не будет»,
+  /// хотя на сервере расход есть. Правки в блоке при этом недоступны, и
+  /// обходчику оставалось поверить, что расход потерян.
+  final bool detailsLoaded;
+
   Repair({
     required this.id,
     required this.uuid,
@@ -86,6 +101,7 @@ class Repair {
     this.actualConsumptions = const [],
     this.photos = const [],
     this.normItems = const [],
+    this.detailsLoaded = false,
   });
 
   bool get isOpen => status == RepairStatuses.open;
@@ -152,6 +168,55 @@ class Repair {
                   RepairNormItem.fromJson(item as Map<String, dynamic>))
               .toList() ??
           const [],
+      // По наличию ключа, а не по его значению: пустой `actual_consumptions`
+      // в полном ответе — это честное «расхода нет», а отсутствие ключа —
+      // «эта схема про расход не рассказывает». Значения у них одинаковые,
+      // смысл противоположный.
+      detailsLoaded: json.containsKey('actual_consumptions'),
+    );
+  }
+
+  /// Дополняет запись из списка подробностями, которые список не отдаёт.
+  ///
+  /// `GET /v1/repairs/` присылает `RepairListSchema` — без комментария,
+  /// расхода, фото и состава нормы. Фоновая синхронизация раскладывает эти
+  /// записи в кэш и **затирала** ими же карточку, прочитанную целиком: стоило
+  /// открыть ремонт онлайн, а через минуту пройти синхронизации — и расход из
+  /// кэша исчезал. Дальше без связи карточка показывала пустой блок расхода.
+  ///
+  /// Двусмысленности здесь нет: в этот метод приходит только запись из
+  /// списка, поэтому её пустые подробности всегда означают «не знаю», а не
+  /// «пусто».
+  ///
+  /// Состав нормы переносим, только если норма не сменилась: иначе к новой
+  /// норме прицепился бы состав старой.
+  Repair withDetailsFrom(Repair? cached) {
+    if (cached == null || !cached.detailsLoaded) return this;
+    final sameNorm = cached.consumptionNormUuid == consumptionNormUuid;
+    return Repair(
+      id: id,
+      uuid: uuid,
+      status: status,
+      equipmentUuid: equipmentUuid,
+      equipmentName: equipmentName,
+      equipmentTypeModel: equipmentTypeModel,
+      consumptionNormUuid: consumptionNormUuid,
+      consumptionNormName: consumptionNormName,
+      createdAt: createdAt,
+      startedAt: startedAt,
+      underReviewAt: underReviewAt,
+      completedAt: completedAt,
+      duration: duration,
+      responsibleUserUuid: responsibleUserUuid,
+      responsibleUserFullname: responsibleUserFullname,
+      responsibleRoleUuid: responsibleRoleUuid,
+      responsibleRoleName: responsibleRoleName,
+      // Подробности — из кэша: свежее них у списка ничего нет.
+      comment: cached.comment,
+      actualConsumptions: cached.actualConsumptions,
+      photos: cached.photos,
+      normItems: sameNorm ? cached.normItems : const [],
+      detailsLoaded: true,
     );
   }
 
@@ -247,30 +312,60 @@ class RepairAdapter extends TypeAdapter<Repair> {
 
   @override
   Repair read(BinaryReader reader) {
+    // Поля читаем по одному, а не прямо в аргументах конструктора: порядок
+    // вычисления именованных аргументов в Dart совпадает с порядком записи,
+    // но полагаться на это в формате хранения не стоит. Так же написан
+    // `SparePartAdapter`. Здесь это ещё и необходимость: прочитанные
+    // значения нужны, чтобы восстановить `detailsLoaded` у старых записей.
+    final id = reader.read();
+    final uuid = reader.read();
+    final status = reader.read();
+    final equipmentUuid = reader.read();
+    final equipmentName = reader.read();
+    final equipmentTypeModel = reader.read();
+    final consumptionNormUuid = reader.read();
+    final consumptionNormName = reader.read();
+    final createdAt = reader.read();
+    final startedAt = reader.read();
+    final underReviewAt = reader.read();
+    final completedAt = reader.read();
+    final duration = reader.read();
+    final comment = reader.read() as String?;
+    final responsibleUserUuid = reader.read();
+    final responsibleUserFullname = reader.read();
+    final responsibleRoleUuid = reader.read();
+    final responsibleRoleName = reader.read();
+    final actualConsumptions = reader.read().cast<RepairConsumption>()
+        as List<RepairConsumption>;
+    final photos = reader.read().cast<RepairPhoto>() as List<RepairPhoto>;
+    // Поля дописаны позже остальных, поэтому читаются последними и через
+    // try/catch: в записях, сохранённых до их появления, их просто нет.
+    final normItems = _readTrailingList<RepairNormItem>(reader);
+    final detailsLoaded =
+        _readDetailsLoaded(reader, comment, actualConsumptions, photos);
     return Repair(
-      id: reader.read(),
-      uuid: reader.read(),
-      status: reader.read(),
-      equipmentUuid: reader.read(),
-      equipmentName: reader.read(),
-      equipmentTypeModel: reader.read(),
-      consumptionNormUuid: reader.read(),
-      consumptionNormName: reader.read(),
-      createdAt: reader.read(),
-      startedAt: reader.read(),
-      underReviewAt: reader.read(),
-      completedAt: reader.read(),
-      duration: reader.read(),
-      comment: reader.read(),
-      responsibleUserUuid: reader.read(),
-      responsibleUserFullname: reader.read(),
-      responsibleRoleUuid: reader.read(),
-      responsibleRoleName: reader.read(),
-      actualConsumptions: reader.read().cast<RepairConsumption>(),
-      photos: reader.read().cast<RepairPhoto>(),
-      // Поле добавлено позже остальных, поэтому читается последним и через
-      // try/catch: в записях, сохранённых до его появления, его просто нет.
-      normItems: _readTrailingList<RepairNormItem>(reader),
+      id: id,
+      uuid: uuid,
+      status: status,
+      equipmentUuid: equipmentUuid,
+      equipmentName: equipmentName,
+      equipmentTypeModel: equipmentTypeModel,
+      consumptionNormUuid: consumptionNormUuid,
+      consumptionNormName: consumptionNormName,
+      createdAt: createdAt,
+      startedAt: startedAt,
+      underReviewAt: underReviewAt,
+      completedAt: completedAt,
+      duration: duration,
+      comment: comment,
+      responsibleUserUuid: responsibleUserUuid,
+      responsibleUserFullname: responsibleUserFullname,
+      responsibleRoleUuid: responsibleRoleUuid,
+      responsibleRoleName: responsibleRoleName,
+      actualConsumptions: actualConsumptions,
+      photos: photos,
+      normItems: normItems,
+      detailsLoaded: detailsLoaded,
     );
   }
 
@@ -279,6 +374,30 @@ class RepairAdapter extends TypeAdapter<Repair> {
       return reader.read().cast<T>();
     } catch (_) {
       return const [];
+    }
+  }
+
+  /// Отметка «подробности известны» у записей, сохранённых до её появления.
+  ///
+  /// Поля в потоке нет, и честного ответа не существует. Восстанавливаем по
+  /// содержимому: если в записи есть хоть что-то из того, чего список не
+  /// отдаёт, — значит она пришла из полной схемы. Иначе считаем подробности
+  /// незагруженными, и карточка честно скажет об этом вместо «расхода нет».
+  ///
+  /// Ошибиться в эту сторону безопасно: первая же удачная загрузка карточки
+  /// перезапишет запись с настоящей отметкой.
+  static bool _readDetailsLoaded(
+    BinaryReader reader,
+    String? comment,
+    List<RepairConsumption> consumptions,
+    List<RepairPhoto> photos,
+  ) {
+    try {
+      return reader.read() as bool;
+    } catch (_) {
+      return consumptions.isNotEmpty ||
+          photos.isNotEmpty ||
+          (comment != null && comment.isNotEmpty);
     }
   }
 
@@ -305,6 +424,8 @@ class RepairAdapter extends TypeAdapter<Repair> {
     writer.write(obj.actualConsumptions);
     writer.write(obj.photos);
     writer.write(obj.normItems);
+    // Новое поле — строго в конец: read() читает его так же, через try/catch.
+    writer.write(obj.detailsLoaded);
   }
 }
 

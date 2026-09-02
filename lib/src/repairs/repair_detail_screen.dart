@@ -1195,7 +1195,11 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
       children: [
         // Причина, по которой ремонт не уехал, теперь стоит внизу формы —
         // см. [_buildUnsentSection].
-        if (_failed) ...[
+        // Показываем и когда карточка не нашлась вовсе (`_failed`), и когда
+        // она есть, но неполная. Второе куда коварнее: экран выглядит
+        // заполненным, а комментарий, фото и расход пусты — не потому, что их
+        // нет, а потому, что список ремонтов их не отдаёт.
+        if (_failed || !repair.detailsLoaded) ...[
           // Без значка и по центру — как остальные полосы про отсутствие связи.
           _Banner(
             text: RepairCardStrings.staleDataBanner,
@@ -1276,6 +1280,17 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
           // расхода с остатком дало бы ложную тревогу про позицию, которая
           // как раз этим ремонтом и была списана.
           showStockWarnings: !repair.isClosed,
+          // Пустой блок означает разное. Если карточку читали целиком —
+          // расхода действительно нет. Если нет (открыли по кэшу без связи, а
+          // список расход не отдаёт) — мы просто не знаем, и говорить
+          // «списания не будет» нельзя: это и создавало ощущение, что расход
+          // пропал.
+          //
+          // Черновик сюда не попадает: `PendingRepair.toRepair` ставит
+          // отметку сам — его расход лежит в очереди целиком.
+          emptyNote: repair.detailsLoaded
+              ? RepairCardStrings.consumptionEmptyNote
+              : RepairCardStrings.consumptionUnknownNote,
           hasNorm: repair.normItems.isNotEmpty,
           // Кнопка гаснет, когда добавлять уже нечего (п. 4.3.9 отчёта):
           // нажимать её ради снекбара «всё добавлено» бессмысленно.

@@ -297,7 +297,14 @@ extension DataProviderSync on DataProvider {
       }
       // Ключ — uuid, а не автоинкремент: так отдельный ремонт можно обновить
       // точечно (см. DataProvider.upsertRepair), не перекачивая весь список.
-      await repairBox.putAll({for (final repair in fresh) repair.uuid: repair});
+      //
+      // `withDetailsFrom` обязателен: список не отдаёт ни расхода, ни
+      // комментария, ни фото, и без него запись из списка затирала бы
+      // карточку, прочитанную целиком.
+      await repairBox.putAll({
+        for (final repair in fresh)
+          repair.uuid: repair.withDetailsFrom(repairBox.get(repair.uuid)),
+      });
       for (final key in repairBox.keys.toList()) {
         if (!keep.contains(key)) await repairBox.delete(key);
       }
@@ -379,7 +386,12 @@ extension DataProviderSync on DataProvider {
 
       for (final repair in changed) {
         if (repair.isActive) {
-          await repairBox.put(repair.uuid, repair);
+          // Как и в полном проходе: подробности берём из кэша, их в списке
+          // нет.
+          await repairBox.put(
+            repair.uuid,
+            repair.withDetailsFrom(repairBox.get(repair.uuid)),
+          );
         } else {
           // Ремонт закрыли: в кэше активных ему больше не место. Закрытые
           // приложение не кэширует вовсе — их отдаёт отдельный эндпоинт.
