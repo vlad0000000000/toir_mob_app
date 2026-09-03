@@ -19,6 +19,7 @@ import '../model/typical_problem.dart';
 import '../model/usage_update.dart';
 import '../repairs/spare_part_picker_sheet.dart';
 import '../utils/any_controller.dart';
+import '../utils/quantity_format.dart';
 import '../widgets/spare_part_consumption.dart';
 
 /// Задача, по которой сервер ждёт фактический расход ЗИП.
@@ -855,7 +856,7 @@ class _UsageListState extends State<_UsageList> {
     for (final p in widget.parameters) {
       final tc = TextEditingController();
       final draft = _draftValueFor(p);
-      tc.text = (draft ?? p.currentValue).toString();
+      tc.text = formatQuantity(draft ?? p.currentValue);
       _edit[p.uuid] = tc;
     }
   }
@@ -881,7 +882,9 @@ class _UsageListState extends State<_UsageList> {
       setState(() => _errors[p.uuid] = err);
       return;
     }
-    final v = double.parse(tc.text);
+    // Разделитель — и запятая, и точка: поле показывает значение с запятой,
+    // а набрать его могут через точку.
+    final v = parseQuantity(tc.text)!;
     final list = (widget.controller.value ?? [])
         .where((u) => u.usageParameterUuid != p.uuid)
         .toList();
@@ -901,7 +904,7 @@ class _UsageListState extends State<_UsageList> {
 
   void _reset(UsageParameter p) {
     final tc = _edit[p.uuid]!;
-    tc.text = p.currentValue.toString();
+    tc.text = formatQuantity(p.currentValue);
     final list = (widget.controller.value ?? [])
         .where((u) => u.usageParameterUuid != p.uuid)
         .toList();
@@ -960,16 +963,11 @@ class _UsageRow extends StatelessWidget {
     required this.onReset,
   });
 
-  String _format(double v) {
-    if (v == v.roundToDouble()) return v.toStringAsFixed(0);
-    return v.toString();
-  }
-
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    final current = _format(param.currentValue);
+    final current = formatQuantity(param.currentValue);
     final isChanged = draft != null && draft != param.currentValue;
     final short = unit.shortName.isEmpty ? '' : ' ${unit.shortName}';
 
@@ -1001,7 +999,7 @@ class _UsageRow extends StatelessWidget {
                           style: tt.bodySmall
                               ?.copyWith(color: cs.onSurfaceVariant)),
                       const SizedBox(width: 4),
-                      Text('${_format(draft!)}$short',
+                      Text('${formatQuantity(draft!)}$short',
                           style: tt.bodyMedium?.copyWith(
                               color: cs.primary, fontWeight: FontWeight.w600)),
                     ],

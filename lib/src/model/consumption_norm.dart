@@ -1,5 +1,6 @@
 import 'package:hive_ce/hive.dart';
 
+import '../utils/quantity_format.dart';
 import 'repair.dart';
 
 /// Норма расхода ЗИП. Приходит из `GET /v1/company/consumption_norms/`.
@@ -90,7 +91,4 @@ class ConsumptionNormAdapter extends TypeAdapter<ConsumptionNorm> {
   }
 }
 
-String _formatQuantity(double value) {
-  if (value == value.roundToDouble()) return value.toInt().toString();
-  return value.toString();
-}
+String _formatQuantity(double value) => formatQuantity(value);

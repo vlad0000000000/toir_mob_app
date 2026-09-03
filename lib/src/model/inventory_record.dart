@@ -1,5 +1,7 @@
 import 'package:hive_ce/hive.dart';
 
+import '../utils/quantity_format.dart';
+
 class InventoryRecord {
   final int id;
   final String uuid;
@@ -313,12 +315,14 @@ class UsageParameter {
     if (value == null || value.isEmpty) {
       return 'Значение не может быть пустым';
     }
-    double v = 0;
-    try {
-      v = double.parse(value);
-    } catch (e) {
+    // Запятая и точка равнозначны: поле наработки показывает значение с
+    // запятой (`formatQuantity`), и вводят его так же — отвечать на это
+    // «значение должно быть числом» нельзя.
+    final parsed = parseQuantity(value);
+    if (parsed == null) {
       return 'Значение должно быть числом';
     }
+    final double v = parsed;
     if (allowCurrentValue) {
       if (v < currentValue) {
         return 'Значение должно быть больше текущего';

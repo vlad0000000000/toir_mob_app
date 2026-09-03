@@ -38,24 +38,29 @@ These break user data or the build if ignored. Full detail lives in the skill.
   the version back into it: that is what used to wipe unsent inspections on
   every release.
 - **Do not run `build_runner`** — it would overwrite the hand-written adapters.
-- **Do not run `dart format` over the whole project** — 38 of 95 files are
-  currently unformatted. Format only the files you touch.
+- **Do not run `dart format` over the whole project** — 28 of 147 files in
+  `lib`+`test` are currently unformatted. Format only the files you touch.
+- **Every network call goes through the shared `_client` in `api.dart`**, never
+  top-level `http.get/post`: outside it there is no 3-second `connectionTimeout`
+  and no server-unreachable window (`API.isServerKnownUnreachable`).
 
 ## Commands
 
 ```bash
 flutter pub get
-flutter analyze     # baseline: 140 infos, zero warnings/errors; any warning is your regression
-flutter test        # baseline: green, 63 tests
+flutter analyze     # baseline: 106 infos, zero warnings/errors; any warning is your regression
+flutter test        # baseline: green, 122 tests in 19 files
 flutter run -d <device>
 ```
 
-`flutter test` is green and must stay green — 8 suites under `test/`, covering
-the PPR feature flag, how the inspection and repair outboxes classify a failure
-(retry, reject, or treat as already delivered), the repair-to-clipboard format,
-the server-unreachable window, the two repair-queue models, and `SparePartUsage`.
-The old empty commented-out `widget_test.dart` template was removed; it had no
-`main()` and made the whole run fail.
+`flutter test` is green and must stay green — 19 suites under `test/`, covering
+the symmetry of the `Repair` and `PendingRepair` Hive adapters, how the
+inspection and repair outboxes classify a failure (retry, reject, or treat as
+already delivered), spare-part consumption and write-off, the insufficient-stock
+payload, the catalogue's sorting and stock levels, the PPR feature flag, the
+repair-to-clipboard format and the server-unreachable window. The old empty
+commented-out `widget_test.dart` template was removed; it had no `main()` and
+made the whole run fail.
 
 Note what these tests do **not** cover: they exercise models and pure helpers,
 not the two outbox loops in `data_provider_outbox.dart`. That gap is why the
@@ -64,5 +69,5 @@ the loop handed it the wrong object.
 
 The analyzer only started applying rules in August 2026 — `analysis_options.yaml`
 had included a package that was never a dependency, so nothing but the built-in
-checks ran. The 140 remaining findings are all `info` and pre-date that fix;
+checks ran. The 106 remaining findings are all `info` and pre-date that fix;
 working through them is separate from keeping the baseline free of warnings.

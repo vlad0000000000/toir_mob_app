@@ -6,6 +6,7 @@ import '../../global_state.dart';
 import '../../strings.dart';
 import '../design/app_constants.dart';
 import '../design/app_theme.dart';
+import '../utils/quantity_format.dart';
 
 /// Блок «Фактический расход ЗИП», общий для карточки ремонта и экрана
 /// результата скана.
@@ -81,11 +82,9 @@ class ConsumptionSecondaryAction {
   });
 }
 
-/// Целое — без дробной части: «4», а не «4.0».
-String formatConsumptionQuantity(double value) {
-  if (value == value.roundToDouble()) return value.toInt().toString();
-  return value.toString();
-}
+/// Количество расхода для показа — общий формат приложения: целое без дробной
+/// части, дробное через запятую. См. `utils/quantity_format.dart`.
+String formatConsumptionQuantity(double value) => formatQuantity(value);
 
 /// Шаг кнопок «−» и «+» — по масштабу самого количества.
 ///
@@ -308,7 +307,10 @@ class SparePartConsumptionSection extends StatelessWidget {
           ] else
             // Две кнопки в одну строку, каждая на половине ширины: вторая
             // всегда стоит справа от «Добавить позицию» и никогда не уезжает
-            // под неё.
+            // под неё. Первая прижата к левому краю блока, вторая — к правому
+            // (см. `alignment` в [_ActionButton]): по центру своих половин они
+            // сходились к середине и не совпадали ни с одним краем текста над
+            // ними.
             //
             // Половина ширины вместо «по содержимому» — потому что подписи
             // длинные, и на узком экране (или при увеличенном системном
@@ -341,6 +343,7 @@ class SparePartConsumptionSection extends StatelessWidget {
                           icon: secondaryAction!.icon,
                           label: secondaryAction!.label,
                           onPressed: secondaryAction!.onPressed,
+                          alignment: Alignment.centerRight,
                         )
                       : hasNorm
                           ? _ActionButton(
@@ -348,6 +351,7 @@ class SparePartConsumptionSection extends StatelessWidget {
                               label: RepairCardStrings.fillFromNorm,
                               onPressed:
                                   canFillFromNorm ? onFillFromNorm : null,
+                              alignment: Alignment.centerRight,
                             )
                           : const SizedBox.shrink(),
                 ),
@@ -586,7 +590,7 @@ class _SparePartQuantityStepperState extends State<SparePartQuantityStepper> {
     // (например, пользователь стёр всё и набирает заново).
     setState(() {});
     // Запятая — обычный десятичный разделитель на русской раскладке.
-    final parsed = double.tryParse(raw.trim().replaceAll(',', '.'));
+    final parsed = parseQuantity(raw);
     if (parsed == null || parsed <= 0) return;
     widget.onChanged(parsed);
   }
@@ -780,10 +784,20 @@ class _ActionButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
 
+  /// К какому краю отведённой половины прижимается содержимое.
+  ///
+  /// Кнопка занимает половину ширины (см. ряд действий), и по умолчанию
+  /// `TextButton` центрует содержимое внутри неё — две кнопки сходились к
+  /// середине блока и висели в воздухе. Левая прижимается к левому краю,
+  /// правая — к правому, и обе встают по краям блока, как заголовок и текст
+  /// над ними.
+  final AlignmentGeometry alignment;
+
   const _ActionButton({
     required this.icon,
     required this.label,
     this.onPressed,
+    this.alignment = Alignment.centerLeft,
   });
 
   @override
@@ -791,11 +805,12 @@ class _ActionButton extends StatelessWidget {
     return TextButton(
       onPressed: onPressed,
       style: TextButton.styleFrom(
-        // Поля меньше штатных: кнопка живёт в половине ширины экрана вместе с
-        // иконкой, и штатные отступы съедали бы место у подписи.
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppConstants.spacingSM,
-        ),
+        alignment: alignment,
+        // Без горизонтальных полей: содержимое обязано вставать вровень с краем
+        // блока, а не отступать от него на ширину поля. Заодно кнопка живёт в
+        // половине ширины экрана вместе с иконкой, и отступы съедали бы место
+        // у подписи.
+        padding: EdgeInsets.zero,
         minimumSize: const Size(0, AppConstants.buttonHeight),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),

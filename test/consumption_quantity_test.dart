@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:qr_scan_industry/src/utils/quantity_format.dart';
 import 'package:qr_scan_industry/src/widgets/spare_part_consumption.dart';
 
 /// Счётчик количества в блоке фактического расхода.
@@ -62,8 +63,35 @@ void main() {
       expect(press(3, plus: false), 2);
     });
 
-    test('результат печатается без хвоста', () {
-      expect(formatConsumptionQuantity(press(0.3, plus: false)), '0.2');
+    test('результат печатается без хвоста и через запятую', () {
+      expect(formatConsumptionQuantity(press(0.3, plus: false)), '0,2');
+    });
+  });
+
+  group('formatQuantity', () {
+    test('целое печатается без дробной части', () {
+      expect(formatQuantity(4), '4');
+      expect(formatQuantity(40.0), '40');
+    });
+
+    test('дробное — через запятую, как в админке', () {
+      expect(formatQuantity(0.1), '0,1');
+      expect(formatQuantity(0.01), '0,01');
+      expect(formatQuantity(1.5), '1,5');
+    });
+  });
+
+  group('parseQuantity', () {
+    test('запятая и точка равнозначны', () {
+      expect(parseQuantity('0,25'), 0.25);
+      expect(parseQuantity('0.25'), 0.25);
+      expect(parseQuantity(' 12 '), 12);
+    });
+
+    test('не число — null', () {
+      expect(parseQuantity('много'), isNull);
+      expect(parseQuantity(''), isNull);
+      expect(parseQuantity(null), isNull);
     });
   });
 }

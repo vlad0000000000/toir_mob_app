@@ -7,35 +7,41 @@ Architecture, use-case и репозиториев на фичу. Папки —
 (`http/`, `data/`, `model/`, `design/`, `widgets/`, `utils/`), частично по фиче
 (`qr/`, `tasks/`, `repairs/`, `spare_parts/`, `notifications/`, …).
 
-`REFACTORING_CHECKLIST.md`, Phase 8 описывает целевую feature-first структуру —
-она **не сделана**. Не начинай переезд папок мимоходом; пиши в текущей.
+Переезд на feature-first обсуждался и **не сделан**. Не начинай его мимоходом;
+пиши в текущей структуре.
 
 ## Дерево `lib/`
 
 ```
-main.dart              точка входа, GoRouter (21 маршрут), MyApp, отладочная полоса
+main.dart              точка входа, GoRouter (22 маршрута), MyApp, отладочная полоса
 global_state.dart      статики: dataProvider, authUser, debug, hasConnectionToServer
 settings.dart          пользовательские настройки поверх stringBox
-strings.dart           Strings + Repair*/Conflict*/SparePart* — строки по фичам
+strings.dart           Strings + 8 классов строк по фичам (Repair*, Conflict*,
+                       SparePart*, InspectionConsumption*, ScanQueue*, UsageQueue*, ScanConflict*)
 src/
+  feature_flags.dart   FeatureFlags.pprEnabled (PPR_ENABLED из .env)
   app_bar/             MyAppBar.build(context) — один AppBar на большинство экранов
   app_lifecycle/       AppLifecycleObserver (resume → ensureRunning push)
   data/                data_provider.dart + part-файлы remote/sync/outbox
                        hive_storage_location.dart, repair_photo_files.dart
   design/              app_constants.dart (токены), app_theme.dart (2 схемы)
                        theme_extensions.dart — МЁРТВЫЙ, 0 импортов
-  exceptions/          4 исключения (3 про логин + AuthExpiredException)
-  http/                api.dart + 7 part-файлов
-  model/               26 файлов, 28 рукописных TypeAdapter
+  exceptions/          7 исключений: 3 про логин, AuthExpired, NoConnection,
+                       ServerFailure (несёт код ответа), InsufficientStock (+ shortages)
+  http/                api.dart (общий _client, окно недоступности) + 8 part-файлов
+  model/               27 файлов, 29 рукописных TypeAdapter (следующий typeId — 30)
   notifications/       сервис, экран, карточка, SSE-парсер, push/ (второй изолят)
-  qr/                  qa_actions (хаб), qr_screen (сканер), qr_result_screen (ядро)
-  repairs/             список, карточка (2.5k строк), создание, конфликт, пикер
+  qr/                  qa_actions (хаб), qr_screen (сканер), qr_result_screen (ядро),
+                       scan_conflict_screen (разбор отклонённого осмотра)
+  repairs/             список, карточка (2.5k строк), создание, конфликт, пикер,
+                       repair_clipboard, repair_delete_dialog, repair_error_messages
   spare_parts/         справочник ЗИП + карточка позиции с историей
-  tasks/               список оборудования, карточка задач, фильтр (выключен)
-  style/               snack_bar.dart (единственный файл)
+  tasks/               список оборудования, карточка задач (+ контроллер),
+                       ppr_list_screen, periodic_task_card, фильтр (выключен)
+  style/               snack_bar.dart; my_transition.dart и palette.dart — МЁРТВЫЕ
   update_manager.dart  ОТКЛЮЧЁН флагом enabled = false
-  utils/               AnyController, Dialogs, go_router_ext, Dependent
-  widgets/             переиспользуемые виджеты
+  utils/               AnyController, Dialogs, go_router_ext, isOfflineError, Dependent
+  widgets/             переиспользуемые виджеты (в т.ч. spare_part_consumption)
   login/ splash/ knowledge_base/ onboarding/
 ```
 
@@ -64,6 +70,9 @@ src/
   не реактивный, пересчитывается из каждого места, где меняется список или
   очередь;
 - `DataProvider.authExpired` — токен протух, очередь встала;
+- `DataProvider.rejectedScansCount` / `rejectedUsageCount` — полосы «сервер
+  отказался принять» на главном хабе; изменение счётчика осмотров ещё и
+  открывает разбор конфликта, если обходчик сейчас на главной;
 - `AnyController<T>` — значение формы.
 
 Дальше: `setState` в `State`; `provider` — ровно один `Provider` (`DataProvider`);
@@ -85,7 +94,7 @@ DI-контейнера нет. По убыванию частоты: стати
 их.
 
 Один роутер, объявлен статически в `MyApp._router`. Плоский список из
-**21 `GoRoute`**, вложенных маршрутов и `ShellRoute` нет.
+**22 `GoRoute`**, вложенных маршрутов и `ShellRoute` нет.
 `navigatorKey: PushNotificationRouter.navigatorKey` — чтобы фоновый изолят мог
 навигировать.
 
@@ -124,6 +133,7 @@ DI-контейнера нет. По убыванию частоты: стати
 | `/onboarding`, `/onboarding_video` | онбординг | видео по `Settings.onboardingStep` |
 | `/actions` | `QRActions` | главный хаб |
 | `/tasks`, `/problems` | `EquipmentListScreen` | второй — вход без QR |
+| `/ppr` | `PprListScreen` | за флагом `PPR_ENABLED`; переход к оборудованию — `?from=ppr` |
 | `/details/:index` | `EquipmentDetailScreen` | `index` = `InventoryRecord.id` |
 | `/qr_scanner` | `QRScreen` | |
 | `/qr_result`, `/qr_result_problems`, `/qr_result_demo` | `QRResultScreen` | `extra: InventoryRecord` |
@@ -143,17 +153,24 @@ DI-контейнера нет. По убыванию частоты: стати
 ## Поток данных
 
 **Чтение.** Триггеры (`mainSync`): фоновый цикл 60 с, логин, вход в «Задачи»,
-«Сканер», «Осмотр оборудования», после отправки осмотра. Восемь справочников
-качаются параллельно, каждый — полная перезапись бокса, ошибка глотается с
-`print`. Исключение — каталог ЗИП, см. ниже. UI читает **из Hive**, а не из
-результата запроса.
+«ППР», «Сканер», «Осмотр оборудования», после отправки осмотра. Десять
+справочников качаются параллельно, каждый — полная перезапись бокса, ошибка
+глотается в `Logger`. Исключений два: пара «ППР → задачи» идёт последовательно
+(`syncTasks` догружает осмотры по составу ППР, поэтому `syncPpr` обязан
+завершиться раньше) и каталог ЗИП, который качается **инкрементально** — окном
+`updated_since` со списком удалённых. UI читает **из Hive**, а не из результата
+запроса.
 
-**Каталог ЗИП в `mainSync` не входит** — он на порядок больше и меняется реже.
-Грузится по требованию (`ensureSparePartsLoaded`), редким фоновым проходом
-(≈10 минут) и кнопкой «Синхронизировать данные». Он же единственный, кто
-качается **инкрементально** — окном `updated_since` со списком удалённых, а не
-полной перезаписью. Подробности —
+**Каталог ЗИП вернулся в `mainSync`** после перевода на инкрементальный проход:
+в устоявшемся состоянии это один запрос с пустым ответом, зато остатки на складе
+перестали отставать. Полным проход бывает только на первом заходе и после
+оборванной записи. `ensureSparePartsLoaded()` остался — им экраны ЗИП, ремонтов
+и расхода добирают каталог, если кэш ещё пуст. Подробности —
 `data-and-integrations.md`.
+
+Пока стоит отметка недоступности сервера (`API.isServerKnownUnreachable`),
+`mainSync` не начинается вовсе: десять параллельных проходов к мёртвому серверу —
+самый дорогой способ ничего не узнать.
 
 **Запись.** Две схемы очереди — без побочного эффекта (пара боксов + возврат из
 pending через 120 с) и с побочным эффектом (один бокс + `Idempotency-Key`,
@@ -163,15 +180,17 @@ pending через 120 с) и с побочным эффектом (один б�
 
 | Уровень | Поведение |
 |---|---|
-| `API` | `throw Exception('Failed to …: код')`; 401 → `AuthExpiredException`; русский `detail` достаётся через `_serverDetail` |
-| `DataProvider.sync*` | `catch (e) { print(...) }` — ошибка глотается, экран о ней не узнаёт |
+| `API` | `throw Exception('Failed to …: код')`; 401 → `AuthExpiredException`; 409 с `insufficient_stock` → `InsufficientStockException`; прочий отказ с русским `detail` → `ServerFailureException` (несёт код ответа) |
+| `DataProvider.sync*` | `catch (e) { _syncLog.warning(...) }` — ошибка глотается, экран о ней не узнаёт |
 | `DataProvider.login` | Различает неверные данные и сетевой сбой (фолбэк на локальных пользователей) |
 | `updateEquipmentState` | Пробрасывает — UI показывает снекбар |
-| Очередь ремонтов | Различает отказ / нет связи / протух токен |
+| Очереди осмотров и ремонтов | Различают отказ / сбой шлюза (`ServerFailureException.isTransient`) / нет связи / протух токен |
 | Экран | `try/catch` + `Dialogs.notify` или снекбар |
 
-Детект офлайна повторяется строками минимум в трёх местах — переиспользуй форму
-`_isOfflineError` из `qr_result_screen.dart`.
+Детект офлайна — **общий помощник `isOfflineError` в `utils/offline_error.dart`**.
+Своих копий не заводить: раньше их было три, и каждая ошибалась по-своему.
+Разбор идёт и по типам (`http.ClientException`, `SocketException`,
+`HttpException`), и по тексту — часть ошибок доезжает завёрнутой в `Exception`.
 
 ## Конфигурация
 
@@ -194,7 +213,9 @@ pending через 120 с) и с побочным эффектом (один б�
 |---|---|
 | Новый HTTP-метод | `http/equipment_api.dart` |
 | Метод с разбором `detail` и идемпотентностью | `http/repair_api.dart` |
+| Метод, собирающий данные из двух эндпоинтов | `http/ppr_api.dart` |
 | Новый справочник в синхронизацию | `syncUsageUnitTypes` + вызов в `mainSync()` |
+| Разбор отказа сервера на экране-тупике | `qr/scan_conflict_screen.dart` |
 | Очередь без побочных эффектов | `syncPeriodicTasks` |
 | Очередь с побочным эффектом на сервере | `syncPendingRepairs` |
 | Экран-список | `tasks/equipment_list_screen.dart` |
@@ -210,7 +231,8 @@ pending через 120 с) и с побочным эффектом (один б�
 | Что | Статус |
 |---|---|
 | `design/theme_extensions.dart` | 0 импортов |
-| `select_*_button`, `button_with_select_dialog` | 0 внешних ссылок, заменены встроенными пикерами |
+| `style/my_transition.dart`, `style/palette.dart` | 0 ссылок — остатки удалённой анимации переходов |
+| `select_*_button`, `button_with_select_dialog` | 0 внешних ссылок, кроме `select_task_button` и `select_image_button` (их использует `result_controls.dart`) |
 | `scanned_barcode_label`, `dependent_multi`, `self_cancel_timer` | 0 ссылок |
 | `UpdateManager` | Отключён флагом `enabled = false`; вызовы из 4 экранов ничего не делают |
 | `getInventoryRecords()` | Не вызывается, заменён `getEquipment()` |

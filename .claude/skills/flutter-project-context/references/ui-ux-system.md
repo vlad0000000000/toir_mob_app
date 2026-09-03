@@ -125,6 +125,7 @@ cs.priorityHigh / priorityMedium / priorityLow
 | `Dialogs.notify / notifyMD / areYouSure` | `utils/dialogs.dart` | Информирование и подтверждение |
 | `OfflineBanner` | `widgets/offline_banner.dart` | Полоса «нет связи» над содержимым |
 | `SparePartRow` | `widgets/spare_part_row.dart` | Строка позиции ЗИП |
+| `SparePartConsumptionSection` | `widgets/spare_part_consumption.dart` | Блок «Фактический расход ЗИП» — счётчик количества, план по норме, предупреждения о нехватке. Общий для карточки ремонта, экрана результата скана и обоих экранов разрешения конфликта. Виджет только рисует и зовёт колбэки; чем заполнен список и что считать нормой — дело экрана |
 | `showSingleDateSheet`, `showDateRangeSheet` | `widgets/date_range_sheet.dart` | Выбор даты. **Вместо `showDatePicker`** — штатный без `flutter_localizations` англоязычный |
 | `RepairStatusPill`, `RepairFreePill` | `repairs/repair_status_pill.dart` | Пилюли статуса ремонта |
 | `HelpLink`, `SquareButton`, `SelectImageButton` | `widgets/` | |
@@ -133,9 +134,10 @@ cs.priorityHigh / priorityMedium / priorityLow
 | `MyAppBar.build(context)` | `app_bar/app_bar.dart` | AppBar экрана — не создавай свой, добавь ветку. Исключение: заголовок зависит от данных |
 
 **Мертво, не переиспользовать:** `design/theme_extensions.dart`,
-`select_priority_button`, `select_problem_button`, `select_state_button`,
-`select_usage_button`, `button_with_select_dialog`, `scanned_barcode_label`,
-`dependent_multi`, `self_cancel_timer`.
+`style/my_transition.dart`, `style/palette.dart`, `select_priority_button`,
+`select_problem_button`, `select_state_button`, `select_usage_button`,
+`button_with_select_dialog`, `scanned_barcode_label`, `dependent_multi`,
+`self_cancel_timer`.
 
 ---
 
@@ -183,6 +185,7 @@ cs.priorityHigh / priorityMedium / priorityLow
 | Нет связи | `OfflineBanner` над содержимым; кэш остаётся рабочим |
 | Не отправлено | Пилюля «Не отправлено», у черновика — пунктирная обводка |
 | Отправка отклонена | Причина по-русски на карточке, автоповтора нет |
+| Очередь получила отказ | Полоса на **главном хабе** (`_RejectedScansBanner`) первой строкой, до всех плиток: отклонённый осмотр больше никто не отправит сам. Отдельные полосы для осмотров и наработки — разбор у них разный |
 
 **Правило первичной загрузки:** заводи флаг «хоть раз загрузили»
 (`hasLoadedOnce`) и показывай спиннер, а не `EmptyState`, пока он `false` —
@@ -254,7 +257,9 @@ Material Icons, вариант `_rounded` (доминирует) или `_outlin
 | Экран-форма с липким CTA | `qr/qr_result_screen.dart` + `result_controls.dart` |
 | Ввод числа крупными кнопками | `_QuantityStepper` в `repairs/repair_detail_screen.dart` |
 | Диалог необратимого действия | `_SubmitConfirmDialog` там же |
-| Модальный тупик / разрешение конфликта | `repairs/repair_conflict_screen.dart` |
+| Модальный тупик / разрешение конфликта | `repairs/repair_conflict_screen.dart`, `qr/scan_conflict_screen.dart` |
+| Блок расхода ЗИП | `widgets/spare_part_consumption.dart` |
+| Сворачиваемые группы | `tasks/ppr_list_screen.dart`, `tasks/equipment_detail_screen.dart` |
 | Фильтр-лист с чипами | `spare_parts/spare_parts_screen.dart` (рабочий) |
 | Экран с внешним контентом и ошибкой | `knowledge_base/knowledge_base_screen.dart` |
 

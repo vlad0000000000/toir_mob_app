@@ -7,10 +7,10 @@
 > подключал `package:analysis_defaults/flutter.yaml` — пакета не было в
 > зависимостях, поэтому не применялось ничего, кроме встроенных проверок.
 > Сейчас подключён `package:flutter_lints/flutter.yaml`.
-> Эталон `flutter analyze` — **140 замечаний уровня `info` и ни одного
-> `warning`/`error`**. Все 140 — наследство: они были в коде и до включения
+> Эталон `flutter analyze` — **106 замечаний уровня `info` и ни одного
+> `warning`/`error`**. Все они — наследство: были в коде и до включения
 > линтера. Разбирать их — отдельная работа; следи за тем, чтобы твоя правка не
-> добавила `warning`.
+> добавила `warning`. Сверяйся по уровню, а не по числу.
 >
 > Две строки `false` в `linter.rules` (`prefer_const_constructors`,
 > `prefer_single_quotes`) по-прежнему ничего не выключают: ни того, ни другого
@@ -172,13 +172,13 @@ extension EquipmentApi on API {
     if (API.jwtToken == null) {                        // 2. авторизация
       throw Exception('Not authenticated');
     }
-    final response = await http.get(
+    final response = await _client.get(                // 3. ТОЛЬКО общий клиент
       Uri.parse('${API.baseUrl}/v1/company/equipment?limit=$limit&skip=$offset'),
       headers: {'Authorization': 'Bearer ${API.jwtToken}'},
-    ).timeout(API._readTimeout);                       // 3. обязательный таймаут
+    ).timeout(API._readTimeout);                       // 4. обязательный таймаут
 
     if (response.statusCode == 200 || response.statusCode == 201) {
-      const utf8Decoder = Utf8Decoder(allowMalformed: true);   // 4. кириллица
+      const utf8Decoder = Utf8Decoder(allowMalformed: true);   // 5. кириллица
       final data = jsonDecode(utf8Decoder.convert(response.bodyBytes));
       return data.map((json) => InventoryRecord.fromJson(json)).toList();
     }
@@ -187,8 +187,10 @@ extension EquipmentApi on API {
 }
 ```
 
-Все четыре шага обязательны. Таймауты: `_readTimeout` 15 с, `_uploadTimeout`
-60 с (multipart), `_aliveTimeout` 5 с (`isAlive`).
+Все пять шагов обязательны. **`_client`, а не top-level `http.get/post`** —
+мимо него нет ни `connectionTimeout` 3 с, ни отметки о недоступности сервера
+(`data-and-integrations.md`). Таймауты: `_readTimeout` 8 с, `_uploadTimeout`
+60 с (multipart), `_aliveTimeout` 5 с (`isAlive`, идёт через `_probeClient`).
 
 **Пагинация: параметр URL называется `skip`**, хотя аргумент метода — `offset`.
 Повторяющиеся параметры (`status`, `responsible_user_uuids`) собирай через
@@ -211,16 +213,16 @@ Future<void> syncUsageUnitTypes() async {
     await usageUnitBox.clear();
     await usageUnitBox.addAll(_usageUnits);
   } catch (e) {
-    print('Failed sync usage unit types: $e');
+    _syncLog.warning('Failed sync usage unit types: $e');
   } finally {
     _isLoading = false;
   }
 }
 ```
 
-Полная замена содержимого бокса, ошибка глотается. Новый справочник — по этому
-шаблону плюс вызов в `mainSync()`. **Исключение — каталог ЗИП:** он большой и
-в `mainSync` намеренно не входит, см. `data-and-integrations.md`.
+Полная замена содержимого бокса, ошибка глотается в журнал. Новый справочник —
+по этому шаблону плюс вызов в `mainSync()`. **Исключение — каталог ЗИП:** он
+единственный качается инкрементально, см. `data-and-integrations.md`.
 
 Синглтон-сервис: приватный конструктор + `static final instance`.
 
@@ -244,14 +246,19 @@ Future<void> syncUsageUnitTypes() async {
   (ремонты, ЗИП, нормы) — доставать его и показывать пользователю. Помощники в
   `api.dart`: `_serverDetail`, `_throwServerError`; перевод для UI —
   `repairErrorMessage` (`repairs/repair_error_messages.dart`).
-- **[ЖЁСТКО]** в фоновой очереди различай три исхода: «сервер отказал»
-  (запомнить причину, не повторять), «нет связи» (повторить позже),
-  «протух токен» (`AuthExpiredException`, 401). Смешивать нельзя — иначе
-  очередь либо теряет данные, либо долбит сервер вечно.
-- Кастомных исключений четыре: три про логин и `AuthExpiredException`
-  (`exceptions/app_exceptions.dart`).
-- Детект офлайна строками — **[ЛЕГАСИ, но повторяемо]**: копируй форму
-  `_isOfflineError` из `qr_result_screen.dart`, не пиши пятый вариант.
+- **[ЖЁСТКО]** в фоновой очереди различай четыре исхода: «сервер отказал»
+  (запомнить причину, не повторять), «сбой сервера или шлюза»
+  (`ServerFailureException.isTransient` — 5xx, 408, 429: повторить),
+  «нет связи» (повторить позже), «протух токен» (`AuthExpiredException`, 401).
+  Смешивать нельзя — иначе очередь либо теряет данные, либо долбит сервер вечно.
+- Кастомных исключений семь (`exceptions/app_exceptions.dart`): три про логин,
+  `AuthExpiredException`, `NoConnectionException`, `ServerFailureException`
+  (несёт код ответа; `toString()` печатается как прежний `Exception(текст)` —
+  переводы ошибок разбирают строку, формат менять нельзя) и
+  `InsufficientStockException` со списком `InsufficientStockItem`.
+- Детект офлайна — **[ЖЁСТКО]** общий `isOfflineError` из
+  `utils/offline_error.dart`. Своих копий не заводить: их было три, и каждая
+  ошибалась по-своему.
 
 Нет: `Result<T,E>`, `Either`, sealed-иерархий, глобального `runZonedGuarded`.
 
@@ -259,11 +266,18 @@ Future<void> syncUsageUnitTypes() async {
 
 ## Логирование
 
-`debugPrint` с тегом в квадратных скобках — **так пишет свежий код**:
-`debugPrint('[Push] startService result: $result')`. В старых файлах есть
-`print` (19 шт.) и `package:logging` (1 шт.) — не тиражировать.
+Два способа, и выбор между ними не вкусовой:
 
-Крашрепортинга нет.
+- **`package:logging`** — в фоновых слоях (`API`, `DataProvider` и его
+  part-файлы, `AppLifecycleObserver`): `final _syncLog = Logger('DataProviderSync')`,
+  уровень **не ниже `warning`**. В релизной сборке `main.dart` поднимает
+  `Logger.root.level` до `Level.WARNING`, и всё, что тише, туда не доедет. Это
+  сообщения, которые нужны при разборе жалоб «расход не списался», «осмотр
+  пропал».
+- **`debugPrint`** с тегом в квадратных скобках (46 вхождений) — в UI и push:
+  `debugPrint('[Push] startService result: $result')`.
+
+Голых `print` осталось 4 — не тиражировать. Крашрепортинга нет.
 
 ---
 
@@ -276,9 +290,10 @@ Future<void> syncUsageUnitTypes() async {
 штатные `showDatePicker`/`showTimePicker` были бы англоязычными.
 
 Строки фичи — отдельным классом в `lib/strings.dart`: `RepairStrings`,
-`RepairCardStrings`, `ConflictStrings`, `SparePartStrings`. Внутри
-`static const String` и статические методы для подстановок. **Так же заводи
-строки для новых фич.**
+`RepairCardStrings`, `ConflictStrings`, `SparePartStrings`,
+`InspectionConsumptionStrings`, `ScanQueueStrings`, `UsageQueueStrings`,
+`ScanConflictStrings`. Внутри `static const String` и статические методы для
+подстановок. **Так же заводи строки для новых фич.**
 
 Старый класс `Strings` (Map-геттеры, только 'ru') покрывает ~17% текста;
 остальное — литералы в виджетах. Повторяющееся выноси, уникальное для экрана
@@ -286,6 +301,14 @@ Future<void> syncUsageUnitTypes() async {
 
 Даты — через `intl`, `DateFormat('dd.MM.yyyy HH:mm')`. Склонения по числу
 пишутся вручную (образец `_pluralizeTasks`).
+
+**[ЖЁСТКО]** Количества (остатки ЗИП, расход, нормы, наработка) показываются
+через `formatQuantity` из `utils/quantity_format.dart`: целое — без дробной
+части, дробное — **через запятую**, как в веб-админке. Ввод разбирается
+`parseQuantity` — запятая и точка равнозначны, потому что на клавиатуре
+телефона десятичный знак зависит от раскладки. Голый `value.toString()` в
+интерфейсе не писать. На сервер числа уходят обычными `double` внутри
+`jsonEncode` — там разделитель всегда точка, и трогать это нельзя.
 
 ---
 
@@ -306,8 +329,18 @@ Doc-комментарии `///` **на русском**, перед класс�
 
 ## Тесты
 
-Их нет, `flutter test` красный из-за пустого шаблонного файла. Инфраструктуры
-моков и фикстур не существует. Не отчитывайся об «успешном прогоне тестов».
+`flutter test` **зелёный: 122 теста в 19 файлах** — и должен таким оставаться.
+Только unit и только на чистую логику: симметричность Hive-адаптеров
+(`repair_adapter_test`, `pending_repair_adapter_test`), разбор отказов сервера
+(`scan_error_messages_test`, `repair_error_messages_test`), поведение записей
+очереди при отказе, окно недоступности (`offline_window_test`), расход ЗИП
+(`consumption_*`, `insufficient_stock_item_test`, `spare_part_usage_test`),
+фича-флаг ППР, формат копирования ремонта.
+
+Моков, фикстур, widget- и integration-тестов нет. Всё, что ходит через `API`,
+покрыть нельзя: клиент приватный и не подменяется.
+
+Пиши название теста **по-русски** — так написаны существующие.
 
 ---
 
@@ -326,6 +359,8 @@ Doc-комментарии `///` **на русском**, перед класс�
 | Чистая логика без Flutter | `notifications/sse_line_parser.dart` |
 | Метод API | `http/equipment_api.dart` |
 | Метод API с `detail` и идемпотентностью | `http/repair_api.dart` |
+| Метод API, собирающий данные из двух эндпоинтов | `http/ppr_api.dart` |
+| Экран разбора отказа сервера | `qr/scan_conflict_screen.dart` |
 | Очередь отправки | `data/data_provider_outbox.dart` |
 | Модель с Hive | `model/usage_update.dart` |
 | Модель с вложенными объектами и поздним полем | `model/repair.dart` |

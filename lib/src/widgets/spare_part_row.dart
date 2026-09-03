@@ -4,6 +4,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../strings.dart';
 import '../design/app_constants.dart';
 import '../design/app_theme.dart';
+import '../utils/quantity_format.dart';
 import '../model/spare_part.dart';
 
 /// Строка справочника ЗИП: значок, название и серая строка
@@ -133,11 +134,6 @@ class SparePartRow extends StatelessWidget {
   }
 }
 
-/// Целое — без дробной части: «40», а не «40.0». Сервер отдаёт
-/// `Numeric(14, 4)`, и «40.0000» в цехе читать неудобно.
-String formatSparePartQuantity(double value) {
-  if (value == value.roundToDouble()) {
-    return value.toInt().toString();
-  }
-  return value.toString();
-}
+/// Остаток ЗИП для показа — общий формат приложения: «40», а не «40.0»;
+/// «0,25», а не «0.25». См. `utils/quantity_format.dart`.
+String formatSparePartQuantity(double value) => formatQuantity(value);

@@ -98,13 +98,13 @@ void main() {
       ]);
     });
 
-    test('дробное количество не округляется', () {
+    test('дробное количество не округляется и пишется через запятую', () {
       final text = repairClipboardText(
         repair: repair(),
         consumptions: [item('Масло И-20', 1.5)],
       );
 
-      expect(text, contains('Масло И-20 × 1.5;'));
+      expect(text, contains('Масло И-20 × 1,5;'));
     });
 
     test('фотографий в тексте нет ни при каких данных', () {
