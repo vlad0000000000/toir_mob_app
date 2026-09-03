@@ -1,6 +1,4 @@
-
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../global_state.dart';
@@ -85,11 +83,16 @@ class _SparePartDetailScreenState extends State<SparePartDetailScreen> {
     final part = _part;
 
     return Scaffold(
+      // Шапка как у карточки ремонта: штатный заголовок и отступ от стрелки,
+      // справа пилюля. Свой значок и уменьшенный кегль отсюда убраны — карточка
+      // выглядела чужой среди остальных экранов.
       appBar: AppBar(
-        titleSpacing: 0,
-        title: part == null
-            ? const Text(SparePartStrings.cardTitle)
-            : _TitleWithIcon(name: part.name),
+        title: Text(
+          part == null ? SparePartStrings.cardTitle : part.name,
+          // Названия номенклатуры бывают длинными, а место в шапке занято ещё
+          // и пилюлей: обрезаем, а не переносим на вторую строку.
+          overflow: TextOverflow.ellipsis,
+        ),
         actions: [
           if (part != null)
             Padding(
@@ -125,67 +128,36 @@ class _SparePartDetailScreenState extends State<SparePartDetailScreen> {
     );
   }
 
+  /// Блок остатка сверху, под ним карточка реквизитов — оба по своей высоте.
+  ///
+  /// `ConstrainedBox` на высоту экрана оставлен не ради вида, а ради жеста:
+  /// содержимое короткое, и без него «потянуть, чтобы обновить» работало бы
+  /// только над самими блоками, а не над всей страницей.
   Widget _buildBody(SparePart part) {
     return RefreshIndicator(
       onRefresh: _load,
-      child: CustomScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          SliverToBoxAdapter(child: _StockBlock(part: part)),
-          SliverToBoxAdapter(child: _DetailsCard(part: part)),
-          const SliverToBoxAdapter(
-            child: SizedBox(height: AppConstants.spacingXL),
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _StockBlock(part: part),
+                _DetailsCard(part: part),
+              ],
+            ),
           ),
-        ],
+        ),
       ),
     );
   }
 }
 
-
 // ─────────────────────────────────────────────────────────────────────────
 // Шапка
 // ─────────────────────────────────────────────────────────────────────────
-
-class _TitleWithIcon extends StatelessWidget {
-  final String name;
-
-  const _TitleWithIcon({required this.name});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
-    return Row(
-      children: [
-        Container(
-          width: 32,
-          height: 32,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: cs.surfaceContainerHigh,
-            borderRadius: BorderRadius.circular(AppConstants.radiusSM),
-          ),
-          child: SvgPicture.asset(
-            'assets/images/spare_part.svg',
-            width: 16,
-            height: 16,
-            colorFilter: ColorFilter.mode(cs.onSurfaceVariant, BlendMode.srcIn),
-          ),
-        ),
-        const SizedBox(width: AppConstants.spacingSM),
-        Expanded(
-          child: Text(
-            name,
-            style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
-    );
-  }
-}
 
 /// Пилюля наличия в шапке. Три состояния, те же, что подсвечивают остаток в
 /// строке справочника: нет вовсе, опустился до минимума, в наличии.
@@ -338,6 +310,11 @@ class _StockBlock extends StatelessWidget {
 }
 
 /// Реквизиты позиции: подпись слева, значение справа.
+///
+/// Высота у карточки своя: строки просто просторнее обычного
+/// ([_DetailRow.minHeight]). Делить между ними всю оставшуюся высоту экрана
+/// пробовали — на четырёх реквизитах строки разъезжались до неприличия, и
+/// таблица занимала пол-экрана ради четырёх коротких значений.
 class _DetailsCard extends StatelessWidget {
   final SparePart part;
 
@@ -351,7 +328,7 @@ class _DetailsCard extends StatelessWidget {
         AppConstants.spacingMD,
         AppConstants.spacingLG,
         AppConstants.spacingMD,
-        0,
+        AppConstants.spacingLG,
       ),
       child: Container(
         decoration: BoxDecoration(
@@ -360,6 +337,7 @@ class _DetailsCard extends StatelessWidget {
           border: Border.all(color: cs.outlineVariant),
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
             _DetailRow(
               label: SparePartStrings.fieldWarehouse,
@@ -386,6 +364,11 @@ class _DetailsCard extends StatelessWidget {
 }
 
 class _DetailRow extends StatelessWidget {
+  /// Высота строки. Больше собственной (около 44 px) — таблица из четырёх
+  /// реквизитов не выглядит сплюснутой в углу страницы; длинное значение
+  /// переносится на вторую строку и растит ячейку дальше.
+  static const double minHeight = 60;
+
   final String label;
   final String? value;
   final bool last;
@@ -398,6 +381,7 @@ class _DetailRow extends StatelessWidget {
     final tt = Theme.of(context).textTheme;
     final text = (value == null || value!.trim().isEmpty) ? '—' : value!;
     return Container(
+      constraints: const BoxConstraints(minHeight: minHeight),
       padding: const EdgeInsets.symmetric(
         horizontal: AppConstants.spacingMD,
         vertical: AppConstants.spacingMD - 4,
@@ -409,22 +393,26 @@ class _DetailRow extends StatelessWidget {
                 bottom: BorderSide(color: cs.outlineVariant, width: 0.5),
               ),
             ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
-          ),
-          const SizedBox(width: AppConstants.spacingMD),
-          Expanded(
-            child: Text(
-              text,
-              textAlign: TextAlign.right,
-              style: tt.bodyMedium,
+      // Ячейка выше своего содержимого, поэтому подпись со значением
+      // центрируем, а не оставляем прижатыми к верхней границе.
+      child: Center(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
             ),
-          ),
-        ],
+            const SizedBox(width: AppConstants.spacingMD),
+            Expanded(
+              child: Text(
+                text,
+                textAlign: TextAlign.right,
+                style: tt.bodyMedium,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
