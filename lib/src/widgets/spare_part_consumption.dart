@@ -305,12 +305,11 @@ class SparePartConsumptionSection extends StatelessWidget {
               ),
             ),
           ] else
-            // Две кнопки в одну строку, каждая на половине ширины: вторая
-            // всегда стоит справа от «Добавить позицию» и никогда не уезжает
-            // под неё. Первая прижата к левому краю блока, вторая — к правому
-            // (см. `alignment` в [_ActionButton]): по центру своих половин они
-            // сходились к середине и не совпадали ни с одним краем текста над
-            // ними.
+            // Две кнопки в одну строку, каждая на половине ширины и каждая
+            // прижата к началу своей половины: первая встаёт вровень с
+            // заголовком блока, вторая — по середине блока. К правому краю
+            // вторую не прижимаем — так она отрывается от пары и висит у самой
+            // границы карточки.
             //
             // Половина ширины вместо «по содержимому» — потому что подписи
             // длинные, и на узком экране (или при увеличенном системном
@@ -343,7 +342,6 @@ class SparePartConsumptionSection extends StatelessWidget {
                           icon: secondaryAction!.icon,
                           label: secondaryAction!.label,
                           onPressed: secondaryAction!.onPressed,
-                          alignment: Alignment.centerRight,
                         )
                       : hasNorm
                           ? _ActionButton(
@@ -351,7 +349,6 @@ class SparePartConsumptionSection extends StatelessWidget {
                               label: RepairCardStrings.fillFromNorm,
                               onPressed:
                                   canFillFromNorm ? onFillFromNorm : null,
-                              alignment: Alignment.centerRight,
                             )
                           : const SizedBox.shrink(),
                 ),
@@ -784,20 +781,10 @@ class _ActionButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
 
-  /// К какому краю отведённой половины прижимается содержимое.
-  ///
-  /// Кнопка занимает половину ширины (см. ряд действий), и по умолчанию
-  /// `TextButton` центрует содержимое внутри неё — две кнопки сходились к
-  /// середине блока и висели в воздухе. Левая прижимается к левому краю,
-  /// правая — к правому, и обе встают по краям блока, как заголовок и текст
-  /// над ними.
-  final AlignmentGeometry alignment;
-
   const _ActionButton({
     required this.icon,
     required this.label,
     this.onPressed,
-    this.alignment = Alignment.centerLeft,
   });
 
   @override
@@ -805,11 +792,10 @@ class _ActionButton extends StatelessWidget {
     return TextButton(
       onPressed: onPressed,
       style: TextButton.styleFrom(
-        alignment: alignment,
-        // Без горизонтальных полей: содержимое обязано вставать вровень с краем
-        // блока, а не отступать от него на ширину поля. Заодно кнопка живёт в
-        // половине ширины экрана вместе с иконкой, и отступы съедали бы место
-        // у подписи.
+        // Без горизонтальных полей и без центрирования (`alignment` слева):
+        // содержимое встаёт вровень с началом своей половины, а «+» у первой
+        // кнопки — вровень с заголовком блока и текстом под ним.
+        alignment: Alignment.centerLeft,
         padding: EdgeInsets.zero,
         minimumSize: const Size(0, AppConstants.buttonHeight),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
