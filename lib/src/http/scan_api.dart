@@ -27,6 +27,16 @@ extension ScanApi on API {
 
     request.headers['Authorization'] = 'Bearer ${API.jwtToken}';
     request.headers['accept'] = 'application/json';
+    // Создание осмотра — не идемпотентная операция: потерянный ответ (или
+    // ответ 200 с неразборчивым телом) очередь повторит через 120 секунд, и
+    // без ключа сервер заведёт вторую запись. Ключ — постоянный идентификатор
+    // события, тот же при любом числе повторов. Пока сервер заголовок не
+    // поддерживает, он его просто не читает. Пустой не шлём — так же, как у
+    // ремонтов: пустую строку сервер считает ошибкой.
+    final eventId = scan.eventId;
+    if (method == 'POST' && eventId != null && eventId.isNotEmpty) {
+      request.headers['Idempotency-Key'] = eventId;
+    }
 
     var scanJson = scan.toJson();
     scanJson.forEach((key, value) {

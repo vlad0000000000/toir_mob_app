@@ -1055,7 +1055,21 @@ extension DataProviderSync on DataProvider {
       // гарантирует свежие остатки; идущий проход каталога он не дублирует,
       // а присоединяется к нему (см. [syncSpareParts]).
       syncSpareParts(),
-      if (scansWas > 0) syncScans(),
+      // Наработка — раньше осмотров, а не рядом с ними: осмотр «только
+      // наработка» ждёт свои показания (`Scan.usageKeys`), и без них ручная
+      // синхронизация оставляла бы его в очереди и отвечала «не получилось».
+      // Наработку она раньше не отправляла вовсе, как и ad-hoc задачи, —
+      // кнопка «всё синхронизировать» молча оставляла их фоновому циклу.
+      //
+      // Оба прохода — свежие, а не присоединение к фоновым: фоновый проход
+      // осмотров мог начаться до отправки наработки и уже пропустить
+      // ждущий её осмотр, а фоновый проход наработки — до того, как обходчик
+      // её внёс. Присоединившись, кнопка ответила бы «не получилось» по тому,
+      // что уехало бы следующим циклом.
+      if (scansWas > 0 || scanUsageBox.isNotEmpty)
+        syncUsageScansFresh().then((_) => syncScansFresh()),
+      if (periodicTaskBox.isNotEmpty || periodicTaskPendingBox.isNotEmpty)
+        syncPeriodicTasks(),
     ]);
     if (pendingRepairBox.isNotEmpty || pendingRepairUpdateBox.isNotEmpty) {
       return SyncResult.repairsFailed;

@@ -1223,7 +1223,12 @@ class _RejectedUsageSheetState extends State<_RejectedUsageSheet> {
     final confirmed = await confirmRepairDelete(
       context,
       title: UsageQueueStrings.deleteTitle,
-      body: UsageQueueStrings.deleteBody(_equipmentName(usage.equipmentUuid)),
+      body: UsageQueueStrings.deleteBody(
+        _equipmentName(usage.equipmentUuid),
+        withInspection: GlobalState.dataProvider
+            .inspectionsWaitingForUsage(usage.key())
+            .isNotEmpty,
+      ),
       note: RepairStrings.deleteIrreversible,
     );
     if (!confirmed || !mounted) return;

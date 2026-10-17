@@ -461,63 +461,93 @@ extension DataProviderOutbox on DataProvider {
   /// намеренно ждёт, пока уедет наработка по тому же оборудованию, — и
   /// зависало вместе с ней навсегда, вместе со списанием ЗИП и без единого
   /// слова на экране.
-  Future<void> syncUsageScans() async {
-    final scans = scanUsageBox.values.toList();
-    for (final scan in scans) {
+  ///
+  /// Проход идёт один: повторный вызов (фоновый цикл и ручная синхронизация
+  /// пересекаются) присоединяется к идущему и дожидается его. Отказывать
+  /// нельзя — ручная синхронизация сразу за наработкой отправляет осмотры, и
+  /// осмотр, ждущий наработку, проверил бы её раньше, чем она уедет.
+  Future<void> syncUsageScans() =>
+      _usageSync.run(DataProvider._outboxPassGeneration, _syncUsageScansImpl);
+
+  /// Проход по наработке, начавшийся не раньше вызова — для ручной
+  /// синхронизации: фоновый проход мог начаться до того, как обходчик внёс
+  /// показание, и в его снимке его нет. См. [GenerationPass.runFresh].
+  Future<void> syncUsageScansFresh() => _usageSync.runFresh(
+      DataProvider._outboxPassGeneration, _syncUsageScansImpl);
+
+  Future<void> _syncUsageScansImpl() async {
+    for (final usage in scanUsageBox.values.toList()) {
       // Отклонённые не долбим на каждом проходе: причина сама не изменится,
       // решение за обходчиком — повторить или выбросить.
-      if (scan.isRejected) continue;
+      if (usage.isRejected) continue;
+      final key = usage.key();
+      // Снимок мог устареть, пока шёл проход: запись уже удалили.
+      if (!scanUsageBox.containsKey(key)) continue;
       try {
-        await GlobalState.dataProvider.scanUsageBox.delete(scan.key());
-        await GlobalState.dataProvider.scanUsagePendingBox.delete(scan.key());
-        await GlobalState.dataProvider.scanUsagePendingBox
-            .put(scan.key(), scan);
-        if (await api.updateUsageParameter(scan)) {
-          await GlobalState.dataProvider.scanUsagePendingBox.delete(scan.key());
-          await GlobalState.dataProvider.scanUsageBox.delete(scan.key());
+        // Переносим «сначала положить, потом убрать» — на всех переходах.
+        // Наоборот между двумя шагами записи не было бы ни в одном боксе, и
+        // осмотр, который ждёт эту наработку (`Scan.usageKeys`), в этот миг
+        // решил бы, что она уже принята, и ушёл бы раньше неё — даже если
+        // сервер её потом отклонит. Миг, когда запись лежит в обоих боксах,
+        // безвреден: проверка ищет её в любом.
+        await scanUsagePendingBox.put(key, usage);
+        await scanUsageBox.delete(key);
+        if (await api.updateUsageParameter(usage)) {
+          // Принята — только теперь её нет нигде.
+          await scanUsagePendingBox.delete(key);
         } else {
-          await GlobalState.dataProvider.scanUsagePendingBox.delete(scan.key());
-          await GlobalState.dataProvider.scanUsageBox.delete(scan.key());
-          await GlobalState.dataProvider.scanUsageBox.put(scan.key(), scan);
+          await _returnUsageToQueue(key, usage);
         }
       } catch (e) {
-        await GlobalState.dataProvider.scanUsagePendingBox.delete(scan.key());
         if (e is AuthExpiredException) {
           // Токен протух — наработка не виновата. Возвращаем без пометки:
           // после повторного входа уйдёт сама.
-          await GlobalState.dataProvider.scanUsageBox.put(scan.key(), scan);
+          await _returnUsageToQueue(key, usage);
           authExpired.value = true;
           continue;
         }
         if (isRetryableScanError(e)) {
-          await GlobalState.dataProvider.scanUsageBox.put(scan.key(), scan);
-          _outboxLog.warning(
-              'наработка ${scan.key()} не отправлена, осталась в очереди: $e');
+          await _returnUsageToQueue(key, usage);
+          _outboxLog
+              .warning('наработка $key не отправлена, осталась в очереди: $e');
           continue;
         }
         // Сервер ответил и отказал. Запоминаем причину и перестаём повторять,
         // иначе очередь ТО по этому оборудованию не сдвинется никогда.
-        scan.lastError = scanErrorMessage(e);
-        await GlobalState.dataProvider.scanUsageBox.put(scan.key(), scan);
+        usage.lastError = scanErrorMessage(e);
+        await _returnUsageToQueue(key, usage);
         refreshRejectedUsageCount();
-        _outboxLog.severe(
-            'наработка ${scan.key()} отклонена сервером: ${scan.lastError}');
+        _outboxLog
+            .severe('наработка $key отклонена сервером: ${usage.lastError}');
       }
     }
   }
 
-  Future<void> syncScans() async {
-    // Защита от параллельного запуска: 5-секундный цикл (startScanSyncing) и
-    // ручная синхронизация ("Синхронизировать данные") могут вызвать syncScans
-    // одновременно — оба прочитают scanBox и отправят один осмотр дважды.
-    if (_isSyncingScans) return;
-    _isSyncingScans = true;
-    try {
-      await _syncScansImpl();
-    } finally {
-      _isSyncingScans = false;
-    }
+  /// Возвращает наработку из «в полёте» в очередь — тоже «сначала положить,
+  /// потом убрать», см. [_syncUsageScansImpl].
+  Future<void> _returnUsageToQueue(String key, UsageUpdate usage) async {
+    await scanUsageBox.put(key, usage);
+    await scanUsagePendingBox.delete(key);
   }
+
+  /// Защита от параллельного запуска: 5-секундный цикл (startScanSyncing) и
+  /// ручная синхронизация («Синхронизировать данные») могут вызвать syncScans
+  /// одновременно — оба прочитали бы scanBox и отправили один осмотр дважды.
+  ///
+  /// Второй вызов присоединяется к идущему проходу и дожидается его, а не
+  /// возвращается сразу: иначе ручная синхронизация, попав на фоновый проход,
+  /// отвечала бы «не получилось» по осмотрам, которые в этот момент как раз
+  /// уезжают.
+  Future<void> syncScans() =>
+      _scanSync.run(DataProvider._outboxPassGeneration, _syncScansImpl);
+
+  /// Проход по осмотрам, начавшийся не раньше вызова. Нужен тем, кто только
+  /// что сделал осмотр готовым к отправке: ручная синхронизация, отправившая
+  /// его наработку, и повтор отклонённого. Идущий фоновый проход такой осмотр
+  /// уже пропустил («ждёт наработку», «отклонён») и к нему не вернётся, а
+  /// присоединившись к нему, вызывающий получил бы ложное «не получилось».
+  Future<void> syncScansFresh() =>
+      _scanSync.runFresh(DataProvider._outboxPassGeneration, _syncScansImpl);
 
   Future<void> _syncScansImpl() async {
     // Проверяем pending сканы — возвращаем в scanBox те, что прождали 120 секунд
@@ -548,6 +578,13 @@ extension DataProviderOutbox on DataProvider {
       // главной и решит — повторить или сбросить. Тот же приём, что у
       // черновиков ремонта.
       if (scan.isRejected) continue;
+      // Осмотр «только наработка» ждёт свои показания: его комментарий — это
+      // они и есть. Уйди он раньше, а сервер наработку отклони («меньше
+      // прежнего»), история показывала бы значение, которого на сервере нет.
+      // Отклонённая наработка держит осмотр, пока обходчик не решит: повтор
+      // отправит обоих, удаление наработки удалит и осмотр
+      // ([DataProvider.deleteRejectedUsage]).
+      if (_waitsForUsage(scan)) continue;
       final taskUuid = scan.taskUuid;
       final isMaintenancePeriodicTask = taskUuid != null &&
           taskUuid.isNotEmpty &&
@@ -575,6 +612,13 @@ extension DataProviderOutbox on DataProvider {
           continue;
         }
       }
+      // Список снят в начале прохода, а проход долгий — пока шли предыдущие
+      // осмотры, этот могли удалить: «Удалить» у отклонённой наработки вместе
+      // с привязанным осмотром, «Сбросить осмотры», удаление отклонённого.
+      // Без проверки проход переложил бы удалённый осмотр в pending и
+      // отправил бы. Стоит последней перед переносом и без `await` между ними
+      // и проверкой [_waitsForUsage]: удаление не может вклиниться.
+      if (!scanBox.containsKey(scan.key())) continue;
       final timestampKey = 'scan_pending_${scan.key()}';
       try {
         // Перемещаем скан в pending перед отправкой
@@ -654,6 +698,17 @@ extension DataProviderOutbox on DataProvider {
     }
   }
 
+  /// Какая-то из наработок, к которым привязан осмотр, ещё не принята
+  /// сервером — лежит в очереди, в полёте или отклонена.
+  bool _waitsForUsage(Scan scan) {
+    final keys = scan.usageKeys;
+    if (keys == null || keys.isEmpty) return false;
+    return keys.any(
+      (key) =>
+          scanUsageBox.containsKey(key) || scanUsagePendingBox.containsKey(key),
+    );
+  }
+
   /// Снимает отметку об отказе — обходчик решил повторить отправку.
   ///
   /// Осмысленно после того, как причина устранена: администратор пополнил
@@ -670,7 +725,8 @@ extension DataProviderOutbox on DataProvider {
     await scanBox.put(key, scan);
     refreshRejectedScansCount();
     invalidateScanTaskCache();
-    await syncScans();
+    // Свежий проход: идущий снял снимок, когда осмотр ещё был отклонён.
+    await syncScansFresh();
   }
 
   /// Отправляет отклонённый осмотр заново с исправленным расходом ЗИП.
@@ -703,7 +759,7 @@ extension DataProviderOutbox on DataProvider {
     await scanBox.put(key, updated);
     refreshRejectedScansCount();
     invalidateScanTaskCache();
-    await syncScans();
+    await syncScansFresh();
   }
 
   /// Выбрасывает отклонённый осмотр. Отдельно от «Сбросить осмотры»:
@@ -723,7 +779,14 @@ extension DataProviderOutbox on DataProvider {
     invalidateScanTaskCache();
   }
 
-  Future<void> syncPeriodicTasks() async {
+  /// Один проход за раз, повторный вызов присоединяется — как у осмотров.
+  /// Здесь это особенно важно: у создания ad-hoc задачи нет ключа
+  /// идемпотентности, и два прохода, снявшие одну запись, создали бы на
+  /// сервере две задачи.
+  Future<void> syncPeriodicTasks() => _periodicTaskSync.run(
+      DataProvider._outboxPassGeneration, _syncPeriodicTasksImpl);
+
+  Future<void> _syncPeriodicTasksImpl() async {
     // Проверяем pending задачи — возвращаем в periodicTaskBox те, что прождали 120 секунд
     final pendingTasks = periodicTaskPendingBox.values.toList();
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -747,6 +810,8 @@ extension DataProviderOutbox on DataProvider {
     // Обрабатываем задачи из periodicTaskBox
     final tasks = periodicTaskBox.values.toList();
     for (final task in tasks) {
+      // Снимок мог устареть, пока шёл проход, — как у осмотров.
+      if (!periodicTaskBox.containsKey(task.key())) continue;
       try {
         // Перемещаем задачу в pending перед отправкой
         await periodicTaskBox.delete(task.key());

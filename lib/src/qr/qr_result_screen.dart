@@ -27,6 +27,7 @@ import '../model/periodic_task_request.dart';
 import '../update_manager.dart';
 import '../utils/any_controller.dart';
 import '../utils/offline_error.dart';
+import '../utils/quantity_format.dart';
 import '../../src/onboarding/demo_equipment.dart';
 import 'result_controls.dart';
 
@@ -573,7 +574,8 @@ class _QRResultScreenState extends State<QRResultScreen> {
                 task.uuid == consumptionTask?.uuid ? consumptionsPayload : null,
             consumptionNames:
                 task.uuid == consumptionTask?.uuid ? consumptionNames : null,
-            periodicTaskUuid: task.periodicTask!.uuid));
+            periodicTaskUuid: task.periodicTask!.uuid,
+            eventId: Scan.newEventId()));
         hasTasks = true;
       }
       if (task.resultStatus == 'open') {
@@ -591,7 +593,8 @@ class _QRResultScreenState extends State<QRResultScreen> {
                 task.uuid == consumptionTask?.uuid ? consumptionsPayload : null,
             consumptionNames:
                 task.uuid == consumptionTask?.uuid ? consumptionNames : null,
-            periodicTaskUuid: ''));
+            periodicTaskUuid: '',
+            eventId: Scan.newEventId()));
         hasTasks = true;
       }
     }
@@ -641,9 +644,70 @@ class _QRResultScreenState extends State<QRResultScreen> {
           createdAt: widget.openDateTime,
           faultUuid: faultUUID,
           isOtherFault: hasOtherProblem,
-          periodicTaskUuid: ''));
+          periodicTaskUuid: '',
+          eventId: Scan.newEventId()));
     }
     return result;
+  }
+
+  /// Закрытый осмотр оборудования без задачи и без неисправности — для
+  /// случая, когда обходчик внёс только наработку.
+  ///
+  /// Сервер такой принимает так же, как осмотр «только с комментарием».
+  /// Комментарий — показания, иначе запись в истории была бы пустой. Свой
+  /// комментарий обходчика здесь всегда пуст: будь он, осмотр собрал бы
+  /// [createScans].
+  ///
+  /// Задачу на ТО это не создаёт и не должно: её создаёт сервер сам, когда
+  /// наработка доходит до порога, — по значению параметра, а не по осмотру.
+  ///
+  /// Осмотр привязан к своим записям наработки ([Scan.usageKeys]): очередь
+  /// не отправит его, пока сервер их не примет, — иначе в истории осталось бы
+  /// показание, которое сервер отклонил.
+  Scan _usageOnlyInspection(List<UsageUpdate> usageScans) {
+    final images = [
+      imageData1Controller.value,
+      imageData2Controller.value,
+      imageData3Controller.value,
+    ].where((v) => v.isNotEmpty).toList();
+    final sent = [
+      for (final usage in usageScans)
+        if (usage.usageParameterValue != null) usage,
+    ];
+    return Scan(
+      taskUuid: '',
+      resultStatus: 'closed',
+      files: images,
+      comment: UsageQueueStrings.inspectionComment(
+          [for (final usage in sent) _usageReading(usage)]),
+      priority: null,
+      equipmentUuid: widget.machine.uuid,
+      closedAt: GlobalState.nowUTCDate,
+      createdAt: widget.openDateTime,
+      faultUuid: '',
+      periodicTaskUuid: '',
+      eventId: Scan.newEventId(),
+      usageKeys: [for (final usage in sent) usage.key()],
+    );
+  }
+
+  /// Показание для комментария: «1250 м/ч». Единица — из справочника; без
+  /// него (не синхронизирован) остаётся одно число, а не падение:
+  /// `getUsageUnitShortName` на пустом справочнике бросает.
+  String _usageReading(UsageUpdate usage) {
+    final value = formatQuantity(usage.usageParameterValue!);
+    String? unitType;
+    for (final parameter in widget.machine.usageParameters) {
+      if (parameter.uuid == usage.usageParameterUuid) {
+        unitType = parameter.unitType;
+      }
+    }
+    String? shortName;
+    for (final unit in GlobalState.dataProvider.usageUnits) {
+      if (unit.value == unitType) shortName = unit.shortName;
+    }
+    if (shortName == null || shortName.isEmpty) return value;
+    return '$value $shortName';
   }
 
   addScans(List<Scan> scans, List<UsageUpdate> usageScans) async {
@@ -730,6 +794,15 @@ class _QRResultScreenState extends State<QRResultScreen> {
     final scans = createScans();
     final usageScans = createUsageScans();
     if (scans == null) return;
+    // Внесли только наработку — осмотр всё равно создаём. Иначе на сервер
+    // уходил один PATCH параметра: значение в админке менялось, а в истории
+    // осмотров не появлялось ничего, будто к оборудованию не подходили. И
+    // снимки, приложенные к одной наработке, молча терялись — они живут
+    // только внутри осмотра.
+    if (scans.isEmpty &&
+        usageScans.any((usage) => usage.usageParameterValue != null)) {
+      scans.add(_usageOnlyInspection(usageScans));
+    }
     if (scans.length + usageScans.length == 0) {
       Dialogs.notify(context, 'Не отправлено',
           'Укажите данные обхода (комментарий, проблему, задачу или наработку)');

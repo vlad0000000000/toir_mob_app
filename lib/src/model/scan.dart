@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:hive_ce/hive.dart';
 import '../../global_state.dart';
@@ -66,7 +67,41 @@ class Scan {
   /// тому моменту уже другой. `null` — отказ по другой причине.
   String? lastShortages;
 
+  /// Постоянный идентификатор события — уходит в `Idempotency-Key` при
+  /// создании осмотра (POST).
+  ///
+  /// Не [key]: тот не включает время, и два разных осмотра с одинаковым
+  /// содержимым (тот же комментарий по тому же оборудованию назавтра) дают
+  /// один ключ — сервер склеил бы их в одно событие. Этот считается один раз
+  /// при создании и больше не меняется, поэтому повтор после потерянного
+  /// ответа сервер узнаёт, а новый осмотр — нет.
+  ///
+  /// `null` у записей, поставленных в очередь до его появления: они уходят
+  /// без заголовка, как раньше. В [key] и [toJson] не входит.
+  final String? eventId;
+
+  /// Ключи записей наработки ([UsageUpdate.key]), без которых этот осмотр
+  /// отправлять нельзя.
+  ///
+  /// Заполняется у осмотра «только наработка»: его комментарий — показания, и
+  /// уйди он раньше, чем сервер их примет, в истории было бы значение,
+  /// которого на сервере нет (например, сервер отказал: «меньше прежнего»).
+  /// Очередь держит осмотр, пока хоть одна из этих записей лежит в очереди
+  /// наработки; удаление отклонённой наработки удаляет и его.
+  ///
+  /// `null` — ждать нечего. В [key] и [toJson] не входит.
+  final List<String>? usageKeys;
+
   bool get isRejected => (lastError ?? '').isNotEmpty;
+
+  /// Новый [eventId]: 128 случайных бит, hex.
+  static String newEventId() {
+    final random = Random.secure();
+    return [
+      for (var i = 0; i < 16; i++)
+        random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ].join();
+  }
 
   /// Копия с другим фактическим расходом — для экрана разрешения конфликта.
   ///
@@ -102,6 +137,10 @@ class Scan {
       consumptionNames: consumptionNames,
       lastError: lastError,
       lastShortages: lastShortages,
+      // Та же запись, то же событие: повтор с новым ключом сервер принял бы
+      // за новый осмотр.
+      eventId: eventId,
+      usageKeys: usageKeys,
     );
   }
 
@@ -144,7 +183,9 @@ class Scan {
       this.actualConsumptions,
       this.consumptionNames,
       this.lastError,
-      this.lastShortages});
+      this.lastShortages,
+      this.eventId,
+      this.usageKeys});
 
   Map<String, dynamic> toJson() {
     var result = <String, dynamic>{
@@ -217,6 +258,18 @@ class ScanAdapter extends TypeAdapter<Scan> {
       // найдётся — останется прежний запасной путь.
       consumptionNames = null;
     }
+    String? eventId;
+    try {
+      eventId = reader.read() as String?;
+    } catch (_) {
+      eventId = null; // записи до появления ключа события — уйдут без него
+    }
+    List<String>? usageKeys;
+    try {
+      usageKeys = (reader.read() as List?)?.cast<String>();
+    } catch (_) {
+      usageKeys = null; // записи до появления связи с наработкой — не ждут
+    }
     return Scan(
       files: files,
       periodicTaskUuid: periodicTaskUuid,
@@ -233,6 +286,8 @@ class ScanAdapter extends TypeAdapter<Scan> {
       consumptionNames: consumptionNames,
       lastError: lastError,
       lastShortages: lastShortages,
+      eventId: eventId,
+      usageKeys: usageKeys,
     );
   }
 
@@ -254,5 +309,7 @@ class ScanAdapter extends TypeAdapter<Scan> {
     writer.write(obj.lastError);
     writer.write(obj.lastShortages);
     writer.write(obj.consumptionNames);
+    writer.write(obj.eventId);
+    writer.write(obj.usageKeys);
   }
 }

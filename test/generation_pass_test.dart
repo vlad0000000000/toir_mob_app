@@ -113,5 +113,70 @@ void main() {
       await expectLater(second, throwsStateError);
       expect(pass.isRunningFor(0), isFalse);
     });
+
+    group('runFresh', () {
+      test('без идущего прохода просто запускает свой', () async {
+        final pass = GenerationPass<int>();
+        var started = 0;
+
+        expect(await pass.runFresh(0, () async => ++started), 1);
+        expect(started, 1);
+      });
+
+      test(
+          'идущий проход дожидается и запускает свой — его снимок видит '
+          'то, что готово только сейчас', () async {
+        // Сценарий из ревью: фоновый проход осмотров начался до отправки
+        // наработки и ждущий её осмотр уже пропустил. Ручная синхронизация
+        // должна получить проход, начатый после неё.
+        final pass = GenerationPass<String>();
+        final background = Completer<String>();
+        var ready = false;
+        final starts = <String>[];
+
+        final a = pass.run(0, () {
+          starts.add('фоновый');
+          return background.future;
+        });
+        ready = true; // наработка уехала — осмотр готов к отправке
+        final manual = pass.runFresh(0, () async {
+          starts.add('свежий');
+          return ready ? 'осмотр отправлен' : 'пропущен';
+        });
+
+        background.complete('пропущен');
+        expect(await a, 'пропущен');
+        expect(await manual, 'осмотр отправлен');
+        expect(starts, ['фоновый', 'свежий']);
+      });
+
+      test('два одновременных runFresh сходятся в один новый проход', () async {
+        final pass = GenerationPass<int>();
+        final background = Completer<int>();
+        var started = 0;
+        Future<int> fresh() async => ++started;
+
+        pass.run(0, () => background.future);
+        final first = pass.runFresh(0, fresh);
+        final second = pass.runFresh(0, fresh);
+        background.complete(0);
+
+        expect(await first, 1);
+        expect(await second, 1);
+        expect(started, 1);
+      });
+
+      test('ошибка дождавшегося прохода не мешает запустить свой', () async {
+        final pass = GenerationPass<String>();
+        final background = Completer<String>();
+
+        final a = pass.run(0, () => background.future);
+        final manual = pass.runFresh(0, () async => 'свой');
+        background.completeError(StateError('сеть'));
+
+        await expectLater(a, throwsStateError);
+        expect(await manual, 'свой');
+      });
+    });
   });
 }

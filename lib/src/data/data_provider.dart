@@ -183,7 +183,6 @@ class DataProvider {
   Company? _company;
   EquipmentState? _equipmentState;
   bool _isLoading = false;
-  bool _isSyncingScans = false;
 
   /// Идущий проход синхронизации справочника ЗИП. К нему присоединяются все,
   /// кто попросил синхронизацию того же аккаунта, пока он не завершился.
@@ -191,6 +190,18 @@ class DataProvider {
 
   /// То же для общего прохода по справочникам — см. `mainSync`.
   final GenerationPass<void> _mainSyncPass = GenerationPass<void>();
+
+  /// Идущие проходы очередей отправки — наработки, осмотров и ad-hoc задач
+  /// (`syncUsageScans`, `syncScans`, `syncPeriodicTasks`). Повторный вызов
+  /// присоединяется к идущему.
+  final GenerationPass<void> _usageSync = GenerationPass<void>();
+  final GenerationPass<void> _scanSync = GenerationPass<void>();
+  final GenerationPass<void> _periodicTaskSync = GenerationPass<void>();
+
+  /// Поколение для проходов очередей отправки — одно на всё время жизни:
+  /// очереди к аккаунту не привязаны, и присоединяться к идущему проходу
+  /// можно всегда.
+  static const int _outboxPassGeneration = 0;
 
   /// Поколение кэша и очередь, через которую в него пишут: поколение растёт
   /// каждый раз, когда боксы вычищаются под сменившийся аккаунт
@@ -697,13 +708,38 @@ class DataProvider {
   /// ждёт, так что удаление ничего не разблокирует — оно просто убирает с
   /// главной то, с чем обходчик ничего сделать не может. Показание он снимет
   /// заново при следующем сканировании.
+  ///
+  /// Осмотр «только наработка» ([Scan.usageKeys]) удаляется вместе с ней: он
+  /// существует только ради этих показаний, и отправленный без них сообщил
+  /// бы в истории значение, которое сервер отклонил.
   Future<void> deleteRejectedUsage(String key) async {
     final usage = scanUsageBox.get(key);
     if (usage == null) return;
+    // Сначала осмотры, потом наработка — порядок и есть защита. Проход
+    // отправки отпускает привязанный осмотр, только когда его наработки нет
+    // ни в одном боксе, и перед переносом проверяет, что сам осмотр ещё на
+    // месте. Удали мы наработку первой, уже идущий проход в этот промежуток
+    // увидел бы «наработка принята» и отправил бы осмотр, который обходчик
+    // только что подтвердил удалить.
+    final linked = inspectionsWaitingForUsage(key);
+    for (final scan in linked) {
+      await scanBox.delete(scan.key());
+      await scanPendingBox.delete(scan.key());
+    }
     await scanUsageBox.delete(key);
     await scanUsagePendingBox.delete(key);
+    if (linked.isNotEmpty) {
+      refreshRejectedScansCount();
+      invalidateScanTaskCache();
+    }
     refreshRejectedUsageCount();
   }
+
+  /// Осмотры, которые ждут наработку [usageKey], — см. [Scan.usageKeys].
+  List<Scan> inspectionsWaitingForUsage(String usageKey) => [
+        for (final scan in [...scanBox.values, ...scanPendingBox.values])
+          if (scan.usageKeys?.contains(usageKey) ?? false) scan,
+      ];
 
   void _refreshActiveRepairsCount() {
     // Черновики тоже активные ремонты — просто ещё не доехавшие. Не считать их
