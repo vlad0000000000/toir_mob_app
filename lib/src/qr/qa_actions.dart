@@ -115,6 +115,9 @@ class _QRActionsState extends State<QRActions> {
   }
 
   Future<void> _onSync() async {
+    // Синхронизация уже идёт — нажатие молча игнорируем: иконка и так
+    // крутится, а окно с результатом покажет тот вызов, что её запустил.
+    if (GlobalState.dataProvider.manualSyncRunning.value) return;
     final result = await GlobalState.dataProvider.syncDataAndScans();
     if (!mounted) return;
     switch (result) {
@@ -354,39 +357,45 @@ class _QRActionsState extends State<QRActions> {
             ),
           ],
           const SizedBox(height: AppConstants.spacingXL),
-          _ServiceSection(
-            expanded: _serviceExpanded,
-            onToggle: (v) {
-              setState(() => _serviceExpanded = v);
-              if (v &&
-                  Settings.onboardingInProgress &&
-                  Settings.onboardingStep == 5) {
-                GoRouter.of(context).clearStackAndNavigate('/onboarding_video');
-              }
-            },
-            items: [
-              _ServiceItem(
-                icon: Icons.sync_rounded,
-                label: Strings.syncData,
-                onTap: _onSync,
-              ),
-              _ServiceItem(
-                icon: Icons.delete_outline_rounded,
-                label: 'Сбросить осмотры',
-                onTap: _onResetScans,
-                destructive: true,
-              ),
-              _ServiceItem(
-                icon: Icons.info_outline_rounded,
-                label: 'Информация',
-                onTap: _onInfo,
-              ),
-              _ServiceItem(
-                icon: Icons.settings_outlined,
-                label: 'Настройки',
-                onTap: _onSettings,
-              ),
-            ],
+          ValueListenableBuilder<bool>(
+            valueListenable: GlobalState.dataProvider.manualSyncRunning,
+            builder: (context, syncing, _) => _ServiceSection(
+              expanded: _serviceExpanded,
+              busy: syncing,
+              onToggle: (v) {
+                setState(() => _serviceExpanded = v);
+                if (v &&
+                    Settings.onboardingInProgress &&
+                    Settings.onboardingStep == 5) {
+                  GoRouter.of(context)
+                      .clearStackAndNavigate('/onboarding_video');
+                }
+              },
+              items: [
+                _ServiceItem(
+                  icon: Icons.sync_rounded,
+                  label: syncing ? 'Синхронизация…' : Strings.syncData,
+                  onTap: _onSync,
+                  busy: syncing,
+                ),
+                _ServiceItem(
+                  icon: Icons.delete_outline_rounded,
+                  label: 'Сбросить осмотры',
+                  onTap: _onResetScans,
+                  destructive: true,
+                ),
+                _ServiceItem(
+                  icon: Icons.info_outline_rounded,
+                  label: 'Информация',
+                  onTap: _onInfo,
+                ),
+                _ServiceItem(
+                  icon: Icons.settings_outlined,
+                  label: 'Настройки',
+                  onTap: _onSettings,
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -752,11 +761,15 @@ class _ServiceItem {
   final VoidCallback onTap;
   final bool destructive;
 
+  /// Действие выполняется: иконка крутится, нажатия не принимаются.
+  final bool busy;
+
   _ServiceItem({
     required this.icon,
     required this.label,
     required this.onTap,
     this.destructive = false,
+    this.busy = false,
   });
 }
 
@@ -765,10 +778,15 @@ class _ServiceSection extends StatelessWidget {
   final ValueChanged<bool> onToggle;
   final List<_ServiceItem> items;
 
+  /// Идёт синхронизация — спиннер в заголовке. Нужен, когда секция свёрнута:
+  /// крутящуюся иконку внутри тогда не видно.
+  final bool busy;
+
   const _ServiceSection({
     required this.expanded,
     required this.onToggle,
     required this.items,
+    this.busy = false,
   });
 
   @override
@@ -793,6 +811,17 @@ class _ServiceSection extends StatelessWidget {
                     letterSpacing: 0.5,
                   ),
                 ),
+                if (busy) ...[
+                  const SizedBox(width: AppConstants.spacingSM),
+                  SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: cs.primary,
+                    ),
+                  ),
+                ],
                 const Spacer(),
                 Text(
                   expanded ? 'Скрыть' : 'Показать',
@@ -816,27 +845,35 @@ class _ServiceSection extends StatelessWidget {
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOutCubic,
           child: expanded
-              ? Container(
-                  margin: const EdgeInsets.only(top: AppConstants.spacingSM),
-                  decoration: BoxDecoration(
+              ? Padding(
+                  padding: const EdgeInsets.only(top: AppConstants.spacingSM),
+                  // `Material`, а не `Container` с декорацией: рябь `InkWell`
+                  // рисуется на ближайшем `Material`. Без своего она ложилась
+                  // на `Material` экрана под карточкой — фон её закрывал, и
+                  // торчала она только за скруглёнными углами, прямыми
+                  // уголками сверху. Так же сделаны плитки разделов.
+                  child: Material(
                     color: cs.surfaceContainerLow,
-                    border: Border.all(color: cs.outlineVariant, width: 0.5),
-                    borderRadius: BorderRadius.circular(AppConstants.radiusLG),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: Column(
-                    children: [
-                      for (var i = 0; i < items.length; i++) ...[
-                        if (i > 0)
-                          Divider(
-                            height: 1,
-                            thickness: 0.5,
-                            color: cs.outlineVariant,
-                            indent: 60,
-                          ),
-                        _ServiceTile(item: items[i]),
+                    clipBehavior: Clip.antiAlias,
+                    shape: RoundedRectangleBorder(
+                      side: BorderSide(color: cs.outlineVariant, width: 0.5),
+                      borderRadius:
+                          BorderRadius.circular(AppConstants.radiusLG),
+                    ),
+                    child: Column(
+                      children: [
+                        for (var i = 0; i < items.length; i++) ...[
+                          if (i > 0)
+                            Divider(
+                              height: 1,
+                              thickness: 0.5,
+                              color: cs.outlineVariant,
+                              indent: 60,
+                            ),
+                          _ServiceTile(item: items[i]),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 )
               : const SizedBox.shrink(),
@@ -855,15 +892,18 @@ class _ServiceTile extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     final fg = item.destructive ? cs.error : cs.onSurface;
+    final icon = Icon(item.icon, color: fg, size: 22);
     return InkWell(
-      onTap: item.onTap,
+      // `null` гасит и нажатие, и рябь: строка выглядит занятой, а не
+      // сломанной.
+      onTap: item.busy ? null : item.onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(
             horizontal: AppConstants.spacingMD,
             vertical: AppConstants.spacingMD),
         child: Row(
           children: [
-            Icon(item.icon, color: fg, size: 22),
+            item.busy ? _SpinningIcon(child: icon) : icon,
             const SizedBox(width: AppConstants.spacingMD),
             Expanded(
               child: Text(
@@ -871,11 +911,50 @@ class _ServiceTile extends StatelessWidget {
                 style: tt.bodyLarge?.copyWith(color: fg),
               ),
             ),
-            Icon(Icons.chevron_right_rounded,
-                color: cs.onSurfaceVariant, size: 20),
+            // Шеврон обещает переход — пока действие идёт, переходить некуда.
+            if (!item.busy)
+              Icon(Icons.chevron_right_rounded,
+                  color: cs.onSurfaceVariant, size: 20),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Иконка, которая крутится, пока виджет на экране.
+///
+/// Единственная своя анимация в приложении, и намеренно: для загрузки внутри
+/// кнопки проект берёт маленький `CircularProgressIndicator`, но у
+/// синхронизации есть собственная иконка со стрелками по кругу — её вращение
+/// читается как «идёт синхронизация» без подписи.
+class _SpinningIcon extends StatefulWidget {
+  final Widget child;
+  const _SpinningIcon({required this.child});
+
+  @override
+  State<_SpinningIcon> createState() => _SpinningIconState();
+}
+
+class _SpinningIconState extends State<_SpinningIcon>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Стрелки `sync_rounded` смотрят против часовой — крутим в ту же сторону.
+    return RotationTransition(
+      turns: Tween<double>(begin: 0, end: -1).animate(_controller),
+      child: widget.child,
     );
   }
 }

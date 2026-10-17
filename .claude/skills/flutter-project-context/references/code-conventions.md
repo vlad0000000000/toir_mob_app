@@ -7,7 +7,7 @@
 > подключал `package:analysis_defaults/flutter.yaml` — пакета не было в
 > зависимостях, поэтому не применялось ничего, кроме встроенных проверок.
 > Сейчас подключён `package:flutter_lints/flutter.yaml`.
-> Эталон `flutter analyze` — **106 замечаний уровня `info` и ни одного
+> Эталон `flutter analyze` — **102 замечаний уровня `info` и ни одного
 > `warning`/`error`**. Все они — наследство: были в коде и до включения
 > линтера. Разбирать их — отдельная работа; следи за тем, чтобы твоя правка не
 > добавила `warning`. Сверяйся по уровню, а не по числу.
@@ -209,9 +209,13 @@ extension EquipmentApi on API {
 Future<void> syncUsageUnitTypes() async {
   _isLoading = true;
   try {
-    _usageUnits = await loadAllUsageUnitTypes();
-    await usageUnitBox.clear();
-    await usageUnitBox.addAll(_usageUnits);
+    final generation = cacheGeneration;          // 1. поколение — ДО запроса
+    final units = await loadAllUsageUnitTypes(); // 2. сеть
+    await _commit(generation, 'Единицы наработки', () async {
+      _usageUnits = units;                       // 3. всё — одной фиксацией,
+      await usageUnitBox.clear();                //    без сети внутри
+      await usageUnitBox.addAll(units);
+    });
   } catch (e) {
     _syncLog.warning('Failed sync usage unit types: $e');
   } finally {
@@ -221,8 +225,11 @@ Future<void> syncUsageUnitTypes() async {
 ```
 
 Полная замена содержимого бокса, ошибка глотается в журнал. Новый справочник —
-по этому шаблону плюс вызов в `mainSync()`. **Исключение — каталог ЗИП:** он
-единственный качается инкрементально, см. `data-and-integrations.md`.
+по этому шаблону плюс вызов в `mainSync()`. **[ЖЁСТКО]** запись только через
+`_commit` с поколением, взятым до запроса: иначе ответ, пришедший после входа
+другого обходчика, ляжет в его кэш (`data-and-integrations.md`, «Смена
+аккаунта»). Крупные справочники (ЗИП, оборудование, неисправности) качаются
+инкрементально — образец `syncInventory`.
 
 Синглтон-сервис: приватный конструктор + `static final instance`.
 
@@ -329,7 +336,7 @@ Doc-комментарии `///` **на русском**, перед класс�
 
 ## Тесты
 
-`flutter test` **зелёный: 122 теста в 19 файлах** — и должен таким оставаться.
+`flutter test` **зелёный: 147 тестов в 23 файлах** — и должен таким оставаться.
 Только unit и только на чистую логику: симметричность Hive-адаптеров
 (`repair_adapter_test`, `pending_repair_adapter_test`), разбор отказов сервера
 (`scan_error_messages_test`, `repair_error_messages_test`), поведение записей

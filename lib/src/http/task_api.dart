@@ -172,13 +172,31 @@ extension TaskApi on API {
 
   Future<List<TypicalProblem>> getTypicalProblems(
       {limit = 50, offset = 0}) async {
+    final page = await getTypicalProblemsPage(limit: limit, offset: offset);
+    return page.items;
+  }
+
+  /// Страница справочника типовых неисправностей — тот же инкрементальный
+  /// протокол, что у оборудования и каталога ЗИП (см. [SyncPage]).
+  Future<SyncPage<TypicalProblem>> getTypicalProblemsPage({
+    int limit = 100,
+    int offset = 0,
+    DateTime? updatedSince,
+    DateTime? syncUntil,
+  }) async {
     _guardOffline();
     if (API.jwtToken == null) {
       throw Exception('Not authenticated');
     }
 
-    final url = Uri.parse(
-        '${API.baseUrl}/v1/company/eq_fault/?limit=${limit}&skip=${offset}');
+    final url = Uri.parse('${API.baseUrl}/v1/company/eq_fault/').replace(
+      queryParameters: syncPageParams(
+        limit: limit,
+        offset: offset,
+        updatedSince: updatedSince,
+        syncUntil: syncUntil,
+      ),
+    );
 
     final response = await _client.get(
       url,
@@ -187,15 +205,16 @@ extension TaskApi on API {
       },
     ).timeout(API._readTimeout);
 
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      const utf8Decoder = Utf8Decoder(allowMalformed: true);
-      final decodedBytes = utf8Decoder.convert(response.bodyBytes);
-      final List<dynamic> data = jsonDecode(decodedBytes);
-      return data.map((json) => TypicalProblem.fromJson(json)).toList();
-    } else {
+    if (response.statusCode != 200 && response.statusCode != 201) {
       throw Exception(
           'Failed to load typical problems: ${response.statusCode}');
     }
+    const utf8Decoder = Utf8Decoder(allowMalformed: true);
+    return parseSyncPage(
+      jsonDecode(utf8Decoder.convert(response.bodyBytes)),
+      TypicalProblem.fromJson,
+      'Failed to load typical problems',
+    );
   }
 
   Future<List<PeriodicityRule>> getPeriodicityRules() async {

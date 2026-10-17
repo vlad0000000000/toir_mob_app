@@ -179,7 +179,7 @@ Future<void> main() async {
       scanPendingBox: await Hive.openBox<Scan>('pending_scans'),
       scanUsagePendingBox:
           await Hive.openBox<UsageUpdate>('pending_usage_scans'),
-      sessionBox: await Hive.openBox<Session>('sessions'),
+      sessionBox: await _openCacheBox<Session>('sessions'),
       usageUnitBox: await _openCacheBox<UsageUnit>('usage_units'),
       typicalProblemBox:
           await _openCacheBox<TypicalProblem>('typical_problems'),

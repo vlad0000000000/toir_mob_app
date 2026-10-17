@@ -28,6 +28,7 @@ import '../../src/model/periodic_task_request.dart';
 import '../exceptions/app_exceptions.dart';
 import '../utils/offline_error.dart';
 
+part 'sync_page.dart';
 part 'auth_api.dart';
 part 'equipment_api.dart';
 part 'task_api.dart';

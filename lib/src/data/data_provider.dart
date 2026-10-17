@@ -31,7 +31,10 @@ import '../../strings.dart';
 import '../feature_flags.dart';
 import '../qr/scan_error_messages.dart';
 import '../repairs/repair_error_messages.dart';
+import 'cache_commit_queue.dart';
+import 'generation_pass.dart';
 import 'repair_photo_files.dart';
+import 'sync_schedule.dart';
 
 part 'data_provider_remote.dart';
 part 'data_provider_sync.dart';
@@ -183,8 +186,51 @@ class DataProvider {
   bool _isSyncingScans = false;
 
   /// Идущий проход синхронизации справочника ЗИП. К нему присоединяются все,
-  /// кто попросил синхронизацию, пока он не завершился.
-  Future<bool>? _sparePartsSync;
+  /// кто попросил синхронизацию того же аккаунта, пока он не завершился.
+  final GenerationPass<bool> _sparePartsSync = GenerationPass<bool>();
+
+  /// То же для общего прохода по справочникам — см. `mainSync`.
+  final GenerationPass<void> _mainSyncPass = GenerationPass<void>();
+
+  /// Поколение кэша и очередь, через которую в него пишут: поколение растёт
+  /// каждый раз, когда боксы вычищаются под сменившийся аккаунт
+  /// ([clearCachedData]).
+  ///
+  /// Нужно всем, кто пишет данные аккаунта по ответу сервера. Проход живёт
+  /// секунды, и за это время обходчик успевает выйти и войти другим:
+  /// `clearCachedData` опустошит боксы, а уже летящие ответы лягут поверх —
+  /// у инкрементальных справочников вместе с **курсором**, и полного
+  /// справочника нового аккаунта синхронизация уже не восстановит.
+  ///
+  /// Проход запоминает поколение на старте и пишет только через [_commit]:
+  /// там поколение сверяется непосредственно перед записью, а сама запись
+  /// идёт по очереди с очисткой кэша. Подробности — [CacheCommitQueue].
+  final CacheCommitQueue _commits = CacheCommitQueue();
+
+  int get cacheGeneration => _commits.generation;
+
+  /// Кэш успели вычистить с момента [generation] — писать нельзя.
+  bool isStaleCacheGeneration(int generation) => _commits.isStale(generation);
+
+  /// Записывает результат прохода поколения [generation] в кэш — или
+  /// отбрасывает его, если аккаунт успел смениться. `false` — отброшен.
+  ///
+  /// В [body] — только запись в Hive и в память: боксы, курсор, служебные
+  /// отметки одной операцией. Сеть внутри недопустима, вложенный `_commit` —
+  /// тоже: очередь общая и повиснет.
+  Future<bool> _commit(
+    int generation,
+    String what,
+    Future<void> Function() body,
+  ) async {
+    final committed = await _commits.commit(generation, body);
+    if (!committed) {
+      _dataLog.info('$what: смена аккаунта в ходе прохода — '
+          'загруженное отброшено');
+    }
+    return committed;
+  }
+
   bool _isSyncingPendingRepairs = false;
   bool _isSyncingRepairUpdates = false;
 
@@ -337,20 +383,26 @@ class DataProvider {
   ///
   /// Снимок по этому оборудованию замещается целиком — норму могли удалить на
   /// сервере. Чужие записи не трогаем: про них ответ ничего не сообщает.
+  ///
+  /// [generation] — поколение кэша на момент запроса: ответ, пришедший уже
+  /// после входа другого обходчика, в его кэш не попадёт.
   Future<void> cacheConsumptionNorms(
     String equipmentUuid,
-    List<ConsumptionNorm> norms,
-  ) async {
+    List<ConsumptionNorm> norms, {
+    required int generation,
+  }) async {
     if (equipmentUuid.isEmpty) return;
     final fresh = {for (final norm in norms) norm.uuid: norm};
-    final stale = [
-      for (final entry in consumptionNormBox.toMap().entries)
-        if (entry.value.equipmentUuid == equipmentUuid &&
-            !fresh.containsKey(entry.key))
-          entry.key,
-    ];
-    if (stale.isNotEmpty) await consumptionNormBox.deleteAll(stale);
-    if (fresh.isNotEmpty) await consumptionNormBox.putAll(fresh);
+    await _commit(generation, 'Нормы оборудования', () async {
+      final stale = [
+        for (final entry in consumptionNormBox.toMap().entries)
+          if (entry.value.equipmentUuid == equipmentUuid &&
+              !fresh.containsKey(entry.key))
+            entry.key,
+      ];
+      if (stale.isNotEmpty) await consumptionNormBox.deleteAll(stale);
+      if (fresh.isNotEmpty) await consumptionNormBox.putAll(fresh);
+    });
   }
 
   /// Сбрасывает кэши, если вошёл не тот пользователь, чьи данные лежат в
@@ -386,6 +438,24 @@ class DataProvider {
   /// молча при входе нельзя. Про их принадлежность прошлому аккаунту см.
   /// комментарий в [DataProviderRemote.login].
   Future<void> clearCachedData() async {
+    // Первым делом: всё, что сейчас летит к нам из сети, принадлежит прошлому
+    // аккаунту и записано быть не должно — см. [cacheGeneration].
+    _commits.invalidate();
+    // Ручная синхронизация прошлого аккаунта ещё может идти — дописать она
+    // уже ничего не сможет, но держала бы новому обходчику крутящуюся иконку
+    // и недоступную кнопку до своего конца. Забываем её и гасим индикатор
+    // сразу; её поздний конец индикатор нового прохода не тронет.
+    _manualSync.forget();
+    manualSyncRunning.value = false;
+    // Сама очистка — в той же очереди, что и записи синхронизации. Запись,
+    // которая уже идёт, доделается, и очистка сотрёт её результат; всё, что
+    // встанет следом, увидит новое поколение и писать не станет. Без очереди
+    // прошлый проход, сверивший поколение за мгновение до смены аккаунта,
+    // дописывал свои данные поверх уже загруженных новым.
+    await _commits.run(_clearCachedDataNow);
+  }
+
+  Future<void> _clearCachedDataNow() async {
     await Future.wait([
       inventoryBox.clear(),
       taskBox.clear(),
@@ -397,6 +467,9 @@ class DataProvider {
       usageUnitBox.clear(),
       equipmentStateBox.clear(),
       companyBox.clear(),
+      // Сессия инвентаризации — сессия компании, а не устройства: чужая
+      // висела бы в «Информации» до первой синхронизации нового аккаунта.
+      sessionBox.clear(),
     ]);
 
     // Отметки синхронизации из `stringBox`. Целиком бокс чистить нельзя — в
@@ -408,6 +481,16 @@ class DataProvider {
       _legacySparePartsSyncKey,
       _sparePartsWriteKey,
       _normsWriteKey,
+      // Курсоры инкрементальных справочников — по той же причине, что и у
+      // ЗИП: переживи курсор смену аккаунта, проход попросил бы «что
+      // изменилось с тех пор», и оборудование прошлой компании осталось бы
+      // в боксе навсегда.
+      _equipmentCursorKey,
+      _equipmentWriteKey,
+      _equipmentFullSyncKey,
+      _typicalProblemsCursorKey,
+      _typicalProblemsWriteKey,
+      _typicalProblemsFullSyncKey,
       'last_sync_date',
       pprCacheKey,
       pprCompletedByMeCacheKey,
@@ -436,6 +519,7 @@ class DataProvider {
     _repairs = [];
     _company = null;
     _equipmentState = null;
+    _currentSession = null;
     _repairsCursor = null;
     _pprCompletedByMe = {};
     _pprCompletedByMeChecked = {};
@@ -547,6 +631,22 @@ class DataProvider {
   /// «Сервис» его показывают. Данные при этом не трогаются: после повторного
   /// входа отправка продолжится с того же места.
   final ValueNotifier<bool> authExpired = ValueNotifier<bool>(false);
+
+  /// Идёт синхронизация, запущенная кнопкой «Синхронизировать данные».
+  ///
+  /// Только ручная: фоновый проход раз в минуту обходчик не запускал, и
+  /// крутящаяся иконка по нему выглядела бы как что-то незавершённое. Живёт
+  /// здесь, а не в экране: главный экран может уйти из дерева и вернуться,
+  /// пока синхронизация ещё идёт.
+  final ValueNotifier<bool> manualSyncRunning = ValueNotifier<bool>(false);
+
+  /// Идущая ручная синхронизация — см. [DataProviderSync.syncDataAndScans].
+  /// Флаг [manualSyncRunning] ведёт она сама: поднимает на старте, опускает
+  /// по окончании — только своего, текущего прохода.
+  late final GenerationPass<SyncResult> _manualSync =
+      GenerationPass<SyncResult>(
+    onRunningChanged: (running) => manualSyncRunning.value = running,
+  );
 
   /// Сколько осмотров сервер отклонил и повторять их сам никто не будет.
   ///
@@ -863,6 +963,113 @@ class DataProvider {
 
   Future<void> markNormsWriteFinished() => stringBox.delete(_normsWriteKey);
 
+  /// То же для оборудования и типовых неисправностей: оба синхронизируются
+  /// инкрементально, и обоим нужен курсор и отметка незавершённой записи.
+  ///
+  /// Оборудование — самый дорогой справочник: на пяти тысячах единиц полный
+  /// проход это полсотни страниц по полтора мегабайта. Пока он ехал целиком
+  /// на каждый проход, синхронизация занимала десятки секунд и десятки
+  /// мегабайт трафика — ради справочника, который меняется раз в день.
+  static const String _equipmentCursorKey = 'equipment_cursor';
+  static const String _equipmentWriteKey = 'equipment_write_in_progress';
+  static const String _typicalProblemsCursorKey = 'typical_problems_cursor';
+  static const String _typicalProblemsWriteKey =
+      'typical_problems_write_in_progress';
+
+  DateTime? _readCursor(String key) {
+    final raw = stringBox.get(key);
+    if (raw == null || raw.isEmpty) return null;
+    return DateTime.tryParse(raw);
+  }
+
+  Future<void> _writeCursor(String key, DateTime? value) async {
+    if (value == null) {
+      // Сервер границу не назвал — забываем отметку, иначе следующий проход
+      // считал бы окно от устаревшего момента.
+      await stringBox.delete(key);
+      return;
+    }
+    await stringBox.put(key, value.toUtc().toIso8601String());
+  }
+
+  /// Как часто справочник перечитывается целиком, даже когда курсор цел.
+  ///
+  /// Дельта-синхронизация держится на том, что сервер сообщает обо **всех**
+  /// изменениях — включая удаления. Любая дыра в этом контракте (запись
+  /// заархивировали, а в `deleted` она не попала; запись выпала из окна,
+  /// пока шла постраничная выгрузка) оседает в хранилище навсегда: окно
+  /// следующего прохода начинается там, где закончилось прошлое, и пропущенное
+  /// в него уже не попадает. Полная перезапись такие расхождения стирала сама,
+  /// и, отказавшись от неё ради скорости, нужно оставить хотя бы редкую сверку.
+  ///
+  /// Трое суток — компромисс: расхождение живёт не дольше, а полный проход
+  /// (на пяти тысячах единиц это десятки мегабайт, пока сервер отдаёт QR-коды
+  /// картинкой) случается редко. Когда список оборудования похудеет, интервал
+  /// можно сократить до суток — это одно число.
+  static const Duration fullResyncInterval = Duration(days: 3);
+
+  static const String _equipmentFullSyncKey = 'equipment_full_sync_at';
+  static const String _typicalProblemsFullSyncKey =
+      'typical_problems_full_sync_at';
+
+  /// Пора ли перечитать справочник целиком. Само правило — в
+  /// [isFullResyncDue], здесь только чтение отметки.
+  bool _isFullResyncDue(String key) {
+    final raw = stringBox.get(key);
+    final ms = raw == null ? null : int.tryParse(raw);
+    return isFullResyncDue(
+      lastFullSyncAt:
+          ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms),
+      now: DateTime.now(),
+      interval: fullResyncInterval,
+    );
+  }
+
+  Future<void> _markFullResyncDone(String key) => stringBox.put(
+        key,
+        DateTime.now().millisecondsSinceEpoch.toString(),
+      );
+
+  bool get isEquipmentFullResyncDue => _isFullResyncDue(_equipmentFullSyncKey);
+
+  Future<void> markEquipmentFullResyncDone() =>
+      _markFullResyncDone(_equipmentFullSyncKey);
+
+  bool get isTypicalProblemsFullResyncDue =>
+      _isFullResyncDue(_typicalProblemsFullSyncKey);
+
+  Future<void> markTypicalProblemsFullResyncDone() =>
+      _markFullResyncDone(_typicalProblemsFullSyncKey);
+
+  DateTime? getEquipmentCursor() => _readCursor(_equipmentCursorKey);
+
+  Future<void> saveEquipmentCursor(DateTime? value) =>
+      _writeCursor(_equipmentCursorKey, value);
+
+  bool get isEquipmentWriteIncomplete =>
+      stringBox.get(_equipmentWriteKey) == '1';
+
+  Future<void> markEquipmentWriteStarted() =>
+      stringBox.put(_equipmentWriteKey, '1');
+
+  Future<void> markEquipmentWriteFinished() =>
+      stringBox.delete(_equipmentWriteKey);
+
+  DateTime? getTypicalProblemsCursor() =>
+      _readCursor(_typicalProblemsCursorKey);
+
+  Future<void> saveTypicalProblemsCursor(DateTime? value) =>
+      _writeCursor(_typicalProblemsCursorKey, value);
+
+  bool get isTypicalProblemsWriteIncomplete =>
+      stringBox.get(_typicalProblemsWriteKey) == '1';
+
+  Future<void> markTypicalProblemsWriteStarted() =>
+      stringBox.put(_typicalProblemsWriteKey, '1');
+
+  Future<void> markTypicalProblemsWriteFinished() =>
+      stringBox.delete(_typicalProblemsWriteKey);
+
   /// Граница последнего согласованного окна для ремонтов.
   ///
   /// В памяти, а не в Hive: окно не сообщает о переназначении ремонта другому
@@ -1010,7 +1217,17 @@ class DataProvider {
   /// перекачивать весь список ради одной записи.
   ///
   /// Закрытый ремонт из кэша убираем: в нём живут только активные.
-  Future<void> upsertRepair(Repair repair) async {
+  ///
+  /// [generation] передаёт экран, который получил ремонт с сервера: он
+  /// запоминает поколение до запроса, и если за время запроса вошёл другой
+  /// обходчик, чужой ремонт в его кэш не попадёт. Без него — запись сразу, как
+  /// раньше (очередь отправки).
+  Future<void> upsertRepair(Repair repair, {int? generation}) async {
+    if (generation == null) return _writeRepair(repair);
+    await _commit(generation, 'Ремонт', () => _writeRepair(repair));
+  }
+
+  Future<void> _writeRepair(Repair repair) async {
     if (repair.isActive) {
       await repairBox.put(repair.uuid, repair);
     } else {
@@ -1041,15 +1258,21 @@ class DataProvider {
   /// локальную запись в Hive. Обработку ошибок (UI/снекбары) оставляем
   /// вызывающему — он ловит исключения этого метода.
   Future<void> updateEquipmentState(String equipmentUuid, String state) async {
+    final generation = cacheGeneration;
     await api.updateEquipmentState(equipmentUuid, state);
-    for (var key in inventoryBox.keys) {
-      final record = inventoryBox.get(key);
-      if (record != null && record.uuid == equipmentUuid) {
-        await inventoryBox.put(key, record.copyWith(state: state));
-        updateInventoryRecords();
-        break;
+    // Через очередь фиксации, как и синхронизация: иначе правка могла бы
+    // лечь посреди полной перезаписи справочника — или в кэш уже другого
+    // обходчика.
+    await _commit(generation, 'Состояние оборудования', () async {
+      for (var key in inventoryBox.keys) {
+        final record = inventoryBox.get(key);
+        if (record != null && record.uuid == equipmentUuid) {
+          await inventoryBox.put(key, record.copyWith(state: state));
+          updateInventoryRecords();
+          break;
+        }
       }
-    }
+    });
   }
 
   String periodRealName(String periodName) {

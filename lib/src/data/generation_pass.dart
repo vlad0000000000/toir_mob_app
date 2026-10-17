@@ -1,0 +1,52 @@
+/// Один проход на поколение кэша: повторный запрос присоединяется к идущему
+/// проходу, но только если тот принадлежит тому же аккаунту.
+///
+/// Так устроены `mainSync`, синхронизация каталога ЗИП и ручная синхронизация.
+/// Присоединение экономит сеть и не даёт двум проходам писать одно и то же.
+/// Но присоединиться к проходу **прошлого** аккаунта нельзя: новый обходчик
+/// остался бы без своей синхронизации, а всё, что дозагрузит чужой проход,
+/// отбросит очередь фиксации. Поэтому проход помнит поколение кэша
+/// (`CacheCommitQueue.generation`), в котором начался.
+///
+/// Отдельным классом без Hive — чтобы правило было в одном месте и
+/// проверялось тестом: три копии одного и того же кода расходились.
+class GenerationPass<T> {
+  /// Зовётся, когда проход начался (`true`) и когда закончился текущий
+  /// (`false`). Окончание прохода, который уже сменился другим или был
+  /// забыт через [forget], не сообщается — иначе поздний конец чужого
+  /// прохода погасил бы индикатор своего.
+  final void Function(bool running)? onRunningChanged;
+
+  GenerationPass({this.onRunningChanged});
+
+  Future<T>? _running;
+  int _generation = -1;
+
+  /// Идёт ли проход поколения [generation].
+  bool isRunningFor(int generation) =>
+      _running != null && _generation == generation;
+
+  /// Присоединяется к идущему проходу поколения [generation] или запускает
+  /// [start].
+  Future<T> run(int generation, Future<T> Function() start) {
+    final running = _running;
+    if (running != null && _generation == generation) return running;
+    final started = start();
+    _running = started;
+    _generation = generation;
+    onRunningChanged?.call(true);
+    return started.whenComplete(() {
+      // Проход мог смениться, пока мы ждали: снимаем только свой.
+      if (!identical(_running, started)) return;
+      _running = null;
+      onRunningChanged?.call(false);
+    });
+  }
+
+  /// Забыть идущий проход — аккаунт сменился. Сам проход не прерывается
+  /// (отменить `Future` нельзя), но о его окончании больше никто не узнает,
+  /// и следующий [run] запустит свой.
+  void forget() {
+    _running = null;
+  }
+}

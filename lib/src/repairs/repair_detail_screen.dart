@@ -292,6 +292,8 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
       return;
     }
     setState(() => _isSaving = true);
+    // Поколение кэша — до запроса, см. [DataProvider.upsertRepair].
+    final generation = GlobalState.dataProvider.cacheGeneration;
     try {
       final updated = await API().updateRepair(
         repair.uuid,
@@ -299,7 +301,8 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
         consumptions: _consumptions,
         submitForReview: submitForReview,
       );
-      await GlobalState.dataProvider.upsertRepair(updated);
+      await GlobalState.dataProvider
+          .upsertRepair(updated, generation: generation);
       // Поля уехали — но снимки уходят отдельными запросами, и их очередь
       // может быть ещё не разобрана. Удалить запись целиком значило бы стереть
       // файлы кадров, которые сервер ни разу не видел: `deletePendingRepairUpdate`
@@ -427,9 +430,11 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
       return;
     }
     setState(() => _isClaiming = true);
+    final generation = GlobalState.dataProvider.cacheGeneration;
     try {
       final updated = await API().claimRepair(repair.uuid, userUuid);
-      await GlobalState.dataProvider.upsertRepair(updated);
+      await GlobalState.dataProvider
+          .upsertRepair(updated, generation: generation);
       if (!mounted) return;
       setState(() {
         _applyRepair(updated);
@@ -736,8 +741,10 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
   Future<void> _reloadAfterPhotoChange() async {
     final comment = _commentController.text;
     final consumptions = _consumptions;
+    final generation = GlobalState.dataProvider.cacheGeneration;
     final updated = await API().getRepair(widget.repairUuid);
-    await GlobalState.dataProvider.upsertRepair(updated);
+    await GlobalState.dataProvider
+        .upsertRepair(updated, generation: generation);
     if (!mounted) return;
     setState(() {
       _repair = updated;

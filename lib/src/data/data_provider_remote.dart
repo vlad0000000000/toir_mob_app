@@ -23,55 +23,6 @@ bool _pagingLimitReached(int loaded) {
 
 /// Сетевые загрузки и авторизация (через [API]).
 extension DataProviderRemote on DataProvider {
-  Future<List<InventoryRecord>> loadAllInventory() async {
-    int limit = 100;
-    int offset = 0;
-    List<InventoryRecord> all = [];
-    while (true) {
-      List<InventoryRecord> notAll =
-          // await api.getInventoryRecords(limit: limit, offset: offset);
-          await api.getEquipment(limit: limit, offset: offset);
-      for (var inventoryRecord in notAll) {
-        all.add(inventoryRecord);
-      }
-      // Выходим на неполной странице, а не на пустой: иначе цикл всегда
-      // делает ещё один — заведомо пустой — запрос просто чтобы узнать, что
-      // данные кончились. На шести справочниках это шесть лишних round-trip
-      // за каждую синхронизацию.
-      if (notAll.length < limit) {
-        break;
-      }
-      offset += limit;
-      if (_pagingLimitReached(offset)) break;
-    }
-    return all;
-  }
-
-  Future<List<TypicalProblem>> loadAllTypicalProblems() async {
-    // 100 — верхний предел сервера. По 50 выходило вдвое больше запросов на
-    // тот же объём.
-    int limit = 100;
-    int offset = 0;
-    List<TypicalProblem> all = [];
-    while (true) {
-      List<TypicalProblem> notAll =
-          await api.getTypicalProblems(limit: limit, offset: offset);
-      for (var typicalProblem in notAll) {
-        all.add(typicalProblem);
-      }
-      // Выходим на неполной странице, а не на пустой: иначе цикл всегда
-      // делает ещё один — заведомо пустой — запрос просто чтобы узнать, что
-      // данные кончились. На шести справочниках это шесть лишних round-trip
-      // за каждую синхронизацию.
-      if (notAll.length < limit) {
-        break;
-      }
-      offset += limit;
-      if (_pagingLimitReached(offset)) break;
-    }
-    return all;
-  }
-
   Future<List<SparePart>> loadAllSpareParts() async {
     int limit = 100;
     int offset = 0;

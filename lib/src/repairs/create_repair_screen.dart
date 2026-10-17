@@ -144,6 +144,8 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
       // показать плановые количества, ни заполнить расход из нормы.
       normItems: _norm?.items ?? const [],
     );
+    // Поколение кэша — до запроса, см. [DataProvider.upsertRepair].
+    final generation = GlobalState.dataProvider.cacheGeneration;
     try {
       // Ключ идемпотентности берём у черновика с самого начала, даже когда
       // связь есть: если ответ потеряется по дороге, повтор из очереди уйдёт
@@ -155,7 +157,8 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
         comment: draft.comment,
         idempotencyKey: draft.localId,
       );
-      await GlobalState.dataProvider.upsertRepair(repair);
+      await GlobalState.dataProvider
+          .upsertRepair(repair, generation: generation);
       if (!mounted) return;
       // Сразу открываем карточку, а не список: обходчик тут же заполняет
       // расход и отправляет. pushReplacement — форма своё отработала и в
@@ -548,14 +551,20 @@ class _NormPickerSheetState extends State<_NormPickerSheet> {
       _failed = false;
       if (cached.isNotEmpty) _norms = cached;
     });
+    // Поколение кэша — до запроса: ответ, пришедший после входа другого
+    // обходчика, в его кэш не попадёт.
+    final generation = provider.cacheGeneration;
     try {
       final norms = await API().getConsumptionNorms(
         equipmentUuid: widget.equipmentUuid,
       );
       // Ответ сохраняем в кэш: следующий заход в форму может случиться уже без
       // связи, и выбирать тогда будет не из чего.
-      await GlobalState.dataProvider
-          .cacheConsumptionNorms(widget.equipmentUuid, norms);
+      await GlobalState.dataProvider.cacheConsumptionNorms(
+        widget.equipmentUuid,
+        norms,
+        generation: generation,
+      );
       if (!mounted) return;
       setState(() => _norms = norms);
     } catch (e) {

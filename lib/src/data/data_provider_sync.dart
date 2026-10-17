@@ -27,7 +27,11 @@ extension DataProviderSync on DataProvider {
     _isLoading = true;
 
     try {
-      setCurrentSession(await api.getCurrentSession());
+      final generation = cacheGeneration;
+      final session = await api.getCurrentSession();
+      await _commit(generation, 'Сессия', () async {
+        await setCurrentSession(session);
+      });
     } catch (e) {
       _syncLog.warning('Failed sync session: $e');
     } finally {
@@ -35,14 +39,35 @@ extension DataProviderSync on DataProvider {
     }
   }
 
+  /// Справочник оборудования — инкрементально, как каталог ЗИП.
+  ///
+  /// Полный проход тут самый дорогой во всём приложении: запись несёт QR-код
+  /// картинкой в base64 (~14 КБ на единицу), так что пять тысяч единиц — это
+  /// полсотни страниц и десятки мегабайт. Качать это на каждый проход, а он
+  /// заводится раз в минуту фоновым циклом, незачем: справочник меняется
+  /// редко, и сервер умеет отдавать только изменившееся.
   Future<void> syncInventory() async {
     _isLoading = true;
-
     try {
-      var inventoryRecords = await loadAllInventory();
-      await inventoryBox.clear();
-      await inventoryBox.addAll(inventoryRecords);
-      updateInventoryRecords();
+      // Инкрементально — только когда есть от чего отсчитывать и бокс цел.
+      // Иначе полный проход: он же переводит бокс на ключи по uuid, без
+      // которых точечное обновление невозможно.
+      // Полный проход — не только когда дельту считать не от чего, но и раз
+      // в [DataProvider.fullResyncInterval]: редкая сверка стирает
+      // расхождения, которые дельта накопить может, а исправить — нет.
+      //
+      // Поколение — один раз на весь проход, включая откат с дельты на полный:
+      // запись должна принадлежать тому аккаунту, под которым проход начался.
+      final generation = cacheGeneration;
+      final cursor = getEquipmentCursor();
+      if (cursor != null &&
+          inventoryBox.isNotEmpty &&
+          !isEquipmentWriteIncomplete &&
+          !isEquipmentFullResyncDue) {
+        await _syncInventoryIncremental(cursor, generation);
+      } else {
+        await _syncInventoryFull(generation);
+      }
     } catch (e, s) {
       // Стек кладём в само сообщение: слушатель в `main.dart` печатает только
       // `record.message`, поэтому третьим аргументом он бы просто потерялся.
@@ -52,13 +77,105 @@ extension DataProviderSync on DataProvider {
     }
   }
 
+  /// Полная выгрузка оборудования.
+  ///
+  /// Окно «с начала времён», а не простой список: тем же запросом приходит
+  /// серверная граница `sync_until`, от которой считается следующий проход.
+  /// Сервер инкрементальный режим не понял — границы не будет, и клиент
+  /// останется на полных проходах.
+  Future<void> _syncInventoryFull(int generation) async {
+    final since = DateTime.utc(1970);
+    final first =
+        await api.getEquipmentPage(limit: 100, offset: 0, updatedSince: since);
+    final all = <InventoryRecord>[...first.items];
+    if (first.items.length == 100) {
+      for (var offset = 100;; offset += 100) {
+        final page = await api.getEquipmentPage(
+          limit: 100,
+          offset: offset,
+          updatedSince: since,
+          syncUntil: first.syncUntil,
+        );
+        all.addAll(page.items);
+        if (page.items.length < 100) break;
+        if (_pagingLimitReached(offset)) break;
+      }
+    }
+    // Пока мы качали, обходчик мог выйти и войти другим — тогда всё
+    // загруженное принадлежит прошлому аккаунту, и фиксация его отбросит
+    // (см. [DataProvider.cacheGeneration]). Данные, курсор и отметки — одной
+    // фиксацией: смена аккаунта не должна вклиниться между ними.
+    await _commit(generation, 'Оборудование', () async {
+      // Между clear() и putAll() бокс пуст или неполон. Флаг снаружи этой
+      // пары помечает такое состояние как незавершённое — тот же приём, что
+      // у ЗИП.
+      await markEquipmentWriteStarted();
+      await inventoryBox.clear();
+      await inventoryBox
+          .putAll({for (final record in all) record.uuid: record});
+      await markEquipmentWriteFinished();
+      await saveEquipmentCursor(first.syncUntil);
+      await markEquipmentFullResyncDone();
+      updateInventoryRecords();
+    });
+  }
+
+  /// Догружает оборудование, изменившееся с момента [cursor].
+  ///
+  /// Курсор двигаем последним: оборванный проход повторит то же окно, а
+  /// повтор безвреден — записи кладутся по ключу, удаление уже удалённого
+  /// ничего не делает.
+  Future<void> _syncInventoryIncremental(
+    DateTime cursor,
+    int generation,
+  ) async {
+    final changed = <InventoryRecord>[];
+    final deleted = <String>{};
+    DateTime? until;
+
+    for (var offset = 0;; offset += 100) {
+      final page = await api.getEquipmentPage(
+        limit: 100,
+        offset: offset,
+        updatedSince: cursor,
+        syncUntil: until,
+      );
+      // Сервер не понял инкрементальный режим — откатываемся на полный
+      // проход, чтобы не принять «всё подряд» за список изменений.
+      if (page.syncUntil == null) return _syncInventoryFull(generation);
+      until ??= page.syncUntil;
+      changed.addAll(page.items);
+      deleted.addAll(page.deletedUuids);
+      if (page.items.length < 100) break;
+      if (_pagingLimitReached(offset)) break;
+    }
+
+    await _commit(generation, 'Оборудование', () async {
+      if (changed.isNotEmpty) {
+        await inventoryBox
+            .putAll({for (final record in changed) record.uuid: record});
+      }
+      if (deleted.isNotEmpty) await inventoryBox.deleteAll(deleted);
+      await saveEquipmentCursor(until);
+      updateInventoryRecords();
+    });
+  }
+
+  /// Типовые неисправности — тот же инкрементальный протокол. Их на компанию
+  /// бывает несколько тысяч, то есть два десятка страниц за проход.
   Future<void> syncTypicalProblems() async {
     _isLoading = true;
-
     try {
-      _typicalProblems = await loadAllTypicalProblems();
-      await typicalProblemBox.clear();
-      await typicalProblemBox.addAll(_typicalProblems);
+      final generation = cacheGeneration;
+      final cursor = getTypicalProblemsCursor();
+      if (cursor != null &&
+          typicalProblemBox.isNotEmpty &&
+          !isTypicalProblemsWriteIncomplete &&
+          !isTypicalProblemsFullResyncDue) {
+        await _syncTypicalProblemsIncremental(cursor, generation);
+      } else {
+        await _syncTypicalProblemsFull(generation);
+      }
     } catch (e) {
       _syncLog.warning('Failed sync typical problems: $e');
     } finally {
@@ -66,13 +183,81 @@ extension DataProviderSync on DataProvider {
     }
   }
 
+  Future<void> _syncTypicalProblemsFull(int generation) async {
+    final since = DateTime.utc(1970);
+    final first = await api.getTypicalProblemsPage(
+        limit: 100, offset: 0, updatedSince: since);
+    final all = <TypicalProblem>[...first.items];
+    if (first.items.length == 100) {
+      for (var offset = 100;; offset += 100) {
+        final page = await api.getTypicalProblemsPage(
+          limit: 100,
+          offset: offset,
+          updatedSince: since,
+          syncUntil: first.syncUntil,
+        );
+        all.addAll(page.items);
+        if (page.items.length < 100) break;
+        if (_pagingLimitReached(offset)) break;
+      }
+    }
+    await _commit(generation, 'Неисправности', () async {
+      await markTypicalProblemsWriteStarted();
+      await typicalProblemBox.clear();
+      await typicalProblemBox
+          .putAll({for (final problem in all) problem.uuid: problem});
+      await markTypicalProblemsWriteFinished();
+      await saveTypicalProblemsCursor(first.syncUntil);
+      await markTypicalProblemsFullResyncDone();
+      _typicalProblems = typicalProblemBox.values.toList();
+    });
+  }
+
+  Future<void> _syncTypicalProblemsIncremental(
+    DateTime cursor,
+    int generation,
+  ) async {
+    final changed = <TypicalProblem>[];
+    final deleted = <String>{};
+    DateTime? until;
+
+    for (var offset = 0;; offset += 100) {
+      final page = await api.getTypicalProblemsPage(
+        limit: 100,
+        offset: offset,
+        updatedSince: cursor,
+        syncUntil: until,
+      );
+      if (page.syncUntil == null) return _syncTypicalProblemsFull(generation);
+      until ??= page.syncUntil;
+      changed.addAll(page.items);
+      deleted.addAll(page.deletedUuids);
+      if (page.items.length < 100) break;
+      if (_pagingLimitReached(offset)) break;
+    }
+
+    await _commit(generation, 'Неисправности', () async {
+      if (changed.isNotEmpty) {
+        await typicalProblemBox
+            .putAll({for (final problem in changed) problem.uuid: problem});
+      }
+      if (deleted.isNotEmpty) await typicalProblemBox.deleteAll(deleted);
+      await saveTypicalProblemsCursor(until);
+      _typicalProblems = typicalProblemBox.values.toList();
+    });
+  }
+
   Future<void> syncPeriodicityRules() async {
     _isLoading = true;
 
     try {
-      _periodicityRules = await loadAllPeriodicityRules();
-      await periodicityRuleBox.clear();
-      await periodicityRuleBox.addAll(_periodicityRules);
+      final generation = cacheGeneration;
+      final rules = await loadAllPeriodicityRules();
+      await _commit(generation, 'Правила периодичности', () async {
+        _periodicityRules = rules;
+        await periodicityRuleBox.clear();
+        await periodicityRuleBox.addAll(rules);
+      });
     } catch (e) {
       _syncLog.warning('Failed sync periodicity rules: $e');
     } finally {
@@ -84,9 +269,13 @@ extension DataProviderSync on DataProvider {
     _isLoading = true;
 
     try {
-      _usageUnits = await loadAllUsageUnitTypes();
-      await usageUnitBox.clear();
-      await usageUnitBox.addAll(_usageUnits);
+      final generation = cacheGeneration;
+      final units = await loadAllUsageUnitTypes();
+      await _commit(generation, 'Единицы наработки', () async {
+        _usageUnits = units;
+        await usageUnitBox.clear();
+        await usageUnitBox.addAll(units);
+      });
     } catch (e) {
       _syncLog.warning('Failed sync usage unit types: $e');
     } finally {
@@ -110,11 +299,14 @@ extension DataProviderSync on DataProvider {
     // синхронизация идёт, просто не наша. Тогда обходчик тянул список,
     // получал отказ, а отметка «Остатки на …» обновлялась мгновением позже
     // чужим проходом — со стороны это и выглядело как «время не то».
-    final running = _sparePartsSync;
-    if (running != null) return running;
-    final started = _syncSparePartsImpl();
-    _sparePartsSync = started;
-    return started.whenComplete(() => _sparePartsSync = null);
+    //
+    // Присоединяемся только к проходу своего аккаунта — по той же причине,
+    // что и в [mainSync].
+    final generation = cacheGeneration;
+    return _sparePartsSync.run(
+      generation,
+      () => _syncSparePartsImpl(generation),
+    );
   }
 
   /// Подтягивает каталог ЗИП, если его ещё нет.
@@ -134,7 +326,7 @@ extension DataProviderSync on DataProvider {
     await syncSpareParts();
   }
 
-  Future<bool> _syncSparePartsImpl() async {
+  Future<bool> _syncSparePartsImpl(int generation) async {
     _isLoading = true;
 
     try {
@@ -145,9 +337,9 @@ extension DataProviderSync on DataProvider {
       if (cursor != null &&
           sparePartBox.isNotEmpty &&
           !isSparePartsWriteIncomplete) {
-        return await _syncSparePartsIncremental(cursor);
+        return await _syncSparePartsIncremental(cursor, generation);
       }
-      return await _syncSparePartsFull();
+      return await _syncSparePartsFull(generation);
     } catch (e) {
       _syncLog.warning('Failed sync spare parts: $e');
       return false;
@@ -163,7 +355,7 @@ extension DataProviderSync on DataProvider {
   /// точечно. Прежде ключи были автоинкрементными, поэтому первый проход
   /// после обновления приложения обязательно полный — он и перекладывает
   /// каталог на новые ключи.
-  Future<bool> _syncSparePartsFull() async {
+  Future<bool> _syncSparePartsFull(int generation) async {
     // Запрашиваем окно «с начала времён», а не просто список: так тем же
     // запросом приходит серверная граница `sync_until`, от которой потом
     // считается инкрементальный проход. Без неё каталог качался бы целиком
@@ -188,19 +380,24 @@ extension DataProviderSync on DataProvider {
         if (_pagingLimitReached(offset)) break;
       }
     }
+    // Смена аккаунта в ходе прохода: каталог принадлежит прошлому обходчику.
+    // Курсор ЗИП — тот самый случай, ради которого заведена отметка аккаунта:
+    // переживи он смену, позиции чужой компании остались бы в справочнике
+    // навсегда (см. `_accountScopeKey`). Поэтому всё — одной фиксацией.
     all.sort(SparePart.compareByName);
-    _spareParts = all;
-    _rebuildSparePartIndex();
-    // Между clear() и putAll() бокс пуст или неполон. Флаг снаружи этой пары
-    // помечает такое состояние как незавершённое — см.
-    // markSparePartsWriteStarted.
-    await markSparePartsWriteStarted();
-    await sparePartBox.clear();
-    await sparePartBox.putAll({for (final part in all) part.uuid: part});
-    await markSparePartsWriteFinished();
-    await _saveSparePartsCursor(first.syncUntil);
-    await saveSparePartsSyncDate();
-    return true;
+    return _commit(generation, 'ЗИП', () async {
+      _spareParts = all;
+      _rebuildSparePartIndex();
+      // Между clear() и putAll() бокс пуст или неполон. Флаг снаружи этой
+      // пары помечает такое состояние как незавершённое — см.
+      // markSparePartsWriteStarted.
+      await markSparePartsWriteStarted();
+      await sparePartBox.clear();
+      await sparePartBox.putAll({for (final part in all) part.uuid: part});
+      await markSparePartsWriteFinished();
+      await _saveSparePartsCursor(first.syncUntil);
+      await saveSparePartsSyncDate();
+    });
   }
 
   /// Догружает только изменившееся с момента [cursor].
@@ -213,7 +410,10 @@ extension DataProviderSync on DataProvider {
   /// Отметку двигаем последней: если проход оборвётся, следующий повторит то
   /// же окно. Повтор безвреден — записи кладутся по ключу, а удаление уже
   /// удалённого ничего не делает.
-  Future<bool> _syncSparePartsIncremental(DateTime cursor) async {
+  Future<bool> _syncSparePartsIncremental(
+    DateTime cursor,
+    int generation,
+  ) async {
     final changed = <SparePart>[];
     final deleted = <String>{};
     DateTime? until;
@@ -227,7 +427,7 @@ extension DataProviderSync on DataProvider {
       );
       // Сервер не понял инкрементальный режим — откатываемся на полный
       // проход, чтобы не принять «всё подряд» за список изменений.
-      if (page.syncUntil == null) return _syncSparePartsFull();
+      if (page.syncUntil == null) return _syncSparePartsFull(generation);
       until ??= page.syncUntil;
       changed.addAll(page.items);
       deleted.addAll(page.deletedUuids);
@@ -235,20 +435,21 @@ extension DataProviderSync on DataProvider {
       if (_pagingLimitReached(offset)) break;
     }
 
-    if (changed.isNotEmpty) {
-      await sparePartBox.putAll({for (final part in changed) part.uuid: part});
-    }
-    for (final uuid in deleted) {
-      await sparePartBox.delete(uuid);
-    }
-    // Порядок на диске после точечных правок уже не отсортирован — сортируем
-    // список в памяти. На старте приложения это делает конструктор.
-    final all = sparePartBox.values.toList()..sort(SparePart.compareByName);
-    _spareParts = all;
-    _rebuildSparePartIndex();
-    await _saveSparePartsCursor(until);
-    await saveSparePartsSyncDate();
-    return true;
+    return _commit(generation, 'ЗИП', () async {
+      if (changed.isNotEmpty) {
+        await sparePartBox
+            .putAll({for (final part in changed) part.uuid: part});
+      }
+      if (deleted.isNotEmpty) await sparePartBox.deleteAll(deleted);
+      // Порядок на диске после точечных правок уже не отсортирован —
+      // сортируем список в памяти. На старте приложения это делает
+      // конструктор.
+      final all = sparePartBox.values.toList()..sort(SparePart.compareByName);
+      _spareParts = all;
+      _rebuildSparePartIndex();
+      await _saveSparePartsCursor(until);
+      await saveSparePartsSyncDate();
+    });
   }
 
   /// Перекачивает активные ремонты обходчика в офлайн-кэш.
@@ -272,44 +473,50 @@ extension DataProviderSync on DataProvider {
   /// такое расхождение одним сеансом. Ремонтов у обходчика единицы, так что
   /// цена этой страховки — один запрос при запуске.
   Future<void> syncMyRepairs() async {
+    final generation = cacheGeneration;
     final cursor = _repairsCursor;
     if (cursor != null && repairBox.isNotEmpty) {
-      return _syncMyRepairsIncremental(cursor);
+      return _syncMyRepairsIncremental(cursor, generation);
     }
-    return _syncMyRepairsFull();
+    return _syncMyRepairsFull(generation);
   }
 
-  Future<void> _syncMyRepairsFull() async {
+  Future<void> _syncMyRepairsFull(int generation) async {
     _isLoading = true;
 
     try {
       final (fresh, until) = await _loadActiveRepairsWithCursor();
-      _repairsCursor = until;
-      final keep = {for (final repair in fresh) repair.uuid};
-      for (final draft in pendingRepairBox.values) {
-        final uuid = draft.serverUuid;
-        if (uuid == null || uuid.isEmpty) continue;
-        // Только пока ремонт активен: если администратор успел его закрыть,
-        // держать запись в кэше активных незачем — она попала бы во вкладку
-        // «Закрыт» вторым экземпляром рядом с серверным.
-        final cached = repairBox.get(uuid);
-        if (cached != null && cached.isActive) keep.add(uuid);
-      }
-      // Ключ — uuid, а не автоинкремент: так отдельный ремонт можно обновить
-      // точечно (см. DataProvider.upsertRepair), не перекачивая весь список.
-      //
-      // `withDetailsFrom` обязателен: список не отдаёт ни расхода, ни
-      // комментария, ни фото, и без него запись из списка затирала бы
-      // карточку, прочитанную целиком.
-      await repairBox.putAll({
-        for (final repair in fresh)
-          repair.uuid: repair.withDetailsFrom(repairBox.get(repair.uuid)),
+      // Ремонты прошлого обходчика — чужая работа, в кэш нового их не пускаем:
+      // фиксация отбросит проход, начатый до смены аккаунта.
+      await _commit(generation, 'Ремонты', () async {
+        _repairsCursor = until;
+        final keep = {for (final repair in fresh) repair.uuid};
+        for (final draft in pendingRepairBox.values) {
+          final uuid = draft.serverUuid;
+          if (uuid == null || uuid.isEmpty) continue;
+          // Только пока ремонт активен: если администратор успел его
+          // закрыть, держать запись в кэше активных незачем — она попала бы
+          // во вкладку «Закрыт» вторым экземпляром рядом с серверным.
+          final cached = repairBox.get(uuid);
+          if (cached != null && cached.isActive) keep.add(uuid);
+        }
+        // Ключ — uuid, а не автоинкремент: так отдельный ремонт можно
+        // обновить точечно (см. DataProvider.upsertRepair), не перекачивая
+        // весь список.
+        //
+        // `withDetailsFrom` обязателен: список не отдаёт ни расхода, ни
+        // комментария, ни фото, и без него запись из списка затирала бы
+        // карточку, прочитанную целиком.
+        await repairBox.putAll({
+          for (final repair in fresh)
+            repair.uuid: repair.withDetailsFrom(repairBox.get(repair.uuid)),
+        });
+        for (final key in repairBox.keys.toList()) {
+          if (!keep.contains(key)) await repairBox.delete(key);
+        }
+        _repairs = repairBox.values.toList();
+        _refreshActiveRepairsCount();
       });
-      for (final key in repairBox.keys.toList()) {
-        if (!keep.contains(key)) await repairBox.delete(key);
-      }
-      _repairs = repairBox.values.toList();
-      _refreshActiveRepairsCount();
     } catch (e) {
       _syncLog.warning('Failed sync repairs: $e');
     } finally {
@@ -357,7 +564,10 @@ extension DataProviderSync on DataProvider {
   ///
   /// Черновики, чей ремонт сервер уже принял, не трогаем: их удерживает та же
   /// проверка, что и в полном проходе.
-  Future<void> _syncMyRepairsIncremental(DateTime cursor) async {
+  Future<void> _syncMyRepairsIncremental(
+    DateTime cursor,
+    int generation,
+  ) async {
     _isLoading = true;
     try {
       final changed = <Repair>[];
@@ -374,8 +584,11 @@ extension DataProviderSync on DataProvider {
         // Сервер не понял режим — откатываемся на полный проход, иначе
         // приняли бы «все ремонты подряд» за список изменений.
         if (page.syncUntil == null) {
-          _repairsCursor = null;
-          return _syncMyRepairsFull();
+          // Курсор чужого прохода не трогаем: после смены аккаунта он уже
+          // принадлежит новому обходчику. Запись полного прохода отбросит
+          // его фиксация.
+          if (!isStaleCacheGeneration(generation)) _repairsCursor = null;
+          return _syncMyRepairsFull(generation);
         }
         until ??= page.syncUntil;
         changed.addAll(page.items);
@@ -384,29 +597,29 @@ extension DataProviderSync on DataProvider {
         if (_pagingLimitReached(offset)) break;
       }
 
-      for (final repair in changed) {
-        if (repair.isActive) {
-          // Как и в полном проходе: подробности берём из кэша, их в списке
-          // нет.
-          await repairBox.put(
-            repair.uuid,
-            repair.withDetailsFrom(repairBox.get(repair.uuid)),
-          );
-        } else {
-          // Ремонт закрыли: в кэше активных ему больше не место. Закрытые
-          // приложение не кэширует вовсе — их отдаёт отдельный эндпоинт.
-          await repairBox.delete(repair.uuid);
+      await _commit(generation, 'Ремонты', () async {
+        for (final repair in changed) {
+          if (repair.isActive) {
+            // Как и в полном проходе: подробности берём из кэша, их в списке
+            // нет.
+            await repairBox.put(
+              repair.uuid,
+              repair.withDetailsFrom(repairBox.get(repair.uuid)),
+            );
+          } else {
+            // Ремонт закрыли: в кэше активных ему больше не место. Закрытые
+            // приложение не кэширует вовсе — их отдаёт отдельный эндпоинт.
+            await repairBox.delete(repair.uuid);
+          }
         }
-      }
-      for (final uuid in deleted) {
-        await repairBox.delete(uuid);
-      }
+        if (deleted.isNotEmpty) await repairBox.deleteAll(deleted);
 
-      _repairs = repairBox.values.toList();
-      _refreshActiveRepairsCount();
-      // Отметку двигаем последней: оборванный проход повторит то же окно, а
-      // повтор безвреден — записи кладутся по ключу.
-      _repairsCursor = until;
+        _repairs = repairBox.values.toList();
+        _refreshActiveRepairsCount();
+        // Отметку двигаем последней: оборванный проход повторит то же окно,
+        // а повтор безвреден — записи кладутся по ключу.
+        _repairsCursor = until;
+      });
     } catch (e) {
       _syncLog.warning('Failed sync repairs: $e');
     } finally {
@@ -418,8 +631,12 @@ extension DataProviderSync on DataProvider {
     _isLoading = true;
 
     try {
-      _company = await api.getCompany();
-      await companyBox.put('company', _company!);
+      final generation = cacheGeneration;
+      final company = await api.getCompany();
+      await _commit(generation, 'Компания', () async {
+        _company = company;
+        await companyBox.put('company', company);
+      });
     } catch (e) {
       _syncLog.warning('Failed sync company: $e');
     } finally {
@@ -431,8 +648,12 @@ extension DataProviderSync on DataProvider {
     _isLoading = true;
 
     try {
-      _equipmentState = await api.getEquipmentStates();
-      await equipmentStateBox.put('equipment_state', _equipmentState!);
+      final generation = cacheGeneration;
+      final states = await api.getEquipmentStates();
+      await _commit(generation, 'Состояния оборудования', () async {
+        _equipmentState = states;
+        await equipmentStateBox.put('equipment_state', states);
+      });
     } catch (e) {
       _syncLog.warning('Failed sync equipment states: $e');
     } finally {
@@ -452,6 +673,7 @@ extension DataProviderSync on DataProvider {
   Future<void> syncConsumptionNorms() async {
     _isLoading = true;
     try {
+      final generation = cacheGeneration;
       const pageSize = 100;
       final List<ConsumptionNorm> all = [];
       for (var skip = 0;; skip += pageSize) {
@@ -463,13 +685,16 @@ extension DataProviderSync on DataProvider {
         // загонял бы этот цикл в бесконечную загрузку.
         if (_pagingLimitReached(all.length)) break;
       }
-      // Между clear() и putAll() бокс пуст. Флаг снаружи этой пары помечает
-      // такое состояние как незавершённое — тот же приём, что у каталога ЗИП.
-      await markNormsWriteStarted();
-      await consumptionNormBox.clear();
-      await consumptionNormBox
-          .putAll({for (final norm in all) norm.uuid: norm});
-      await markNormsWriteFinished();
+      await _commit(generation, 'Нормы расхода', () async {
+        // Между clear() и putAll() бокс пуст. Флаг снаружи этой пары
+        // помечает такое состояние как незавершённое — тот же приём, что у
+        // каталога ЗИП.
+        await markNormsWriteStarted();
+        await consumptionNormBox.clear();
+        await consumptionNormBox
+            .putAll({for (final norm in all) norm.uuid: norm});
+        await markNormsWriteFinished();
+      });
     } catch (e) {
       // Как и остальные справочники: при сбое остаётся прошлый снимок.
       _syncLog.warning('Failed sync consumption norms: $e');
@@ -482,6 +707,7 @@ extension DataProviderSync on DataProvider {
   Future<void> syncTasks() async {
     _isLoading = true;
     try {
+      final generation = cacheGeneration;
       // Два независимых постраничных прохода — тянем их параллельно, а не
       // один за другим.
       final loaded = await Future.wait([loadAllTasks(), loadAllOpenTasks()]);
@@ -499,24 +725,28 @@ extension DataProviderSync on DataProvider {
       // Что сервер вообще отдал в этот раз — считаем до фильтрации: по этому
       // набору ниже снимаются отработавшие отметки.
       final returned = tasksDict.keys.toSet();
-      // Закрытые обходчиком в ящик не возвращаем. Иначе полная перезапись
-      // отменяла бы `taskBox.delete` из `addScan`: осмотр в этот момент ещё
-      // лежит в очереди, сервер честно отдаёт задачу как `scheduled`, и она
-      // всплывала обратно в списке. Сам же экран и запускал эту гонку —
-      // `mainSync()` вызывается сразу после отправки.
-      tasksDict.removeWhere((uuid, _) => isTaskClosedLocally(uuid));
-      await taskBox.clear();
-      await taskBox.putAll(tasksDict);
-      // Отметка нужна ровно до тех пор, пока сервер сам не перестанет считать
-      // задачу активной. Как только он её не вернул — снимаем, иначе отметки
-      // копились бы в боксе без конца.
-      //
-      // Осмотры действующих ППР исключаем: [loadPprInspections] их и не
-      // запрашивает, пока стоит отметка, — значит в `returned` их нет по
-      // нашей же вине. Сняли бы отметку — на следующем проходе осмотр
-      // подгрузился бы по uuid и вернулся в список. Их отметки снимутся
-      // сами, когда осмотр уйдёт из состава актуального ППР.
-      await pruneClosedTasks(returned.union(_pprInspectionUuids));
+      // Задачи и отметки закрытых — одной фиксацией: и то и другое данные
+      // аккаунта, и смена аккаунта не должна вклиниться между ними.
+      await _commit(generation, 'Задачи', () async {
+        // Закрытые обходчиком в ящик не возвращаем. Иначе полная перезапись
+        // отменяла бы `taskBox.delete` из `addScan`: осмотр в этот момент
+        // ещё лежит в очереди, сервер честно отдаёт задачу как `scheduled`,
+        // и она всплывала обратно в списке. Сам же экран и запускал эту
+        // гонку — `mainSync()` вызывается сразу после отправки.
+        tasksDict.removeWhere((uuid, _) => isTaskClosedLocally(uuid));
+        await taskBox.clear();
+        await taskBox.putAll(tasksDict);
+        // Отметка нужна ровно до тех пор, пока сервер сам не перестанет
+        // считать задачу активной. Как только он её не вернул — снимаем,
+        // иначе отметки копились бы в боксе без конца.
+        //
+        // Осмотры действующих ППР исключаем: [loadPprInspections] их и не
+        // запрашивает, пока стоит отметка, — значит в `returned` их нет по
+        // нашей же вине. Сняли бы отметку — на следующем проходе осмотр
+        // подгрузился бы по uuid и вернулся в список. Их отметки снимутся
+        // сами, когда осмотр уйдёт из состава актуального ППР.
+        await pruneClosedTasks(returned.union(_pprInspectionUuids));
+      });
     } catch (e, stack) {
       _syncLog.severe('Error syncing tasks: $e\n$stack');
     } finally {
@@ -536,11 +766,16 @@ extension DataProviderSync on DataProvider {
     if (!FeatureFlags.pprEnabled) return;
     _isLoading = true;
     try {
+      final generation = cacheGeneration;
       final pprs = await api.getActivePprs();
-      setActivePprs(pprs);
-      await stringBox.put(DataProvider.pprCacheKey,
-          jsonEncode(pprs.map((ppr) => ppr.toJson()).toList()));
-      await syncPprCompletedByMe();
+      final committed = await _commit(generation, 'ППР', () async {
+        setActivePprs(pprs);
+        await stringBox.put(DataProvider.pprCacheKey,
+            jsonEncode(pprs.map((ppr) => ppr.toJson()).toList()));
+      });
+      // Проход прошлого аккаунта: прогресс по чужим ППР считать незачем.
+      if (!committed) return;
+      await syncPprCompletedByMe(generation: generation);
     } catch (e) {
       _syncLog.warning('Failed sync PPR: $e');
     } finally {
@@ -554,7 +789,10 @@ extension DataProviderSync on DataProvider {
   /// попасть в списки, нужен только факт «эта задача была моей».
   ///
   /// Осмотр закрыт навсегда, поэтому проверенные uuid не перезапрашиваем.
-  Future<void> syncPprCompletedByMe() async {
+  ///
+  /// [generation] — поколение прохода [syncPpr], по составу которого здесь
+  /// всё и считается.
+  Future<void> syncPprCompletedByMe({required int generation}) async {
     final Set<String> known = {};
     for (final ppr in activePprs) {
       known.addAll(ppr.completedInspectionUuids);
@@ -575,14 +813,16 @@ extension DataProviderSync on DataProvider {
       }
     }
 
-    _pprCompletedByMe = mine;
-    _pprCompletedByMeChecked = checked;
-    await stringBox.put(
-        DataProvider.pprCompletedByMeCacheKey,
-        jsonEncode({
-          'mine': mine.toList(),
-          'checked': checked.toList(),
-        }));
+    await _commit(generation, 'Прогресс ППР', () async {
+      _pprCompletedByMe = mine;
+      _pprCompletedByMeChecked = checked;
+      await stringBox.put(
+          DataProvider.pprCompletedByMeCacheKey,
+          jsonEncode({
+            'mine': mine.toList(),
+            'checked': checked.toList(),
+          }));
+    });
   }
 
   /// Осмотры задач актуальных ППР, которых нет среди уже загруженных [have].
@@ -617,10 +857,13 @@ extension DataProviderSync on DataProvider {
   /// Нужен там, где перечитывать весь список задач ради ППР незачем
   /// (главный экран).
   Future<void> syncPprInspections() async {
+    final generation = cacheGeneration;
     final have = taskBox.keys.map((key) => key.toString()).toSet();
-    for (final task in await loadPprInspections(have)) {
-      await taskBox.put(task.uuid, task);
-    }
+    final tasks = await loadPprInspections(have);
+    if (tasks.isEmpty) return;
+    await _commit(generation, 'Осмотры ППР', () async {
+      await taskBox.putAll({for (final task in tasks) task.uuid: task});
+    });
   }
 
   /// Синхронизация оперативных справочников.
@@ -636,15 +879,37 @@ extension DataProviderSync on DataProvider {
   /// обязан завершиться раньше. Эти двое идут последовательно, но параллельно
   /// со всем остальным.
   ///
-  /// **Каталога ЗИП здесь намеренно нет.** Он на порядок больше остальных
-  /// справочников (десятки тысяч позиций — это сотни последовательных
-  /// страниц), а меняется реже всех. Раньше он ехал вместе со всеми, и любое
-  /// действие обходчика — вход в «Задачи», нажатие «Сканер», отправка
-  /// осмотра — тянуло весь каталог, хотя нужен он только в разделе ЗИП и в
-  /// расходе по ремонту. Теперь его грузят те, кому он нужен:
-  /// [ensureSparePartsLoaded] на входе в эти экраны и отдельный редкий проход
-  /// в [startSyncing].
-  Future mainSync() async {
+  /// Каталог ЗИП, оборудование и неисправности здесь же — они
+  /// инкрементальные, и в устоявшемся состоянии каждый стоит одного запроса.
+  ///
+  /// Каждый справочник пишет результат через очередь фиксации
+  /// ([DataProvider.cacheGeneration]): проход, начатый до смены аккаунта, в
+  /// кэш нового обходчика ничего не запишет.
+  ///
+  /// Проход уже идёт — присоединяемся к нему, а не запускаем второй.
+  ///
+  /// Фоновый цикл (раз в 60 секунд), кнопка «Синхронизировать данные» и вход
+  /// на экраны зовут [mainSync] независимо друг от друга и легко
+  /// пересекаются. Раньше два прохода шли бок о бок и качали одно и то же: в
+  /// логе сервера видно два параллельных обхода справочника оборудования с
+  /// разными `skip`. Половина работы впустую, а у справочников, которые
+  /// пишутся как `clear()` + заливка, наложение ещё и опасно — второй `addAll`
+  /// ложится поверх уже очищенного бокса.
+  ///
+  /// Тот же приём, что у [syncSpareParts]: ждущий получает результат идущего
+  /// прохода, а не отказ.
+  ///
+  /// Присоединяемся только к проходу **своего** аккаунта: вход зовёт
+  /// `mainSync()` сразу после смены учётной записи, и, присоединившись к
+  /// идущему проходу прошлого обходчика, новый остался бы вовсе без первой
+  /// синхронизации — а всё, что тот проход дозагрузит, будет отброшено по
+  /// поколению кэша.
+  Future mainSync() {
+    final generation = cacheGeneration;
+    return _mainSyncPass.run(generation, () => _mainSyncImpl(generation));
+  }
+
+  Future<void> _mainSyncImpl(int generation) async {
     if (!GlobalState.isAuthorized) return;
     // Девять параллельных синхронизаций к недоступному серверу — самый
     // дорогой способ ничего не узнать: часть из них постраничные, и каждая
@@ -673,8 +938,11 @@ extension DataProviderSync on DataProvider {
       syncSpareParts(),
     ]);
     // Отметку ставим после всех: она значит «справочники обновлены», а не
-    // «начали обновлять».
-    await saveLastSyncDate();
+    // «начали обновлять». И только своему аккаунту: проход прошлого
+    // обходчика справочники нового не обновлял.
+    await _commit(generation, 'Отметка синхронизации', () async {
+      await saveLastSyncDate();
+    });
   }
 
   /// Все очереди отправки пусты — гонять по ним проход незачем.
@@ -749,7 +1017,20 @@ extension DataProviderSync on DataProvider {
 
   /// Ручная синхронизация (кнопка «Синхронизировать данные»): справочники +
   /// осмотры. Возвращает результат; UI-диалоги — на стороне вызывающего.
-  Future<SyncResult> syncDataAndScans() async {
+  ///
+  /// Идёт не больше одной: повторный вызов получает уже идущий проход. Раньше
+  /// каждое нажатие запускало свой, и каждый по завершении показывал своё
+  /// окно — пять нажатий давали пять окон «успешно» подряд. Пока проход идёт,
+  /// поднят [DataProvider.manualSyncRunning] — по нему экран крутит иконку и
+  /// не принимает нажатия.
+  ///
+  /// Присоединяемся только к проходу своего аккаунта, как и в [mainSync]: при
+  /// входе другого обходчика `clearCachedData` забывает идущий проход и гасит
+  /// индикатор, и его кнопка сразу запускает собственную синхронизацию.
+  Future<SyncResult> syncDataAndScans() =>
+      _manualSync.run(cacheGeneration, _syncDataAndScansImpl);
+
+  Future<SyncResult> _syncDataAndScansImpl() async {
     // Кнопку нажали руками — отметку недоступности забываем и идём в сеть
     // честно: обходчик мог только что дойти до места, где связь есть.
     API.retryConnectionNow();
@@ -769,10 +1050,10 @@ extension DataProviderSync on DataProvider {
     final scansWas = scanBox.length;
     await Future.wait([
       mainSync(),
-      // Каталог ЗИП обновляем только здесь и в редком фоновом проходе: это
-      // единственное место, где обходчик сам попросил обновить всё и готов
-      // подождать ответа. Из `mainSync` он убран, чтобы не ехать за каждым
-      // нажатием «Сканер» и входом в «Задачи».
+      // Каталог ЗИП есть и внутри `mainSync`, но тот мог уже идти — тогда
+      // кнопка присоединилась бы к проходу, начатому до нажатия. Свой вызов
+      // гарантирует свежие остатки; идущий проход каталога он не дублирует,
+      // а присоединяется к нему (см. [syncSpareParts]).
       syncSpareParts(),
       if (scansWas > 0) syncScans(),
     ]);
