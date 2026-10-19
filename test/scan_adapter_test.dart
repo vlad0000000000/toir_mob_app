@@ -50,7 +50,9 @@ void main() {
     await dir.delete(recursive: true);
   });
 
-  Scan sample({String? eventId, List<String>? usageKeys}) => Scan(
+  Scan sample(
+          {String? eventId, List<String>? usageKeys, String? usageUpdates}) =>
+      Scan(
         resultStatus: 'closed',
         equipmentUuid: 'eq-1',
         comment: 'Наработка: 1250 м/ч',
@@ -62,6 +64,7 @@ void main() {
         closedAt: '2026-10-17T10:05:00Z',
         eventId: eventId,
         usageKeys: usageKeys,
+        usageUpdates: usageUpdates,
       );
 
   test('ключ события и привязка к наработке переживают запись и чтение',
@@ -114,6 +117,29 @@ void main() {
 
     expect(copy.eventId, 'evt-1');
     expect(copy.usageKeys, ['u-1']);
+  });
+
+  test('наработка в составе осмотра переживает запись и уходит полем формы',
+      () async {
+    Hive.registerAdapter(ScanAdapter());
+    const usage = '[{"usage_parameter_uuid":"p-1","current_value":"1250.00"}]';
+    final scan = sample(eventId: 'evt-1', usageUpdates: usage);
+
+    final box = await Hive.openBox<Scan>('scans');
+    await box.put(scan.key(), scan);
+    await box.close();
+    final stored = (await Hive.openBox<Scan>('scans')).get(scan.key())!;
+
+    expect(stored.usageUpdates, usage);
+    expect(stored.toJson()['usage_updates'], usage);
+    // В ключ не входит: та же запись без наработки — тот же ключ.
+    expect(stored.key(), sample().key());
+    expect(
+      stored
+          .copyWithConsumption(actualConsumptions: null, consumptionNames: null)
+          .usageUpdates,
+      usage,
+    );
   });
 
   test('ключи событий уникальны', () {

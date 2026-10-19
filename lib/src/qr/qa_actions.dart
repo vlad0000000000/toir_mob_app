@@ -129,7 +129,13 @@ class _QRActionsState extends State<QRActions> {
         Dialogs.notify(
             context, 'Все данные и осмотры успешно синхронизированы', '');
       case SyncResult.scansFailed:
-        Dialogs.notify(context, 'Не получилось синхронизировать осмотры', '');
+        // Сюда попадает и наработка: ручная синхронизация отправляет обе
+        // очереди и считает остаток по обеим.
+        Dialogs.notify(
+          context,
+          'Не получилось синхронизировать осмотры',
+          'Часть осмотров или показаний наработки ещё не отправлена.',
+        );
       case SyncResult.repairsFailed:
         Dialogs.notify(
           context,

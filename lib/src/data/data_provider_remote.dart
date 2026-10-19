@@ -12,13 +12,20 @@ part of 'data_provider.dart';
 /// загрузку, а только не даёт зациклиться.
 const int _maxPagedItems = 100000;
 
-/// `true` — пора остановиться. Пишет в лог: молчаливый обрыв загрузки
-/// диагностировать невозможно.
-bool _pagingLimitReached(int loaded) {
-  if (loaded < _maxPagedItems) return false;
-  _dataLog.severe('Paging guard: загрузка остановлена на $loaded записях — '
+/// Обрывает загрузку **ошибкой**, если порог достигнут.
+///
+/// Именно ошибкой, а не тихой остановкой цикла: раньше он просто выходил, и
+/// неполная выгрузка дальше записывалась как полная — справочник целиком
+/// заменялся урезанным, а у инкрементальных ещё и сдвигалась граница окна,
+/// так что недогруженное не пришло бы уже никогда. Ошибку ловит вызывающий
+/// `sync*` — и тогда не пишет ничего: остаётся прошлый снимок и прежняя
+/// граница, следующий проход повторит окно. Пишет в лог: молчаливый обрыв
+/// загрузки диагностировать невозможно.
+void _guardPagingLimit(int loaded) {
+  if (loaded < _maxPagedItems) return;
+  _dataLog.severe('Paging guard: загрузка прервана на $loaded записях — '
       'похоже, сервер не учитывает skip');
-  return true;
+  throw StateError('Paging guard: $loaded записей');
 }
 
 /// Сетевые загрузки и авторизация (через [API]).
@@ -41,7 +48,7 @@ extension DataProviderRemote on DataProvider {
         break;
       }
       offset += limit;
-      if (_pagingLimitReached(offset)) break;
+      _guardPagingLimit(offset);
     }
     return all;
   }
@@ -84,7 +91,7 @@ extension DataProviderRemote on DataProvider {
         break;
       }
       offset += limit;
-      if (_pagingLimitReached(offset)) break;
+      _guardPagingLimit(offset);
     }
     return all;
   }
@@ -109,7 +116,7 @@ extension DataProviderRemote on DataProvider {
         break;
       }
       offset += limit;
-      if (_pagingLimitReached(offset)) break;
+      _guardPagingLimit(offset);
     }
     return all;
   }

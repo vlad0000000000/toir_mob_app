@@ -483,6 +483,14 @@ extension DataProviderOutbox on DataProvider {
       final key = usage.key();
       // Снимок мог устареть, пока шёл проход: запись уже удалили.
       if (!scanUsageBox.containsKey(key)) continue;
+      // Более раннее показание по тому же оборудованию — в том числе внутри
+      // осмотра — уходит первым, иначе счётчик откатится назад.
+      if (isUsageOrderBlocked(
+        (equipmentUuid: usage.equipmentUuid, createdAt: usage.createdAt),
+        exceptKey: key,
+      )) {
+        continue;
+      }
       try {
         // Переносим «сначала положить, потом убрать» — на всех переходах.
         // Наоборот между двумя шагами записи не было бы ни в одном боксе, и
@@ -560,11 +568,11 @@ extension DataProviderOutbox on DataProvider {
         final timestamp = int.tryParse(timestampStr);
         if (timestamp != null) {
           final elapsedSeconds = (now - timestamp) ~/ 1000;
-          if (elapsedSeconds >= 120) {
+          // Удалённый, пока шёл проход («Сбросить осмотры»), не воскрешаем.
+          if (elapsedSeconds >= 120 && scanPendingBox.containsKey(scan.key())) {
             // Прошло 120 секунд — возвращаем скан в scanBox для повторной попытки
-            await scanPendingBox.delete(scan.key());
+            await _moveScan(scan, from: scanPendingBox, to: scanBox);
             await stringBox.delete(timestampKey);
-            await scanBox.put(scan.key(), scan);
           }
         }
       }
@@ -585,6 +593,15 @@ extension DataProviderOutbox on DataProvider {
       // отправит обоих, удаление наработки удалит и осмотр
       // ([DataProvider.deleteRejectedUsage]).
       if (_waitsForUsage(scan)) continue;
+      // Осмотр с наработкой внутри — после всех более ранних показаний по
+      // тому же оборудованию, в какой бы очереди они ни лежали.
+      if (scan.usageUpdates != null &&
+          isUsageOrderBlocked(
+            (equipmentUuid: scan.equipmentUuid, createdAt: scan.createdAt),
+            exceptKey: scan.key(),
+          )) {
+        continue;
+      }
       final taskUuid = scan.taskUuid;
       final isMaintenancePeriodicTask = taskUuid != null &&
           taskUuid.isNotEmpty &&
@@ -622,8 +639,7 @@ extension DataProviderOutbox on DataProvider {
       final timestampKey = 'scan_pending_${scan.key()}';
       try {
         // Перемещаем скан в pending перед отправкой
-        await scanBox.delete(scan.key());
-        await scanPendingBox.put(scan.key(), scan);
+        await _moveScan(scan, from: scanBox, to: scanPendingBox);
 
         // Сохраняем timestamp текущей попытки
         await stringBox.put(timestampKey, now.toString());
@@ -648,9 +664,8 @@ extension DataProviderOutbox on DataProvider {
         if (e is AuthExpiredException) {
           // Токен протух. Осмотр не виноват: возвращаем его в основной бокс
           // без пометки об отказе — после повторного входа уйдёт сам.
-          await scanPendingBox.delete(scan.key());
+          await _moveScan(scan, from: scanPendingBox, to: scanBox);
           await stringBox.delete(timestampKey);
-          await scanBox.put(scan.key(), scan);
           authExpired.value = true;
           continue;
         }
@@ -681,9 +696,8 @@ extension DataProviderOutbox on DataProvider {
           scan.lastShortages = e is InsufficientStockException
               ? jsonEncode([for (final item in e.shortages) item.toJson()])
               : null;
-          await scanPendingBox.delete(scan.key());
+          await _moveScan(scan, from: scanPendingBox, to: scanBox);
           await stringBox.delete(timestampKey);
-          await scanBox.put(scan.key(), scan);
           refreshRejectedScansCount();
           _outboxLog.severe(
               'осмотр ${scan.key()} отклонён сервером: ${scan.lastError}');
@@ -696,6 +710,51 @@ extension DataProviderOutbox on DataProvider {
             'осмотр ${scan.key()} не отправлен, вернётся через 120 с: $e');
       }
     }
+  }
+
+  /// Переносит осмотр между основным боксом и «в полёте» — **сначала
+  /// положить, потом убрать**, на всех переходах.
+  ///
+  /// Наоборот между двумя шагами осмотра не было бы ни в одном боксе. Для
+  /// осмотра с наработкой внутри это значит: в этот миг очередь наработки не
+  /// видит более раннего показания по оборудованию и пропускает вперёд новое
+  /// — а старое потом получает отказ «меньше прежнего». Миг, когда осмотр
+  /// лежит в обоих боксах, безвреден: проверки ищут его в любом и исключают
+  /// по ключу.
+  Future<void> _moveScan(
+    Scan scan, {
+    required Box<Scan> from,
+    required Box<Scan> to,
+  }) async {
+    await to.put(scan.key(), scan);
+    await from.delete(scan.key());
+  }
+
+  /// По оборудованию [entry] ещё не уехало более раннее показание — в любой
+  /// из двух очередей. Правило — [hasEarlierUsage]; здесь только сбор того,
+  /// что не принято сервером: отдельная наработка и осмотры с наработкой
+  /// внутри, в основных боксах и «в полёте», кроме отклонённых и самой
+  /// записи [exceptKey] (при переносе она на миг лежит в двух боксах).
+  bool isUsageOrderBlocked(UsageOrderEntry entry, {required String exceptKey}) {
+    final others = <UsageOrderEntry>[
+      for (final box in [scanUsageBox, scanUsagePendingBox])
+        for (final item in box.toMap().entries)
+          if (item.key != exceptKey && !item.value.isRejected)
+            (
+              equipmentUuid: item.value.equipmentUuid,
+              createdAt: item.value.createdAt,
+            ),
+      for (final box in [scanBox, scanPendingBox])
+        for (final item in box.toMap().entries)
+          if (item.key != exceptKey &&
+              item.value.usageUpdates != null &&
+              !item.value.isRejected)
+            (
+              equipmentUuid: item.value.equipmentUuid,
+              createdAt: item.value.createdAt,
+            ),
+    ];
+    return hasEarlierUsage(entry, others);
   }
 
   /// Какая-то из наработок, к которым привязан осмотр, ещё не принята

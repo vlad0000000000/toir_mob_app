@@ -90,7 +90,25 @@ class Scan {
   /// наработки; удаление отклонённой наработки удаляет и его.
   ///
   /// `null` — ждать нечего. В [key] и [toJson] не входит.
+  ///
+  /// Только у записей прошлой версии: новые осмотры несут показания в
+  /// [usageUpdates] и уходят с ними одним запросом.
   final List<String>? usageKeys;
+
+  /// Наработка, которая уходит **в том же запросе**, что и осмотр, — готовая
+  /// строка JSON поля формы `usage_updates`:
+  /// `[{"usage_parameter_uuid": "...", "current_value": "1250.00"}]`.
+  ///
+  /// Сервер применяет её в одной транзакции с осмотром: отклонил наработку
+  /// («меньше прежнего») — откатился и осмотр, приняли осмотр — принята и
+  /// она. Раньше это были два независимых запроса, и история расходилась с
+  /// фактической наработкой. Заполняется у осмотра «только наработка» и у
+  /// закрытия задачи ТО — сервер считает следующее ТО от счётчика, и
+  /// показание должно лечь до закрытия, в той же транзакции.
+  ///
+  /// Такую наработку отдельной записью в очередь наработки не кладут.
+  /// `null` — наработки в осмотре нет. В [key] не входит.
+  final String? usageUpdates;
 
   bool get isRejected => (lastError ?? '').isNotEmpty;
 
@@ -141,6 +159,7 @@ class Scan {
       // за новый осмотр.
       eventId: eventId,
       usageKeys: usageKeys,
+      usageUpdates: usageUpdates,
     );
   }
 
@@ -185,7 +204,8 @@ class Scan {
       this.lastError,
       this.lastShortages,
       this.eventId,
-      this.usageKeys});
+      this.usageKeys,
+      this.usageUpdates});
 
   Map<String, dynamic> toJson() {
     var result = <String, dynamic>{
@@ -202,6 +222,9 @@ class Scan {
       // Пустую строку отправлять нельзя: сервер разбирает поле как JSON и
       // на пустом значении ответил бы 422. `sendScan` пустые и так отсеивает.
       'actual_consumptions': actualConsumptions,
+      // Строка JSON поля формы. `null` — поля нет вовсе: сервер считает это
+      // пустым списком, наработка в осмотре не меняется.
+      'usage_updates': usageUpdates,
     };
     if (isOtherFault == true) {
       result['is_other_fault'] = 'true';
@@ -270,6 +293,12 @@ class ScanAdapter extends TypeAdapter<Scan> {
     } catch (_) {
       usageKeys = null; // записи до появления связи с наработкой — не ждут
     }
+    String? usageUpdates;
+    try {
+      usageUpdates = reader.read() as String?;
+    } catch (_) {
+      usageUpdates = null; // записи до атомарной отправки наработки
+    }
     return Scan(
       files: files,
       periodicTaskUuid: periodicTaskUuid,
@@ -288,6 +317,7 @@ class ScanAdapter extends TypeAdapter<Scan> {
       lastShortages: lastShortages,
       eventId: eventId,
       usageKeys: usageKeys,
+      usageUpdates: usageUpdates,
     );
   }
 
@@ -311,5 +341,6 @@ class ScanAdapter extends TypeAdapter<Scan> {
     writer.write(obj.consumptionNames);
     writer.write(obj.eventId);
     writer.write(obj.usageKeys);
+    writer.write(obj.usageUpdates);
   }
 }

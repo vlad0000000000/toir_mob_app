@@ -22,11 +22,19 @@ extension EquipmentApi on API {
   /// страница справочника уходила на сервер дважды: на 5000 единиц
   /// оборудования это полсотни лишних round-trip за каждый проход
   /// синхронизации.
+  ///
+  /// [cursorMode] — курсорная пагинация (`pagination=cursor`): первая
+  /// страница с окном, следующие — по [cursor] из прошлого ответа. По `skip`
+  /// удаление записи между страницами сдвигало смещение, и следующая
+  /// оказывалась пропущенной до полной сверки. Отклонённый курсор (422) —
+  /// [SyncCursorRejected].
   Future<SyncPage<InventoryRecord>> getEquipmentPage({
     int limit = 100,
     int offset = 0,
     DateTime? updatedSince,
     DateTime? syncUntil,
+    bool cursorMode = false,
+    String? cursor,
   }) async {
     _guardOffline();
     if (API.jwtToken == null) {
@@ -39,6 +47,8 @@ extension EquipmentApi on API {
         offset: offset,
         updatedSince: updatedSince,
         syncUntil: syncUntil,
+        cursorMode: cursorMode,
+        cursor: cursor,
       ),
     );
 
@@ -49,6 +59,9 @@ extension EquipmentApi on API {
       },
     ).timeout(API._readTimeout);
 
+    if (response.statusCode == 422 && cursor != null) {
+      throw const SyncCursorRejected();
+    }
     if (response.statusCode != 200 && response.statusCode != 201) {
       throw Exception('Failed to load inventory: ${response.statusCode}');
     }

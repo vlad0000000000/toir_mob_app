@@ -453,14 +453,25 @@ class _QRResultScreenState extends State<QRResultScreen> {
     );
   }
 
+  /// Наработка с формы — с отметкой времени и округлённая до сотых.
+  ///
+  /// Отметка — время открытия карточки, та же, что у осмотров этой пачки
+  /// (`Scan.createdAt`): по ней очередь держит порядок показаний по
+  /// оборудованию (`UsageUpdate.createdAt`). Сотые — потому что в базе
+  /// `Numeric(15, 2)`: в составе осмотра лишний знак сервер отклоняет вместе
+  /// с осмотром, а отдельным запросом молча обрезает.
   List<UsageUpdate> createUsageScans() {
-    List<UsageUpdate> result = [];
-    if (usageController.value != null) {
-      for (var usageParameter in usageController.value!) {
-        result.add(usageParameter);
-      }
-    }
-    return result;
+    return [
+      for (final usage in usageController.value ?? const <UsageUpdate>[])
+        UsageUpdate(
+          usageParameterUuid: usage.usageParameterUuid,
+          usageParameterValue: usage.usageParameterValue == null
+              ? null
+              : roundUsageValue(usage.usageParameterValue!),
+          equipmentUuid: usage.equipmentUuid,
+          createdAt: widget.openDateTime,
+        ),
+    ];
   }
 
   /// Фактический расход для отправки — готовая строка поля
@@ -496,7 +507,16 @@ class _QRResultScreenState extends State<QRResultScreen> {
     });
   }
 
-  List<Scan>? createScans() {
+  /// [maintenanceUsage] — готовое поле `usage_updates` (см.
+  /// [usageUpdatesPayload]): уходит вместе с закрытием **каждой** задачи ТО
+  /// в пачке, одной транзакцией. Сервер считает следующее ТО от счётчика, и
+  /// показание должно лечь до закрытия этой самой задачи. Раньше его вёз
+  /// только первый ТО: упади его запрос (503), следующий закрылся бы без
+  /// нового показания, и сервер посчитал бы ТО от старого счётчика. Повтор
+  /// того же значения сервер принимает — это не уменьшение. С обычными
+  /// задачами и заявками наработку не связываем: их отказ (нехватка ЗИП)
+  /// держал бы и её, и наоборот.
+  List<Scan>? createScans({String? maintenanceUsage}) {
     List<Scan> result = [];
     // Считаем один раз: расход относится к единственной выбранной задаче.
     final consumptionTask = consumptionTaskOf(equipmentController);
@@ -560,6 +580,8 @@ class _QRResultScreenState extends State<QRResultScreen> {
     var hasTasks = false;
     for (var task in equipmentController.value) {
       if (task.resultStatus == 'scheduled') {
+        final carriesUsage = maintenanceUsage != null &&
+            GlobalState.dataProvider.isMaintenanceTask(task);
         result.add(Scan(
             taskUuid: task.uuid,
             resultStatus: 'closed',
@@ -575,7 +597,8 @@ class _QRResultScreenState extends State<QRResultScreen> {
             consumptionNames:
                 task.uuid == consumptionTask?.uuid ? consumptionNames : null,
             periodicTaskUuid: task.periodicTask!.uuid,
-            eventId: Scan.newEventId()));
+            eventId: Scan.newEventId(),
+            usageUpdates: carriesUsage ? maintenanceUsage : null));
         hasTasks = true;
       }
       if (task.resultStatus == 'open') {
@@ -661,25 +684,23 @@ class _QRResultScreenState extends State<QRResultScreen> {
   /// Задачу на ТО это не создаёт и не должно: её создаёт сервер сам, когда
   /// наработка доходит до порога, — по значению параметра, а не по осмотру.
   ///
-  /// Осмотр привязан к своим записям наработки ([Scan.usageKeys]): очередь
-  /// не отправит его, пока сервер их не примет, — иначе в истории осталось бы
-  /// показание, которое сервер отклонил.
-  Scan _usageOnlyInspection(List<UsageUpdate> usageScans) {
+  /// Показания уходят в том же запросе ([Scan.usageUpdates]): сервер
+  /// применяет их в одной транзакции с осмотром, отклонил — откатил обоих.
+  /// Отдельной записью в очередь наработки они не кладутся.
+  Scan _usageOnlyInspection(List<UsageUpdate> usageScans, String usage) {
     final images = [
       imageData1Controller.value,
       imageData2Controller.value,
       imageData3Controller.value,
     ].where((v) => v.isNotEmpty).toList();
-    final sent = [
-      for (final usage in usageScans)
-        if (usage.usageParameterValue != null) usage,
-    ];
     return Scan(
       taskUuid: '',
       resultStatus: 'closed',
       files: images,
-      comment: UsageQueueStrings.inspectionComment(
-          [for (final usage in sent) _usageReading(usage)]),
+      comment: UsageQueueStrings.inspectionComment([
+        for (final reading in usageScans)
+          if (reading.usageParameterValue != null) _usageReading(reading),
+      ]),
       priority: null,
       equipmentUuid: widget.machine.uuid,
       closedAt: GlobalState.nowUTCDate,
@@ -687,7 +708,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
       faultUuid: '',
       periodicTaskUuid: '',
       eventId: Scan.newEventId(),
-      usageKeys: [for (final usage in sent) usage.key()],
+      usageUpdates: usage,
     );
   }
 
@@ -791,18 +812,25 @@ class _QRResultScreenState extends State<QRResultScreen> {
       GoRouter.of(context).clearStackAndNavigate('/onboarding_video');
       return;
     }
-    final scans = createScans();
     final usageScans = createUsageScans();
+    final usagePayload = usageUpdatesPayload(usageScans);
+    final scans = createScans(maintenanceUsage: usagePayload);
     if (scans == null) return;
     // Внесли только наработку — осмотр всё равно создаём. Иначе на сервер
     // уходил один PATCH параметра: значение в админке менялось, а в истории
     // осмотров не появлялось ничего, будто к оборудованию не подходили. И
     // снимки, приложенные к одной наработке, молча терялись — они живут
     // только внутри осмотра.
-    if (scans.isEmpty &&
-        usageScans.any((usage) => usage.usageParameterValue != null)) {
-      scans.add(_usageOnlyInspection(usageScans));
+    if (scans.isEmpty && usagePayload != null) {
+      scans.add(_usageOnlyInspection(usageScans, usagePayload));
     }
+    // Наработка, уехавшая внутри осмотра (ТО или «только наработка»),
+    // отдельной записью в очередь наработки не кладётся: второй запрос с тем
+    // же значением был бы лишним, а при отказе одного из двух история снова
+    // разошлась бы с фактом.
+    final separateUsage = scans.any((scan) => scan.usageUpdates != null)
+        ? const <UsageUpdate>[]
+        : usageScans;
     if (scans.length + usageScans.length == 0) {
       Dialogs.notify(context, 'Не отправлено',
           'Укажите данные обхода (комментарий, проблему, задачу или наработку)');
@@ -851,7 +879,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
     ].join(', ');
 
     Dialogs.areYouSure(context, onOk: () async {
-      await addScans(scans, usageScans);
+      await addScans(scans, separateUsage);
       dataProvider.mainSync();
       for (var usageScan in usageScans) {
         if (usageScan.usageParameterValue == null) continue;

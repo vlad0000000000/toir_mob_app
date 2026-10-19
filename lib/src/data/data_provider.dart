@@ -35,6 +35,8 @@ import 'cache_commit_queue.dart';
 import 'generation_pass.dart';
 import 'repair_photo_files.dart';
 import 'sync_schedule.dart';
+import 'sync_window.dart';
+import 'usage_order.dart';
 
 part 'data_provider_remote.dart';
 part 'data_provider_sync.dart';
@@ -1044,6 +1046,18 @@ class DataProvider {
   /// можно сократить до суток — это одно число.
   static const Duration fullResyncInterval = Duration(days: 3);
 
+  /// Насколько инкрементальный проход справочника (оборудование,
+  /// неисправности, ЗИП) захватывает назад от сохранённой границы.
+  ///
+  /// Граница — серверный `sync_until`, и окно `(граница, сейчас]` пропускает
+  /// одно: долгую транзакцию, которая на сервере зафиксировалась уже после
+  /// `sync_until`, но с более ранним временем изменения. В наше окно она не
+  /// попала бы никогда. Отступ назад ловит такие записи; повтор безвреден —
+  /// записи кладутся по ключу, удаление уже удалённого ничего не делает. От
+  /// произвольно долгих транзакций отступ не спасает — для этого остаётся
+  /// полная сверка раз в [fullResyncInterval].
+  static const Duration syncOverlap = Duration(minutes: 5);
+
   static const String _equipmentFullSyncKey = 'equipment_full_sync_at';
   static const String _typicalProblemsFullSyncKey =
       'typical_problems_full_sync_at';
@@ -1216,23 +1230,30 @@ class DataProvider {
     if (scan.taskUuid != null) {
       final taskUuid = scan.taskUuid!;
       final task = taskBox.get(taskUuid);
-      final periodic = task?.periodicTask;
-      // Признак ТО берём у сервера. Разбор по заголовку оставлен запасным: у
-      // задач из кэша, записанного до появления поля `is_maintenance`, его в
-      // потоке нет, и до первой синхронизации `isMaintenance` будет `false`.
-      // Ошибиться здесь дорого — от этого зависит, дождётся ли задача ТО
-      // отправки наработки по своему оборудованию.
-      final isMaintenance = periodic != null &&
-          (periodic.isMaintenance ||
-              periodic.title.contains('Техническое обслуживание'));
+      // Наработку осмотр ТО везёт с собой — ждать отдельную ему незачем:
+      // порядок по оборудованию держит [isUsageOrderBlocked].
       if (scan.periodicTaskUuid != null &&
           scan.periodicTaskUuid!.isNotEmpty &&
-          isMaintenance) {
+          scan.usageUpdates == null &&
+          isMaintenanceTask(task)) {
         await stringBox.put('maintenance_task_$taskUuid', '1');
       }
       await markTaskClosedLocally(taskUuid);
       await taskBox.delete(taskUuid);
     }
+  }
+
+  /// Задача ТО — та, закрытие которой сервер пересчитывает от счётчика.
+  ///
+  /// Признак берём у сервера. Разбор по заголовку оставлен запасным: у задач
+  /// из кэша, записанного до появления поля `is_maintenance`, его в потоке
+  /// нет, и до первой синхронизации `isMaintenance` будет `false`. Ошибиться
+  /// здесь дорого: от этого зависит, уедет ли наработка вместе с закрытием ТО.
+  bool isMaintenanceTask(Task? task) {
+    final periodic = task?.periodicTask;
+    return periodic != null &&
+        (periodic.isMaintenance ||
+            periodic.title.contains('Техническое обслуживание'));
   }
 
   addUsageScan(UsageUpdate scan) async {

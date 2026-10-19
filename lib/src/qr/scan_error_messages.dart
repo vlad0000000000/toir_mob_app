@@ -68,12 +68,25 @@ bool isRetryableScanError(Object error) {
   // Нехватка ЗИП сама не рассосётся: пока склад не пополнят, ответ будет тот
   // же. Решение принимает обходчик на экране разрешения конфликта.
   if (error is InsufficientStockException) return false;
+  // 409 по ключу события, который сервер ещё обрабатывает: параллельный
+  // запрос с тем же ключом пока не завершился. Это не отказ — сервер прямо
+  // просит повторить; пометить осмотр отклонённым значило бы бросить его.
+  if (error.toString().contains(_keyInProgress)) return true;
   final status = scanErrorStatusCode(error);
   return status != null && status >= 500;
 }
 
 /// Текст, которым методы `API` отвечают на пустой токен.
 const String _notAuthenticated = 'Not authenticated';
+
+/// 409 сервера: запрос с этим `Idempotency-Key` ещё выполняется
+/// (`backend/services/inspection_operations.py`).
+const String _keyInProgress = 'Idempotency-Key is being processed';
+
+/// 410 сервера: событие по этому ключу было принято, но осмотр с тех пор
+/// удалили. Повторно сервер его не создаёт.
+const String _keyResultDeleted =
+    'The inspection for this Idempotency-Key no longer exists';
 
 /// Точный текст сервера для «осмотр уже закрыт»
 /// (`backend/crud/fault_inspection.update_inspection_by_uuid`).
@@ -88,8 +101,15 @@ const String _inspectionAlreadyClosed = 'Закрытый осмотр нель�
 ///
 /// Тот же приём, что у удаления снимка ремонта: «на сервере этого уже нет» —
 /// цель достигнута.
-bool isScanAlreadyDelivered(Object error) =>
-    error.toString().contains(_inspectionAlreadyClosed);
+///
+/// Сюда же 410 по ключу события: осмотр сервер когда-то принял, а потом его
+/// удалил администратор. Отправлять его заново некуда и незачем — событие
+/// доставлено, его судьбой распорядились на сервере.
+bool isScanAlreadyDelivered(Object error) {
+  final text = error.toString();
+  return text.contains(_inspectionAlreadyClosed) ||
+      text.contains(_keyResultDeleted);
+}
 
 /// Код ответа, если он был приклеен к тексту ошибки методом `sendScan`.
 /// `null` — до сервера не дошли вовсе.
@@ -138,4 +158,28 @@ const Map<String, String> _translations = {
   // Форма multipart разбирается до схемы: сюда попадает битый JSON расхода.
   'actual_consumptions must be a JSON array':
       'Не удалось передать расход ЗИП. Сообщите администратору.',
+  // Наработка: и отдельным запросом, и в составе осмотра
+  // (`backend/crud/equipment_usage_parameter.py`,
+  // `backend/services/inspection_operations.py`). В составе осмотра отказ
+  // откатывает и сам осмотр — текст об этом и говорит.
+  'Cannot decrease current_value':
+      'Наработка меньше текущей, а уменьшать её запрещено. Удалите запись и '
+          'внесите верное показание при следующем сканировании.',
+  'was not found for inspection equipment':
+      'Параметр наработки не найден у этого оборудования — возможно, его '
+          'удалили.',
+  'usage_updates requires equipment':
+      'Не удалось передать наработку: не указано оборудование.',
+  'usage_updates must be a JSON array':
+      'Не удалось передать наработку. Сообщите администратору.',
+  'no more than 2 decimal places':
+      'Наработка указана точнее сотых — сервер её не принял.',
+  'A closed inspection cannot accept new usage_updates':
+      'Задача уже закрыта — добавить к ней наработку нельзя. Внесите '
+          'показание при следующем сканировании.',
+  // Ключ события.
+  'Idempotency-Key was already used with a different request':
+      'Этот осмотр уже был отправлен с другими данными. Сообщите '
+          'администратору.',
+  'File exceeds 10 MB': 'Фото больше 10 МБ — переснимите его.',
 };

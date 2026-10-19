@@ -86,4 +86,26 @@ void main() {
 
     await reopened.close();
   });
+
+  test('отметка времени переживает запись и не меняет ключ', () async {
+    final usage = UsageUpdate(
+      usageParameterUuid: 'param-1',
+      usageParameterValue: 1250.5,
+      equipmentUuid: 'eq-1',
+      createdAt: '2026-10-19T08:00:00.000Z',
+    );
+
+    final box = await Hive.openBox<UsageUpdate>('usage_created_at');
+    await box.put(usage.key(), usage);
+    await box.close();
+    final reopened = await Hive.openBox<UsageUpdate>('usage_created_at');
+    final stored = reopened.get(usage.key())!;
+
+    expect(stored.createdAt, '2026-10-19T08:00:00.000Z');
+    // Ключ — тот же, что у записи без отметки: иначе очередь прошлой версии
+    // не нашла бы свои записи после обновления.
+    expect(stored.key(), sample().key());
+
+    await reopened.close();
+  });
 }

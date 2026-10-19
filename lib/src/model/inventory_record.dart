@@ -322,6 +322,13 @@ class UsageParameter {
     if (parsed == null) {
       return 'Значение должно быть числом';
     }
+    // Сервер хранит наработку с точностью до сотых. Лишний знак в составе
+    // осмотра он отклоняет вместе с осмотром — лучше сказать сразу, чем
+    // потом разбирать отказ на главной.
+    final fraction = value.trim().replaceAll(',', '.').split('.');
+    if (fraction.length > 1 && fraction.last.length > 2) {
+      return 'Не больше двух знаков после запятой';
+    }
     final double v = parsed;
     if (allowCurrentValue) {
       if (v < currentValue) {

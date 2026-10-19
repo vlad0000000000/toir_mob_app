@@ -84,6 +84,48 @@ void main() {
       expect(page.deletedUuids, ['u-7']);
     });
 
+    test('курсорный ответ: next_cursor есть — режим курсора', () {
+      final page = parseSyncPage(
+        {
+          'items': [],
+          'deleted': [],
+          'sync_until': '2026-10-17T10:05:00Z',
+          'next_cursor': 'abc.def',
+        },
+        _problem,
+        'Failed',
+      );
+
+      expect(page.cursorMode, isTrue);
+      expect(page.nextCursor, 'abc.def');
+    });
+
+    test('next_cursor=null — тоже курсорный режим, окно выбрано целиком', () {
+      final page = parseSyncPage(
+        {
+          'items': [],
+          'deleted': [],
+          'sync_until': '2026-10-17T10:05:00Z',
+          'next_cursor': null,
+        },
+        _problem,
+        'Failed',
+      );
+
+      expect(page.cursorMode, isTrue);
+      expect(page.nextCursor, isNull);
+    });
+
+    test('ответ без next_cursor — сервер курсор не умеет', () {
+      final page = parseSyncPage(
+        {'items': [], 'deleted': [], 'sync_until': '2026-10-17T10:05:00Z'},
+        _problem,
+        'Failed',
+      );
+
+      expect(page.cursorMode, isFalse);
+    });
+
     test('ответ неизвестной формы — ошибка, а не пустая страница', () {
       // Пустая страница здесь опаснее исключения: вызывающий счёл бы, что
       // справочник не менялся, и сдвинул бы курсор мимо реальных изменений.
@@ -91,6 +133,44 @@ void main() {
         () => parseSyncPage('не json-объект', _problem, 'Failed'),
         throwsA(isA<Exception>()),
       );
+    });
+  });
+
+  group('syncPageParams', () {
+    final since = DateTime.utc(2026, 10, 19);
+
+    test('первая страница курсором — окно, без skip', () {
+      final params = syncPageParams(
+        limit: 100,
+        offset: 0,
+        updatedSince: since,
+        cursorMode: true,
+      );
+
+      expect(params['pagination'], 'cursor');
+      expect(params['updated_since'], since.toIso8601String());
+      expect(params.containsKey('skip'), isFalse);
+    });
+
+    test('продолжение — только курсор: окно зашито в него сервером', () {
+      final params = syncPageParams(
+        limit: 100,
+        offset: 0,
+        updatedSince: since,
+        cursorMode: true,
+        cursor: 'abc.def',
+      );
+
+      expect(params,
+          {'limit': '100', 'pagination': 'cursor', 'cursor': 'abc.def'});
+    });
+
+    test('прежний режим — skip и окно', () {
+      final params =
+          syncPageParams(limit: 100, offset: 200, updatedSince: since);
+
+      expect(params['skip'], '200');
+      expect(params.containsKey('pagination'), isFalse);
     });
   });
 }

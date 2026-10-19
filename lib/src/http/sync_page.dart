@@ -21,23 +21,77 @@ class SyncPage<T> {
   /// потерять изменения, либо тянуть их повторно.
   final DateTime? syncUntil;
 
+  /// Сервер ответил в курсорном режиме (`pagination=cursor`): в ответе есть
+  /// поле `next_cursor`, пусть и `null`. Старый сервер незнакомый параметр
+  /// пропускает и отвечает по-старому — тогда `false`, и клиент идёт по
+  /// `skip`.
+  final bool cursorMode;
+
+  /// Подписанный курсор следующей страницы. `null` в курсорном режиме —
+  /// окно выбрано **целиком**, и только это признак конца: пустой [items]
+  /// им не является — сервер может ещё отдавать [deletedUuids].
+  final String? nextCursor;
+
   const SyncPage({
     required this.items,
     this.deletedUuids = const [],
     this.syncUntil,
+    this.cursorMode = false,
+    this.nextCursor,
   });
 }
+
+/// Курсор отклонён сервером (422): подпись не сошлась, устарел, другие
+/// фильтры. Окно начинают заново от сохранённой границы.
+class SyncCursorRejected implements Exception {
+  const SyncCursorRejected();
+
+  @override
+  String toString() => 'SyncCursorRejected';
+}
+
+/// Метод API, отдающий страницу инкрементального справочника, — им
+/// пользуется `loadSyncWindow`.
+typedef SyncPageFetch<T> = Future<SyncPage<T>> Function({
+  int limit,
+  int offset,
+  DateTime? updatedSince,
+  DateTime? syncUntil,
+  bool cursorMode,
+  String? cursor,
+});
 
 /// Параметры запроса страницы справочника.
 ///
 /// `skip` — имя параметра на бэкенде, хотя аргумент у методов называется
 /// `offset`; так во всех остальных методах проекта.
+///
+/// Курсорный режим ([cursorMode]): `pagination=cursor`, без `skip`. Первая
+/// страница несёт окно (`updated_since`, при нужде `sync_until`), следующие —
+/// только [cursor]: окно и фильтры зашиты в него сервером, и передавать их
+/// повторно не нужно.
 Map<String, String> syncPageParams({
   required int limit,
   required int offset,
   DateTime? updatedSince,
   DateTime? syncUntil,
+  bool cursorMode = false,
+  String? cursor,
 }) {
+  if (cursorMode) {
+    return <String, String>{
+      'limit': '$limit',
+      'pagination': 'cursor',
+      if (cursor != null)
+        'cursor': cursor
+      else ...{
+        if (updatedSince != null)
+          'updated_since': updatedSince.toUtc().toIso8601String(),
+        if (syncUntil != null)
+          'sync_until': syncUntil.toUtc().toIso8601String(),
+      },
+    };
+  }
   return <String, String>{
     'limit': '$limit',
     'skip': '$offset',
@@ -80,5 +134,9 @@ SyncPage<T> parseSyncPage<T>(
           item['uuid'] as String,
     ],
     syncUntil: DateTime.tryParse(decoded['sync_until']?.toString() ?? ''),
+    // Режим — по наличию поля, а не по значению: `null` у него и значит
+    // «окно выбрано целиком».
+    cursorMode: decoded.containsKey('next_cursor'),
+    nextCursor: decoded['next_cursor'] as String?,
   );
 }

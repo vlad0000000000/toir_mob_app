@@ -83,24 +83,17 @@ extension DataProviderSync on DataProvider {
   /// серверная граница `sync_until`, от которой считается следующий проход.
   /// Сервер инкрементальный режим не понял — границы не будет, и клиент
   /// останется на полных проходах.
+  ///
+  /// Выборка — курсором, с откатом на `skip` для старого сервера (см.
+  /// [loadSyncWindow]); пишем только выбранное целиком окно.
   Future<void> _syncInventoryFull(int generation) async {
-    final since = DateTime.utc(1970);
-    final first =
-        await api.getEquipmentPage(limit: 100, offset: 0, updatedSince: since);
-    final all = <InventoryRecord>[...first.items];
-    if (first.items.length == 100) {
-      for (var offset = 100;; offset += 100) {
-        final page = await api.getEquipmentPage(
-          limit: 100,
-          offset: offset,
-          updatedSince: since,
-          syncUntil: first.syncUntil,
-        );
-        all.addAll(page.items);
-        if (page.items.length < 100) break;
-        if (_pagingLimitReached(offset)) break;
-      }
-    }
+    final window = await loadSyncWindow(
+      api.getEquipmentPage,
+      since: DateTime.utc(1970),
+      fullPass: true,
+      guard: _guardPagingLimit,
+    );
+    final all = window.items;
     // Пока мы качали, обходчик мог выйти и войти другим — тогда всё
     // загруженное принадлежит прошлому аккаунту, и фиксация его отбросит
     // (см. [DataProvider.cacheGeneration]). Данные, курсор и отметки — одной
@@ -114,7 +107,7 @@ extension DataProviderSync on DataProvider {
       await inventoryBox
           .putAll({for (final record in all) record.uuid: record});
       await markEquipmentWriteFinished();
-      await saveEquipmentCursor(first.syncUntil);
+      await saveEquipmentCursor(window.syncUntil);
       await markEquipmentFullResyncDone();
       updateInventoryRecords();
     });
@@ -129,26 +122,18 @@ extension DataProviderSync on DataProvider {
     DateTime cursor,
     int generation,
   ) async {
-    final changed = <InventoryRecord>[];
-    final deleted = <String>{};
-    DateTime? until;
-
-    for (var offset = 0;; offset += 100) {
-      final page = await api.getEquipmentPage(
-        limit: 100,
-        offset: offset,
-        updatedSince: cursor,
-        syncUntil: until,
-      );
-      // Сервер не понял инкрементальный режим — откатываемся на полный
-      // проход, чтобы не принять «всё подряд» за список изменений.
-      if (page.syncUntil == null) return _syncInventoryFull(generation);
-      until ??= page.syncUntil;
-      changed.addAll(page.items);
-      deleted.addAll(page.deletedUuids);
-      if (page.items.length < 100) break;
-      if (_pagingLimitReached(offset)) break;
-    }
+    final window = await loadSyncWindow(
+      api.getEquipmentPage,
+      since: cursor.subtract(DataProvider.syncOverlap),
+      fullPass: false,
+      guard: _guardPagingLimit,
+    );
+    // Сервер не понял инкрементальный режим — откатываемся на полный
+    // проход, чтобы не принять «всё подряд» за список изменений.
+    if (window.syncUntil == null) return _syncInventoryFull(generation);
+    final changed = window.items;
+    final deleted = window.deleted;
+    final until = window.syncUntil;
 
     await _commit(generation, 'Оборудование', () async {
       if (changed.isNotEmpty) {
@@ -184,30 +169,20 @@ extension DataProviderSync on DataProvider {
   }
 
   Future<void> _syncTypicalProblemsFull(int generation) async {
-    final since = DateTime.utc(1970);
-    final first = await api.getTypicalProblemsPage(
-        limit: 100, offset: 0, updatedSince: since);
-    final all = <TypicalProblem>[...first.items];
-    if (first.items.length == 100) {
-      for (var offset = 100;; offset += 100) {
-        final page = await api.getTypicalProblemsPage(
-          limit: 100,
-          offset: offset,
-          updatedSince: since,
-          syncUntil: first.syncUntil,
-        );
-        all.addAll(page.items);
-        if (page.items.length < 100) break;
-        if (_pagingLimitReached(offset)) break;
-      }
-    }
+    final window = await loadSyncWindow(
+      api.getTypicalProblemsPage,
+      since: DateTime.utc(1970),
+      fullPass: true,
+      guard: _guardPagingLimit,
+    );
+    final all = window.items;
     await _commit(generation, 'Неисправности', () async {
       await markTypicalProblemsWriteStarted();
       await typicalProblemBox.clear();
       await typicalProblemBox
           .putAll({for (final problem in all) problem.uuid: problem});
       await markTypicalProblemsWriteFinished();
-      await saveTypicalProblemsCursor(first.syncUntil);
+      await saveTypicalProblemsCursor(window.syncUntil);
       await markTypicalProblemsFullResyncDone();
       _typicalProblems = typicalProblemBox.values.toList();
     });
@@ -217,24 +192,16 @@ extension DataProviderSync on DataProvider {
     DateTime cursor,
     int generation,
   ) async {
-    final changed = <TypicalProblem>[];
-    final deleted = <String>{};
-    DateTime? until;
-
-    for (var offset = 0;; offset += 100) {
-      final page = await api.getTypicalProblemsPage(
-        limit: 100,
-        offset: offset,
-        updatedSince: cursor,
-        syncUntil: until,
-      );
-      if (page.syncUntil == null) return _syncTypicalProblemsFull(generation);
-      until ??= page.syncUntil;
-      changed.addAll(page.items);
-      deleted.addAll(page.deletedUuids);
-      if (page.items.length < 100) break;
-      if (_pagingLimitReached(offset)) break;
-    }
+    final window = await loadSyncWindow(
+      api.getTypicalProblemsPage,
+      since: cursor.subtract(DataProvider.syncOverlap),
+      fullPass: false,
+      guard: _guardPagingLimit,
+    );
+    if (window.syncUntil == null) return _syncTypicalProblemsFull(generation);
+    final changed = window.items;
+    final deleted = window.deleted;
+    final until = window.syncUntil;
 
     await _commit(generation, 'Неисправности', () async {
       if (changed.isNotEmpty) {
@@ -377,7 +344,7 @@ extension DataProviderSync on DataProvider {
         );
         all.addAll(page.items);
         if (page.items.length < 100) break;
-        if (_pagingLimitReached(offset)) break;
+        _guardPagingLimit(offset);
       }
     }
     // Смена аккаунта в ходе прохода: каталог принадлежит прошлому обходчику.
@@ -422,7 +389,7 @@ extension DataProviderSync on DataProvider {
       final page = await api.getSparePartsPage(
         limit: 100,
         offset: offset,
-        updatedSince: cursor,
+        updatedSince: cursor.subtract(DataProvider.syncOverlap),
         syncUntil: until,
       );
       // Сервер не понял инкрементальный режим — откатываемся на полный
@@ -432,7 +399,7 @@ extension DataProviderSync on DataProvider {
       changed.addAll(page.items);
       deleted.addAll(page.deletedUuids);
       if (page.items.length < 100) break;
-      if (_pagingLimitReached(offset)) break;
+      _guardPagingLimit(offset);
     }
 
     return _commit(generation, 'ЗИП', () async {
@@ -550,7 +517,7 @@ extension DataProviderSync on DataProvider {
         );
         all.addAll(page.items);
         if (page.items.length < 100) break;
-        if (_pagingLimitReached(offset)) break;
+        _guardPagingLimit(offset);
       }
     }
     return (all, first.syncUntil);
@@ -594,7 +561,7 @@ extension DataProviderSync on DataProvider {
         changed.addAll(page.items);
         deleted.addAll(page.deletedUuids);
         if (page.items.length < 100) break;
-        if (_pagingLimitReached(offset)) break;
+        _guardPagingLimit(offset);
       }
 
       await _commit(generation, 'Ремонты', () async {
@@ -683,7 +650,7 @@ extension DataProviderSync on DataProvider {
         // Тот же предохранитель, что и у постраничных загрузок в
         // `data_provider_remote`: без него сервер, перестав учитывать `skip`,
         // загонял бы этот цикл в бесконечную загрузку.
-        if (_pagingLimitReached(all.length)) break;
+        _guardPagingLimit(all.length);
       }
       await _commit(generation, 'Нормы расхода', () async {
         // Между clear() и putAll() бокс пуст. Флаг снаружи этой пары
@@ -1047,7 +1014,10 @@ extension DataProviderSync on DataProvider {
     // Осмотры уезжают параллельно со справочниками: очереди пишут в свои
     // боксы и на загрузку справочников не влияют, а по очереди это было
     // сложением двух самых долгих частей.
-    final scansWas = scanBox.length;
+    final queueWas = scanBox.length +
+        scanPendingBox.length +
+        scanUsageBox.length +
+        scanUsagePendingBox.length;
     await Future.wait([
       mainSync(),
       // Каталог ЗИП есть и внутри `mainSync`, но тот мог уже идти — тогда
@@ -1066,17 +1036,47 @@ extension DataProviderSync on DataProvider {
       // ждущий её осмотр, а фоновый проход наработки — до того, как обходчик
       // её внёс. Присоединившись, кнопка ответила бы «не получилось» по тому,
       // что уехало бы следующим циклом.
-      if (scansWas > 0 || scanUsageBox.isNotEmpty)
-        syncUsageScansFresh().then((_) => syncScansFresh()),
+      if (queueWas > 0) _flushUsageAndScans(),
       if (periodicTaskBox.isNotEmpty || periodicTaskPendingBox.isNotEmpty)
         syncPeriodicTasks(),
     ]);
     if (pendingRepairBox.isNotEmpty || pendingRepairUpdateBox.isNotEmpty) {
       return SyncResult.repairsFailed;
     }
-    if (scansWas == 0) {
+    if (queueWas == 0) {
       return SyncResult.allSynced;
     }
-    return scanBox.isEmpty ? SyncResult.scansSynced : SyncResult.scansFailed;
+    // Остаток считаем по обеим очередям и вместе с «в полёте»: раньше
+    // смотрели только на основной бокс осмотров, и осмотр, ушедший после
+    // временного сбоя в pending, или застрявшая наработка давали «успешно».
+    final left = scanBox.length +
+        scanPendingBox.length +
+        scanUsageBox.length +
+        scanUsagePendingBox.length;
+    return left == 0 ? SyncResult.scansSynced : SyncResult.scansFailed;
+  }
+
+  /// Наработка и осмотры — раундами, до трёх, пока есть продвижение.
+  ///
+  /// Один проход «наработка → осмотры» не всегда всё отправляет: если более
+  /// раннее показание лежит внутри осмотра, отдельная наработка по тому же
+  /// оборудованию в этом проходе ждёт его и пропускается, осмотр уезжает
+  /// следом — и новое показание остаётся в очереди до фонового цикла, а
+  /// кнопка говорит «успешно». Новый раунд подбирает то, что разблокировал
+  /// предыдущий. Останавливаемся, когда отправлять нечего или раунд ничего
+  /// не сдвинул (отклонённые, нет связи): крутиться дальше бессмысленно.
+  Future<void> _flushUsageAndScans() async {
+    int unsent() =>
+        scanBox.values.where((scan) => !scan.isRejected).length +
+        scanPendingBox.length +
+        scanUsageBox.values.where((usage) => !usage.isRejected).length +
+        scanUsagePendingBox.length;
+    for (var round = 0; round < 3; round++) {
+      final before = unsent();
+      await syncUsageScansFresh();
+      await syncScansFresh();
+      final after = unsent();
+      if (after == 0 || after >= before) break;
+    }
   }
 }

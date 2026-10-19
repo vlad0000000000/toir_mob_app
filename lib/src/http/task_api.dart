@@ -183,6 +183,8 @@ extension TaskApi on API {
     int offset = 0,
     DateTime? updatedSince,
     DateTime? syncUntil,
+    bool cursorMode = false,
+    String? cursor,
   }) async {
     _guardOffline();
     if (API.jwtToken == null) {
@@ -195,6 +197,8 @@ extension TaskApi on API {
         offset: offset,
         updatedSince: updatedSince,
         syncUntil: syncUntil,
+        cursorMode: cursorMode,
+        cursor: cursor,
       ),
     );
 
@@ -205,6 +209,10 @@ extension TaskApi on API {
       },
     ).timeout(API._readTimeout);
 
+    // Курсор отклонён — окно начнут заново (см. [getEquipmentPage]).
+    if (response.statusCode == 422 && cursor != null) {
+      throw const SyncCursorRejected();
+    }
     if (response.statusCode != 200 && response.statusCode != 201) {
       throw Exception(
           'Failed to load typical problems: ${response.statusCode}');

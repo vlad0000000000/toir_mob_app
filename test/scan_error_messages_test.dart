@@ -54,6 +54,26 @@ void main() {
         isFalse,
       );
     });
+
+    test('ключ события ещё обрабатывается (409) — повторяем', () {
+      // Параллельный запрос с тем же ключом не завершился: сервер просит
+      // повторить, это не отказ.
+      expect(
+        isRetryableScanError(
+            Exception('Idempotency-Key is being processed; retry the request '
+                '[HTTP 409]')),
+        isTrue,
+      );
+    });
+
+    test('ключ с другим запросом (409) — отказ, не повторяем', () {
+      expect(
+        isRetryableScanError(Exception(
+            'Idempotency-Key was already used with a different request '
+            '[HTTP 409]')),
+        isFalse,
+      );
+    });
   });
 
   group('scanErrorMessage', () {
@@ -123,6 +143,38 @@ void main() {
         isScanAlreadyDelivered(Exception('Задача не найдена [HTTP 404]')),
         isFalse,
       );
+    });
+
+    test('410 по ключу события — доставлено: осмотр удалили на сервере', () {
+      expect(
+        isScanAlreadyDelivered(Exception(
+            'The inspection for this Idempotency-Key no longer exists '
+            '[HTTP 410]')),
+        isTrue,
+      );
+    });
+  });
+
+  group('отказы по наработке в составе осмотра', () {
+    test('уменьшение запрещено — по-русски', () {
+      final message = scanErrorMessage(Exception(
+          'Cannot decrease current_value when prohibit_decrease is True '
+          '[HTTP 400]'));
+      expect(message, contains('уменьшать её запрещено'));
+    });
+
+    test('чужой параметр — по-русски, без uuid', () {
+      final message = scanErrorMessage(Exception(
+          'Usage parameter 00000000-0000-0000-0000-000000000001 was not found '
+          'for inspection equipment [HTTP 404]'));
+      expect(message, contains('Параметр наработки не найден'));
+      expect(message, isNot(contains('0000')));
+    });
+
+    test('закрытый осмотр не принимает наработку', () {
+      final message = scanErrorMessage(Exception(
+          'A closed inspection cannot accept new usage_updates [HTTP 409]'));
+      expect(message, contains('Задача уже закрыта'));
     });
   });
 
