@@ -35,6 +35,7 @@ import 'cache_commit_queue.dart';
 import 'generation_pass.dart';
 import 'repair_photo_files.dart';
 import 'sync_schedule.dart';
+import 'subscription_blocks.dart';
 import 'sync_window.dart';
 import 'usage_order.dart';
 
@@ -644,6 +645,67 @@ class DataProvider {
   /// «Сервис» его показывают. Данные при этом не трогаются: после повторного
   /// входа отправка продолжится с того же места.
   final ValueNotifier<bool> authExpired = ValueNotifier<bool>(false);
+
+  /// Блокировки по тарифу на этом телефоне — по компании, чтобы офлайн-вход
+  /// их не обходил (правило — [SubscriptionBlocks]). В `stringBox`,
+  /// переживают перезапуск; кэш аккаунта ([clearCachedData]) их не трогает —
+  /// это не данные справочников.
+  late final SubscriptionBlocks subscriptionBlocks = SubscriptionBlocks(
+    read: (key) => stringBox.get(key),
+    write: (key, value) => stringBox.put(key, value),
+    delete: (key) => stringBox.delete(key),
+    keys: () => stringBox.keys.whereType<String>(),
+  );
+
+  /// Событие «доступ закрыт во время работы» — растёт на каждую новую
+  /// блокировку сессии. Слушает `main.dart`: выход и переход на экран входа.
+  ///
+  /// Счётчик, а не значение: значение «залипало» — заполненное однажды, оно
+  /// больше не будило слушателей, и следующая блокировка проходила молча.
+  final ValueNotifier<int> subscriptionBlockEvents = ValueNotifier<int>(0);
+
+  /// Событие «экран входа на месте — можно показывать причину». Растёт
+  /// **после** перехода на экран входа, и слушает его открытый экран входа.
+  ///
+  /// Отдельно от [subscriptionBlockEvents] намеренно: покажи экран окно сразу
+  /// по блокировке, переход (`clearStackAndNavigate`), начатый позже —
+  /// например, после долгой остановки push-сервиса, — закрыл бы окно вместе
+  /// со стеком, а причина к тому времени уже сброшена.
+  final ValueNotifier<int> subscriptionNoticeEvents = ValueNotifier<int>(0);
+
+  /// Причина, которую экран входа ещё не показал. Показал — сбрасывает;
+  /// удачный вход тоже сбрасывает: к новой сессии она не относится.
+  SubscriptionBlockedException? pendingSubscriptionNotice;
+
+  /// Токен сессии, блокировку которой уже обработали: остальные 403 той же
+  /// пачки (все запросы, летевшие в этот момент) — уже не новость.
+  String? _blockedSessionToken;
+
+  /// Сервер ответил «доступ компании закрыт» на запрос с токеном
+  /// [requestToken]. Зовётся из общего HTTP-клиента
+  /// ([API.onSubscriptionBlocked]).
+  ///
+  /// Реагируем, только если это запрос **текущей** сессии. Ответ на запрос,
+  /// отправленный ещё прошлым обходчиком, может прийти уже после входа
+  /// другого — и записал бы блокировку новому, и выкинул бы его. Запросы без
+  /// токена — это сам вход, его разбирает [DataProviderRemote.login].
+  ///
+  /// Очереди при этом ничего не теряют: исключение — наследник
+  /// [AuthExpiredException], записи остаются неотклонёнными и уйдут, когда
+  /// доступ вернут и обходчик войдёт снова.
+  void handleSubscriptionBlocked(
+    SubscriptionBlockedException blocked,
+    String? requestToken,
+  ) {
+    final user = GlobalState.authUser;
+    if (user == null || requestToken == null) return;
+    if (requestToken != user.JWTToken) return;
+    if (_blockedSessionToken == requestToken) return;
+    _blockedSessionToken = requestToken;
+    subscriptionBlocks.block(user.username, blocked.accessState);
+    pendingSubscriptionNotice = blocked;
+    subscriptionBlockEvents.value++;
+  }
 
   /// Идёт синхронизация, запущенная кнопкой «Синхронизировать данные».
   ///

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 /// Исключение, возникающее когда только обходчик (walker) может авторизироваться
 /// Сервер отказал в списании: на складе не хватает ЗИП.
 ///
@@ -101,6 +103,55 @@ class AuthExpiredException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// Доступ компании закрыт: истёк тариф или компанию отключили.
+///
+/// Сервер пускает на вход (200, токены и `access_state` в ответе), но на
+/// любой следующий запрос отвечает 403 с `code`: `subscription_expired` или
+/// `company_deactivated`. Работа в приложении при этом запрещена — обходчика
+/// выводят на экран входа.
+///
+/// Наследник [AuthExpiredException] намеренно: для очередей отправки это тот
+/// же случай — данные не виноваты, помечать их отклонёнными нельзя, они
+/// уйдут сами, когда доступ вернут. Все ветки очередей, разбирающие
+/// протухший токен, разбирают и это.
+class SubscriptionBlockedException extends AuthExpiredException {
+  /// `subscription_expired` или `company_deactivated` — как прислал сервер.
+  final String accessState;
+
+  SubscriptionBlockedException(this.accessState)
+      : super('Subscription blocked: $accessState');
+
+  /// Состояния доступа, при которых работа запрещена.
+  static const Set<String> blockedStates = {
+    'subscription_expired',
+    'company_deactivated',
+  };
+
+  /// Компанию отключил администратор системы, а не просто истёк тариф.
+  bool get isDeactivated => accessState == 'company_deactivated';
+
+  /// Разбирает ответ сервера. `null` — это не блокировка по тарифу (обычный
+  /// 403 «нет прав» и прочее идут своим путём).
+  ///
+  /// По машиночитаемому `code`, а не по тексту `detail`: текст русский и
+  /// может меняться, код — нет.
+  static SubscriptionBlockedException? fromResponse(
+      int statusCode, String body) {
+    if (statusCode != 403) return null;
+    try {
+      final data = jsonDecode(body);
+      if (data is! Map<String, dynamic>) return null;
+      final code = data['code'];
+      if (code is String && blockedStates.contains(code)) {
+        return SubscriptionBlockedException(code);
+      }
+    } catch (_) {
+      // Тело не JSON — это не наш отказ.
+    }
+    return null;
+  }
 }
 
 /// Исключение, возникающее при неверном логине или пароле

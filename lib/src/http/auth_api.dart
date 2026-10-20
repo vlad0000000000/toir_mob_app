@@ -15,6 +15,10 @@ extension AuthApi on API {
       final decodedBytes = utf8Decoder.convert(response.bodyBytes);
       final Map<String, dynamic> data = jsonDecode(decodedBytes);
       User user = User(role: '', username: '');
+      final scope = data['access_scope'];
+      if (scope is Map && scope['company_id'] != null) {
+        user.companyId = '${scope['company_id']}';
+      }
       user.effectiveRole = data['effective_role'];
       user.customRoleId = data['custom_role_id'];
       user.uuid = data['uuid'];
@@ -86,6 +90,14 @@ extension AuthApi on API {
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> responseData = jsonDecode(response.body);
+        // Сервер пускает на вход и при истёкшем тарифе — токены выдаёт, а
+        // состояние доступа кладёт рядом. Работать при нём нельзя: следующий
+        // же запрос получит 403. Не пускаем сразу, с понятной причиной.
+        final accessState = responseData['access_state'];
+        if (accessState is String &&
+            SubscriptionBlockedException.blockedStates.contains(accessState)) {
+          throw SubscriptionBlockedException(accessState);
+        }
         User user = User(role: responseData['role'], username: username);
         user.password = password;
         user.JWTToken = responseData['access_token'];
@@ -98,6 +110,8 @@ extension AuthApi on API {
     } on InvalidCredentialsException {
       rethrow;
     } on NoConnectionException {
+      rethrow;
+    } on SubscriptionBlockedException {
       rethrow;
     } catch (e) {
       // Разбор обрыва связи здесь был выписан вручную тремя ветками подряд и

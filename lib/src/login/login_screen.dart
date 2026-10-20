@@ -15,6 +15,7 @@ import '../../strings.dart';
 import '../../src/exceptions/app_exceptions.dart';
 
 import '../update_manager.dart';
+import 'subscription_blocked_dialog.dart';
 
 class LoginScreen extends StatefulWidget {
   LoginScreen({super.key});
@@ -35,10 +36,41 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     _passwordVisible = false;
     super.initState();
+    // Сюда вывели принудительно — сервер закрыл доступ компании во время
+    // работы. Объясняем почему, иначе выход выглядел бы как сбой.
+    //
+    // И при открытии экрана, и пока он открыт: блокировка может прийти во
+    // время начальной синхронизации входа, когда экран уже на месте и
+    // заново не создаётся. Слушаем не саму блокировку, а событие «переход
+    // на экран входа выполнен» — окно, показанное раньше перехода, переход
+    // закрыл бы вместе со стеком.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _showPendingNotice());
+    GlobalState.dataProvider.subscriptionNoticeEvents
+        .addListener(_onSubscriptionNotice);
+  }
+
+  void _onSubscriptionNotice() {
+    // После кадра: переход на экран входа только что выполнен.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _showPendingNotice());
+  }
+
+  /// Показывает причину блокировки, если её ещё не показали, — один раз.
+  void _showPendingNotice() {
+    final provider = GlobalState.dataProvider;
+    final blocked = provider.pendingSubscriptionNotice;
+    if (blocked == null || !mounted) return;
+    provider.pendingSubscriptionNotice = null;
+    _showSubscriptionBlocked(blocked);
+  }
+
+  void _showSubscriptionBlocked(SubscriptionBlockedException blocked) {
+    showSubscriptionBlockedDialog(context, blocked);
   }
 
   @override
   void dispose() {
+    GlobalState.dataProvider.subscriptionNoticeEvents
+        .removeListener(_onSubscriptionNotice);
     loginController.dispose();
     passwordController.dispose();
     super.dispose();
@@ -71,8 +103,17 @@ class _LoginScreenState extends State<LoginScreen> {
         final currentUser = await dataProvider.login(
             loginController.text, passwordController.text);
         if (currentUser != null) {
+          // Та же ли ещё сессия. Во время начальной синхронизации сервер мог
+          // закрыть доступ компании — тогда обходчика уже вывели, и
+          // продолжать вход (push-сервис, переход на главную) нельзя:
+          // запустили бы сервис без пользователя. Причину покажет слушатель
+          // блокировки этого же экрана.
+          bool sessionAlive() =>
+              GlobalState.authUser?.JWTToken == currentUser.JWTToken;
           await dataProvider.mainSync();
+          if (!sessionAlive()) return;
           await dataProvider.syncCompany();
+          if (!sessionAlive()) return;
           await GlobalState.updateDebug();
           NotificationsService.instance.bootstrap();
           await PushNotificationsController.instance.start();
@@ -101,6 +142,8 @@ class _LoginScreenState extends State<LoginScreen> {
           Dialogs.notify(context, Strings.invalidCredentialsTitle,
               Strings.invalidCredentialsDesc);
         }
+      } on SubscriptionBlockedException catch (blocked) {
+        if (mounted) _showSubscriptionBlocked(blocked);
       } catch (e) {
         if (mounted) {
           Dialogs.notify(

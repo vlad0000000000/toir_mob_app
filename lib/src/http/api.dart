@@ -93,14 +93,44 @@ class _OfflineAwareClient extends http.BaseClient {
       // в очередь именно по нему, отдельная ветка не нужна.
       throw const SocketException('Сервер не отвечает, попытка отложена');
     }
+    final http.StreamedResponse response;
     try {
-      final response = await _inner.send(request);
+      response = await _inner.send(request);
       API.markServerReachable();
-      return response;
     } catch (error) {
       if (isOfflineError(error)) API.markServerUnreachable();
       rethrow;
     }
+    if (response.statusCode != 403) return response;
+    // Блокировка по тарифу приходит 403 на **любой** запрос — ловим её здесь,
+    // в одном месте, а не в каждом из тридцати методов API. 403 редок, так
+    // что прочитать тело заранее дёшево; не наш отказ — отдаём тело дальше
+    // нетронутым, вызывающий разберёт его как раньше.
+    final bytes = await response.stream.toBytes();
+    final blocked = SubscriptionBlockedException.fromResponse(
+      response.statusCode,
+      utf8.decode(bytes, allowMalformed: true),
+    );
+    if (blocked != null) {
+      // Токен — того запроса, на который пришёл ответ, а не текущий: ответ
+      // мог запоздать и прийти уже в сессии другого обходчика.
+      final authorization = request.headers['Authorization'];
+      final token = authorization != null && authorization.startsWith('Bearer ')
+          ? authorization.substring('Bearer '.length)
+          : null;
+      API.onSubscriptionBlocked?.call(blocked, token);
+      throw blocked;
+    }
+    return http.StreamedResponse(
+      Stream.value(bytes),
+      response.statusCode,
+      contentLength: bytes.length,
+      request: response.request,
+      headers: response.headers,
+      isRedirect: response.isRedirect,
+      persistentConnection: response.persistentConnection,
+      reasonPhrase: response.reasonPhrase,
+    );
   }
 }
 
@@ -139,6 +169,19 @@ class API {
   }
 
   static Session? currentSession;
+
+  /// Сообщает о блокировке по тарифу, замеченной на любом запросе.
+  ///
+  /// Ставит `main.dart` — там есть и хранилище, и роутер: обходчика выводят
+  /// на экран входа. Сам `API` о них знать не должен.
+  ///
+  /// [requestToken] — токен запроса, получившего отказ (`null` — запрос без
+  /// токена, сам вход): по нему отличают свою сессию от запоздавшего ответа
+  /// прошлой.
+  static void Function(
+    SubscriptionBlockedException blocked,
+    String? requestToken,
+  )? onSubscriptionBlocked;
 
   // Таймауты сетевых запросов
   static const Duration _readTimeout =

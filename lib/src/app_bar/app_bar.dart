@@ -2,13 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../global_state.dart';
 import '../../src/knowledge_base/knowledge_base_utils.dart';
-import '../../src/notifications/notifications_service.dart';
-import '../../src/notifications/push/push_notifications_controller.dart';
 import '../../src/utils/dialogs.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../src/widgets/help_link.dart';
 import '../../strings.dart';
 import '../design/app_constants.dart';
+import '../login/sign_out.dart';
 
 class MyAppBar {
   static Widget build(BuildContext context) {
@@ -22,10 +21,8 @@ class MyAppBar {
           style: transparentStyle,
           onPressed: () async {
             Dialogs.areYouSure(context, onOk: () async {
-              GlobalState.authUser = null;
-              GlobalState.updateDebug();
-              NotificationsService.instance.onLogout();
-              await PushNotificationsController.instance.stop();
+              await signOut();
+              if (!context.mounted) return;
               GoRouter.of(context).clearStackAndNavigate('/login');
             });
           },

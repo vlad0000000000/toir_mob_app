@@ -64,6 +64,7 @@ import 'src/data/repair_photo_files.dart';
 import 'src/design/app_constants.dart';
 import 'src/design/app_theme.dart';
 import 'src/http/api.dart';
+import 'src/login/sign_out.dart';
 import 'src/model/session.dart';
 import 'src/model/user.dart';
 
@@ -263,6 +264,28 @@ Future<void> main() async {
   //   // Or: await Hive.box('myBox').clear(); // Clears a specific box
   //   await prefs.setBool('is_first_launch', false);
   // }
+
+  // Доступ компании закрыт (тариф истёк, компанию отключили): сервер отвечает
+  // 403 на любой запрос, его замечает общий HTTP-клиент. Работать дальше
+  // нельзя — выходим из аккаунта и уводим на экран входа, причину он покажет
+  // сам. Очереди при этом целы и уйдут после продления.
+  API.onSubscriptionBlocked = dataProvider.handleSubscriptionBlocked;
+  // Каждая новая блокировка сессии — событие (счётчик), а не «залипающее»
+  // значение.
+  //
+  // Порядок — выход, переход, окно, и только потом ожидание остановки
+  // push-сервиса. Пользователь сбрасывается синхронно, в первой же строке
+  // `signOut`, а остановка сервиса может занять время: дождись её до
+  // перехода — открытый экран входа успел бы показать окно, и переход закрыл
+  // бы его вместе со стеком. Поэтому окно показывается по отдельному
+  // событию, которое растёт уже после перехода.
+  dataProvider.subscriptionBlockEvents.addListener(() async {
+    if (!GlobalState.isAuthorized) return;
+    final stopping = signOut();
+    MyApp._router.clearStackAndNavigate('/login');
+    dataProvider.subscriptionNoticeEvents.value++;
+    await stopping;
+  });
 
   dataProvider.startSyncing();
   dataProvider.startScanSyncing();

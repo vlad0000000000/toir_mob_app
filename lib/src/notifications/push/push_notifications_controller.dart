@@ -24,6 +24,26 @@ class PushNotificationsController {
   bool _initialized = false;
   Timer? _watchdog;
 
+  /// Хвост очереди запусков и остановок сервиса.
+  ///
+  /// [start] и [stop] идут строго по одному, в порядке вызова. Без этого
+  /// они пересекались: при блокировке доступа выход не дожидается остановки
+  /// сервиса (экран входа открывается сразу), и обходчик успевал войти
+  /// снова — новый [start] шёл одновременно со старым [stop], и тот мог
+  /// остановить уже запущенный сервис или стереть сохранённый токен нового
+  /// аккаунта. Уведомления молча переставали приходить. Сюда же попадают
+  /// запуски из [ensureRunning] и watchdog'а.
+  Future<void> _lifecycle = Future<void>.value();
+
+  /// Выполняет [operation] после всех ранее поставленных запусков и
+  /// остановок. Ошибка одной операции очередь не останавливает.
+  Future<T> _serialized<T>(Future<T> Function() operation) {
+    final previous = _lifecycle;
+    final done = Completer<void>();
+    _lifecycle = done.future;
+    return previous.then((_) => operation()).whenComplete(done.complete);
+  }
+
   /// Конфигурируем foreground task на старте приложения.
   /// Безопасно вызывать многократно.
   void init() {
@@ -64,7 +84,13 @@ class PushNotificationsController {
   /// Без авторизации не запускается.
   /// **НЕ дёргает battery optimization** — это делается вручную через
   /// [requestBatteryOptimizationException] из экрана настроек.
-  Future<bool> start() async {
+  ///
+  /// В очереди с [stop] — см. [_lifecycle]. Проверки авторизации и токена
+  /// выполняются уже в свой черёд, а не в момент вызова: к тому времени
+  /// пользователь мог смениться.
+  Future<bool> start() => _serialized(_start);
+
+  Future<bool> _start() async {
     if (kIsWeb || !Platform.isAndroid) return false;
     if (!GlobalState.isAuthorized) return false;
     // Пользователь мог отключить пуши в настройках — уважаем это.
@@ -183,8 +209,17 @@ class PushNotificationsController {
   }
 
   /// Останавливаем сервис (logout / disable realtime).
-  Future<void> stop() async {
+  ///
+  /// В очереди с [start] — см. [_lifecycle]: запуск нового аккаунта начнётся
+  /// только после того, как эта остановка сотрёт токен старого.
+  Future<void> stop() {
+    // Watchdog гасим сразу, не дожидаясь очереди: иначе он успел бы
+    // поставить в неё лишний запуск уже вышедшего пользователя.
     _cancelWatchdog();
+    return _serialized(_stop);
+  }
+
+  Future<void> _stop() async {
     if (kIsWeb || !Platform.isAndroid) return;
     try {
       if (await FlutterForegroundTask.isRunningService) {

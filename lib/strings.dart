@@ -748,3 +748,27 @@ class ScanConflictStrings {
   /// тексте для буфера обмена: список должен читаться одинаково везде.
   static String position(String name, String quantity) => '$name × $quantity';
 }
+
+/// Блокировка доступа по тарифу: истёк тариф или компанию отключили.
+///
+/// Обходчик продлить тариф не может — у него нет ни договора, ни контактов
+/// продаж, поэтому текст отправляет к руководителю, а не «продлите подписку».
+/// Про очередь сказано отдельно: иначе выход на экран входа выглядел бы как
+/// потеря всего, что он успел сделать.
+class SubscriptionStrings {
+  SubscriptionStrings._();
+
+  static const String expiredTitle = 'Срок действия тарифа истёк';
+  static const String deactivatedTitle = 'Доступ компании приостановлен';
+
+  static const String body =
+      'Работа в приложении недоступна. Обратитесь к руководителю.';
+
+  /// Плашка под пояснением: данные не пропали.
+  static const String dataSafe =
+      'Неотправленные осмотры и ремонты сохранены на телефоне. Они уйдут, '
+      'когда доступ восстановят и вы войдёте снова.';
+
+  static String title({required bool deactivated}) =>
+      deactivated ? deactivatedTitle : expiredTitle;
+}

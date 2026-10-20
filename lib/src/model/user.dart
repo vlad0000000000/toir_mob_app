@@ -9,6 +9,13 @@ class User {
   String uuid = '';
   int customRoleId = -1;
 
+  /// Компания пользователя из `/user/me` (`access_scope.company_id`) — для
+  /// блокировки офлайн-входа по компании (`SubscriptionBlocks`).
+  ///
+  /// В Hive **не пишется** (адаптер не трогаем): нужна только в момент входа,
+  /// а связь «логин → компания» хранится отдельно в `stringBox`.
+  String? companyId;
+
   User({required this.username, required this.role});
 
   factory User.fromJson(Map<String, dynamic> json) {

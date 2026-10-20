@@ -131,8 +131,17 @@ extension DataProviderRemote on DataProvider {
       currentUser.effectiveRole = currentUserMe.effectiveRole;
       currentUser.customRoleId = currentUserMe.customRoleId;
       currentUser.uuid = currentUserMe.uuid;
+      currentUser.companyId = currentUserMe.companyId;
     } on InvalidCredentialsException {
       // Сервер вернул, что учетные данные неверны - не проверяем локальных пользователей
+      rethrow;
+    } on SubscriptionBlockedException catch (e) {
+      // Доступ компании закрыт. Сервер ответил — значит, это не обрыв связи,
+      // и пускать по локальной записи нельзя. Раньше этот ответ попадал в
+      // общую ветку ниже и считался сбоем: обходчик входил «как офлайн», а вся
+      // очередь потом получала 403. Запоминаем блокировку — офлайн-вход до
+      // следующего удачного онлайн-входа тоже закрыт.
+      await subscriptionBlocks.block('$login', e.accessState);
       rethrow;
     } on NoConnectionException {
       // Нет соединения с сервером - пробуем локальных пользователей
@@ -160,6 +169,13 @@ extension DataProviderRemote on DataProvider {
 
     // Если API логин не удался из-за отсутствия соединения, пробуем локальных пользователей
     if (apiLoginFailed && currentUser == null) {
+      // Последний ответ сервера для этого обходчика — «доступ компании
+      // закрыт». Без связи проверить, продлили ли тариф, нельзя, а пустить по
+      // локальной записи значило бы обойти блокировку, просто выключив сеть.
+      final blockedState = subscriptionBlocks.isBlocked('$login');
+      if (blockedState != null) {
+        throw SubscriptionBlockedException(blockedState);
+      }
       for (var user in users) {
         if (user.username == login && user.password == password) {
           currentUser = user;
@@ -198,6 +214,22 @@ extension DataProviderRemote on DataProvider {
       if (switched) {
         _dataLog.info('Сменился аккаунт — кэш справочников сброшен');
       }
+
+      // Онлайн-вход прошёл — сервер доступ подтвердил: запоминаем компанию
+      // логина и снимаем блокировку всей компании (тариф продлили). При
+      // офлайн-входе сюда приходим только без блокировки, снимать нечего.
+      final companyId = currentUser.companyId;
+      if (!apiLoginFailed && companyId != null) {
+        await subscriptionBlocks.rememberCompany('$login', companyId);
+        await subscriptionBlocks.clearCompany('$login', companyId);
+      }
+      // Новая сессия — с чистого листа: необработанный сигнал блокировки
+      // прошлой сессии к ней не относится, а признак «эту сессию уже
+      // обработали» сбрасываем — иначе вход того же пользователя в ту же
+      // секунду (токен совпадёт: время в нём с точностью до секунды) оставил
+      // бы следующую блокировку без реакции.
+      pendingSubscriptionNotice = null;
+      _blockedSessionToken = null;
 
       // Сохраняем данные логина только при успешном завершении
       await addUser(currentUser);

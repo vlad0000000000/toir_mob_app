@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
@@ -52,6 +53,31 @@ class NotificationsTaskHandler extends TaskHandler {
   /// убиение сокетов сетью оператора.
   static const Duration _silentDropThreshold = Duration(minutes: 3);
   static const Duration _keepaliveCheckInterval = Duration(seconds: 60);
+
+  /// Паузы перед переподключением после **отказа** сервера (ответ не 200),
+  /// по числу отказов подряд; дальше — последняя.
+  ///
+  /// Раньше и отказ, и обрыв связи переподключались через 5 секунд. Обрыв —
+  /// пусть: без сети запрос до сервера не доходит. А отказ сам не пройдёт:
+  /// при закрытом доступе компании (тариф истёк — 403) или протухшем токене
+  /// (401) сервис, поднятый после перезагрузки телефона, стучался бы каждые
+  /// 5 секунд, пока обходчик не откроет приложение, — тысячи запросов в
+  /// сутки и батарея. Разлогинить его тут некому: это делает основное
+  /// приложение по 403 своего запроса, а сюда его клиент не доходит. Сервис
+  /// при этом не останавливаем: продлят тариф — уведомления вернутся сами,
+  /// не позже чем через 15 минут.
+  static const List<Duration> _refusalDelays = [
+    Duration(seconds: 5),
+    Duration(seconds: 30),
+    Duration(minutes: 2),
+    Duration(minutes: 5),
+    Duration(minutes: 15),
+  ];
+  static const Duration _reconnectDelay = Duration(seconds: 5);
+
+  /// Отказов сервера подряд. Сбрасывается удачным подключением и новым
+  /// токеном.
+  int _refusals = 0;
 
   String _baseUrl = '';
   String _jwt = '';
@@ -123,6 +149,9 @@ class NotificationsTaskHandler extends TaskHandler {
         needReconnect = true;
       }
       if (needReconnect) {
+        // Новый токен — прошлые отказы к нему не относятся.
+        _refusals = 0;
+        _reconnectTimer?.cancel();
         _disconnectSse();
         _connectSse();
       }
@@ -224,9 +253,10 @@ class NotificationsTaskHandler extends TaskHandler {
         debugPrint('[NotifTask] SSE bad status: ${response.statusCode}');
         client.close();
         _client = null;
-        _scheduleReconnect();
+        _scheduleReconnect(refused: true);
         return;
       }
+      _refusals = 0;
       _lastSseActivity = DateTime.now();
       _ensureKeepalive();
       _sseSub = response.stream
@@ -267,11 +297,15 @@ class NotificationsTaskHandler extends TaskHandler {
     _sseParser.reset();
   }
 
-  void _scheduleReconnect() {
+  /// [refused] — сервер ответил отказом: пауза растёт, см. [_refusalDelays].
+  void _scheduleReconnect({bool refused = false}) {
     _disconnectSse();
     if (_stopped) return;
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 5), () {
+    final delay = refused
+        ? _refusalDelays[min(_refusals++, _refusalDelays.length - 1)]
+        : _reconnectDelay;
+    _reconnectTimer = Timer(delay, () {
       if (_stopped) return;
       _connectSse();
     });
@@ -286,6 +320,9 @@ class NotificationsTaskHandler extends TaskHandler {
     if (_keepaliveTimer != null) return;
     _keepaliveTimer = Timer.periodic(_keepaliveCheckInterval, (_) {
       if (_stopped) return;
+      // Переподключение уже запланировано — тишина ожидаема. Без этого
+      // сторож сбивал бы паузу после отказа сервера обратно на 5 секунд.
+      if (_reconnectTimer?.isActive ?? false) return;
       final silentFor = DateTime.now().difference(_lastSseActivity);
       if (silentFor > _silentDropThreshold) {
         debugPrint(
