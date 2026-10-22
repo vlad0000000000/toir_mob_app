@@ -43,6 +43,26 @@ Map<String, dynamic> _me({
     };
 
 void main() {
+  group('AccessProfile.fromServer', () {
+    test('сервер с ролями доступа — профиль есть', () {
+      expect(AccessProfile.fromServer(_me()), isNotNull);
+    });
+
+    test('сервер прошлой версии — профиль неизвестен, а не «без роли»', () {
+      // Ответ `/user/me` до ролей доступа: ни `access_scope`, ни
+      // `user_role`. Разобранный как есть, он дал бы «нет компании» — и
+      // обходчика не пустили бы на старом сервере.
+      final legacy = {
+        'uuid': 'user-uuid',
+        'username': 'mech1',
+        'effective_role': 'Механик',
+        'custom_role_id': 3,
+      };
+
+      expect(AccessProfile.fromServer(legacy), isNull);
+    });
+  });
+
   group('AccessProfile.fromMeJson', () {
     test('обходчик с ролью и направлением', () {
       final profile = AccessProfile.fromMeJson(_me());

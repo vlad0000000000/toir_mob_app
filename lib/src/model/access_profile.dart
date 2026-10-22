@@ -152,6 +152,15 @@ class AccessProfile {
     );
   }
 
+  /// Профиль из ответа `/v1/user/me` — или `null`, если сервер ролей доступа
+  /// не знает (прошлая версия бэкенда: в ответе нет `access_scope`).
+  ///
+  /// `null`, а не пустой профиль намеренно: пустой означал бы «нет компании,
+  /// нет роли», и обходчика не пустили бы на сервере, где ролей просто ещё
+  /// нет. Неизвестный профиль ничего не запирает (`SectionAccess`).
+  static AccessProfile? fromServer(Map<String, dynamic> json) =>
+      json['access_scope'] is Map ? AccessProfile.fromMeJson(json) : null;
+
   /// Тот же профиль, но с блокировкой, о которой сообщил сервер отказом 403
   /// ([codeRoleMissing], [codeRoleInactive], [codeCompanyMissing]).
   ///

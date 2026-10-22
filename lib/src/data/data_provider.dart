@@ -1442,11 +1442,6 @@ class DataProvider {
     await periodicTaskBox.put(taskRequest.key(), taskRequest);
   }
 
-  setCurrentSession(session) async {
-    await sessionBox.put('current_session', session);
-    _currentSession = session;
-  }
-
   /// Кладёт обновлённый ремонт в бокс и освежает кэш в памяти. Нужен после
   /// операций над одним ремонтом (взять в работу, сохранить расход), чтобы не
   /// перекачивать весь список ради одной записи.

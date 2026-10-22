@@ -281,8 +281,13 @@ extension TaskApi on API {
     }
 
     if (responseData.containsKey('uuid')) {
-      final photoUrl = Uri.parse(
-          '${API.baseUrl}/v1/company/periodic_task/${responseData['uuid']}/photos');
+      final taskUuid = responseData['uuid'];
+      final photos = taskRequest.photos ?? const <String>[];
+      // Без снимков второй запрос не нужен: раньше он уходил всегда, пустым.
+      if (photos.isEmpty) return true;
+
+      final photoUrl =
+          Uri.parse('${API.baseUrl}/v1/company/periodic_task/$taskUuid/photos');
 
       var request = http.MultipartRequest(
         'POST',
@@ -292,36 +297,57 @@ extension TaskApi on API {
       request.headers['Authorization'] = 'Bearer ${API.jwtToken}';
       request.headers['accept'] = 'application/json';
 
-      if (taskRequest.photos != null && taskRequest.photos!.isNotEmpty) {
-        for (int i = 0; i < taskRequest.photos!.length; i++) {
-          final base64Image = taskRequest.photos![i];
+      for (int i = 0; i < photos.length; i++) {
+        final base64Image = photos[i];
 
-          final cleanBase64 = base64Image.contains(',')
-              ? base64Image.split(',').last
-              : base64Image;
+        final cleanBase64 = base64Image.contains(',')
+            ? base64Image.split(',').last
+            : base64Image;
 
-          try {
-            final bytes = base64Decode(cleanBase64);
-            final file = http.MultipartFile.fromBytes(
-              'files',
-              bytes,
-              filename: 'image_$i.jpg',
-              contentType: MediaType('image', 'jpeg'),
-            );
-            request.files.add(file);
-          } catch (e) {
-            // То же, что и у снимков ремонта: заявка уедет без этого кадра, но
-            // след останется. Прекращать отправку нельзя — очередь заявок
-            // повторяемый отказ от невосстановимого не отличает и гоняла бы
-            // битый файл по кругу.
-            _apiLog.severe('Ошибка декодирования изображения $i: $e');
-          }
+        try {
+          final bytes = base64Decode(cleanBase64);
+          final file = http.MultipartFile.fromBytes(
+            'files',
+            bytes,
+            filename: 'image_$i.jpg',
+            contentType: MediaType('image', 'jpeg'),
+          );
+          request.files.add(file);
+        } catch (e) {
+          // То же, что и у снимков ремонта: заявка уедет без этого кадра, но
+          // след останется. Прекращать отправку нельзя — очередь заявок
+          // повторяемый отказ от невосстановимого не отличает и гоняла бы
+          // битый файл по кругу.
+          _apiLog.severe('Ошибка декодирования изображения $i: $e');
         }
       }
 
-      final response = await _client.send(request).timeout(API._uploadTimeout);
-      await response.stream.bytesToString().timeout(API._uploadTimeout);
+      if (request.files.isEmpty) return true;
 
+      // Задача на сервере уже есть — что бы ни случилось со снимками,
+      // заявка доставлена. Вернуть её в очередь значило бы через 120 секунд
+      // создать вторую такую же: у создания нет ключа идемпотентности.
+      // Раньше так и выходило при обрыве связи на загрузке фото.
+      //
+      // Снимки при этом не пропадают бесследно: те же кадры уходят в
+      // осмотре, по которому заявка заведена, — администратор увидит их в
+      // истории осмотров. А отказ по правам здесь возможен: сервер принимает
+      // фото задачи только с правом изменения задач, а в роли обходчика его
+      // может и не быть — саму заявку сервер разрешает по праву создания
+      // осмотров (правка бэкенда — `docs/backend-mobile-access-fixes.md`,
+      // п. 2). Отказ не молчит — пишется в журнал.
+      try {
+        final response =
+            await _client.send(request).timeout(API._uploadTimeout);
+        final body =
+            await response.stream.bytesToString().timeout(API._uploadTimeout);
+        if (response.statusCode != 200 && response.statusCode != 201) {
+          _apiLog.severe('Фото заявки $taskUuid не приняты сервером '
+              '(${response.statusCode}): ${_detailFromBody(body, '')}');
+        }
+      } catch (e) {
+        _apiLog.severe('Фото заявки $taskUuid не отправлены: $e');
+      }
       return true;
     }
 

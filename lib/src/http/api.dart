@@ -18,7 +18,6 @@ import '../../src/model/periodicity_rule.dart';
 import '../../src/model/ppr.dart';
 import '../../src/model/repair.dart';
 import '../../src/model/scan.dart';
-import '../../src/model/session.dart';
 import '../../src/model/spare_part.dart';
 import '../../src/model/task.dart';
 import '../../src/model/typical_problem.dart';
@@ -170,8 +169,12 @@ class API {
     return result;
   }
 
-  static String username = dotenv.env["API_USER"]!;
-  static String password = dotenv.env["API_PASSWORD"]!;
+  /// Basic Auth для `/docs` — запасного пинга старого сервера ([isAlive]).
+  /// Сервер эти значения не проверяет. Ключи `.env` больше не обязательны:
+  /// без них приложение запускается, а когда бэкенд с `/v1/system/ping`
+  /// разъедется везде, запасной пинг и эти поля можно убрать.
+  static String username = dotenv.env["API_USER"] ?? '';
+  static String password = dotenv.env["API_PASSWORD"] ?? '';
   static String basicAuth =
       'Basic ' + base64.encode(utf8.encode('$username:$password'));
 
@@ -181,8 +184,6 @@ class API {
     }
     return GlobalState.authUser!.JWTToken;
   }
-
-  static Session? currentSession;
 
   /// Сообщает о закрытом доступе (тариф, роль), замеченном на любом запросе.
   ///
@@ -272,13 +273,27 @@ class API {
   /// Дешёвый пинг живости — единственный способ выйти из окна недоступности,
   /// поэтому идёт мимо него, через [_probeClient]. Ответ сервера снимает окно
   /// сразу: остальные запросы после этого не ждут его истечения.
+  ///
+  /// Пингуем `GET /v1/system/ping` — ручку, которую сервер держит ровно для
+  /// этого: без базы и без авторизации. Раньше пинг шёл на `/docs` —
+  /// страницу Swagger, которую на боевом сервере вправе выключить, и тогда
+  /// приложение решило бы, что сервера нет, при живом сервере.
+  ///
+  /// 404 на ping — сервер старой версии, ручки у него ещё нет: тогда прежний
+  /// пинг `/docs`. Иначе обновлённое приложение на старом сервере навсегда
+  /// считало бы себя офлайн.
   Future<bool> isAlive() async {
     if (simulateOffline) return false;
     try {
-      final response = await _probeClient.get(
-        Uri.parse('$baseUrl/docs'),
-        headers: {'Authorization': basicAuth},
-      ).timeout(_aliveTimeout);
+      var response = await _probeClient
+          .get(Uri.parse('$baseUrl/v1/system/ping'))
+          .timeout(_aliveTimeout);
+      if (response.statusCode == 404) {
+        response = await _probeClient.get(
+          Uri.parse('$baseUrl/docs'),
+          headers: {'Authorization': basicAuth},
+        ).timeout(_aliveTimeout);
+      }
 
       markServerReachable();
       return response.statusCode == 200 || response.statusCode == 201;

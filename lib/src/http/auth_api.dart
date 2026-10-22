@@ -15,9 +15,17 @@ extension AuthApi on API {
       final decodedBytes = utf8Decoder.convert(response.bodyBytes);
       final Map<String, dynamic> data = jsonDecode(decodedBytes);
       User user = User(role: '', username: '');
-      final profile = AccessProfile.fromMeJson(data);
+      // Профиль — только от сервера с ролями доступа: у него в ответе есть
+      // `access_scope`. Сервер прошлой версии этих полей не знает, и разбор
+      // такого ответа дал бы «нет компании, нет роли» — обходчика не пустили
+      // бы вовсе. Профиль тогда неизвестен (`null`), и приложение работает,
+      // как до ролей: ничего не запирает, решает сервер.
+      final profile = AccessProfile.fromServer(data);
       user.accessProfile = profile;
-      user.companyId = profile.companyId;
+      final scope = data['access_scope'];
+      if (scope is Map && scope['company_id'] != null) {
+        user.companyId = '${scope['company_id']}';
+      }
       // Поля совместимости бэкенд отдаёт как `null`, когда у роли нет
       // направления. Раньше они читались как обязательные: `null` в поле
       // `int` — это `TypeError`, а не `Exception`, мимо всех веток разбора
@@ -53,27 +61,6 @@ extension AuthApi on API {
       return Company.fromJson(data);
     } else {
       throw Exception('Failed to load company: ${response.statusCode}');
-    }
-  }
-
-  Future<List<User>> getUsers() async {
-    _guardOffline();
-    if (API.jwtToken == null) {
-      throw Exception('Not authenticated');
-    }
-
-    final response = await _client.get(
-      Uri.parse('${API.baseUrl}/v1/walker/list'),
-      headers: {
-        'Authorization': 'Bearer ${API.jwtToken}',
-      },
-    ).timeout(API._readTimeout);
-
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      final List<dynamic> data = jsonDecode(response.body);
-      return data.map((json) => User.fromJson(json)).toList();
-    } else {
-      throw Exception('Failed to load users: ${response.statusCode}');
     }
   }
 
@@ -125,34 +112,6 @@ extension AuthApi on API {
       // приложение.
       if (isOfflineError(e)) throw NoConnectionException();
       throw Exception('Failed to login: $e');
-    }
-  }
-
-  Future<Session> getCurrentSession() async {
-    _guardOffline();
-    if (API.jwtToken == null) {
-      throw Exception('Not authenticated');
-    }
-
-    final response = await _client.get(
-      Uri.parse('${API.baseUrl}/v1/session/'),
-      headers: {
-        'Authorization': 'Bearer ${API.jwtToken}',
-      },
-    ).timeout(API._readTimeout);
-
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      final List<dynamic> data = jsonDecode(response.body);
-      List<Session> sessions =
-          data.map((json) => Session.fromJson(json)).toList();
-      sessions.sort((a, b) => a.startTime.compareTo(b.startTime));
-      if (sessions.length > 0) {
-        API.currentSession = sessions.last;
-        return sessions.last;
-      }
-      throw Exception('No session found');
-    } else {
-      throw Exception('Failed to load session: ${response.statusCode}');
     }
   }
 }

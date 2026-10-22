@@ -23,22 +23,6 @@ enum SyncResult {
 
 /// Фоновая синхронизация справочников/задач с сервером.
 extension DataProviderSync on DataProvider {
-  Future<void> syncCurrentSession() async {
-    _isLoading = true;
-
-    try {
-      final generation = cacheGeneration;
-      final session = await api.getCurrentSession();
-      await _commit(generation, 'Сессия', () async {
-        await setCurrentSession(session);
-      });
-    } catch (e) {
-      _syncLog.warning('Failed sync session: $e');
-    } finally {
-      _isLoading = false;
-    }
-  }
-
   /// Справочник оборудования — инкрементально, как каталог ЗИП.
   ///
   /// Полный проход тут самый дорогой во всём приложении: запись несёт QR-код

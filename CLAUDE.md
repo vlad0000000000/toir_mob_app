@@ -48,8 +48,8 @@ These break user data or the build if ignored. Full detail lives in the skill.
 
 ```bash
 flutter pub get
-flutter analyze     # baseline: 101 infos, zero warnings/errors; any warning is your regression
-flutter test        # baseline: green, 275 tests in 33 files
+flutter analyze     # baseline: 100 infos, zero warnings/errors; any warning is your regression
+flutter test        # baseline: green, 277 tests in 33 files
 flutter run -d <device>
 ```
 
@@ -69,5 +69,5 @@ the loop handed it the wrong object.
 
 The analyzer only started applying rules in August 2026 — `analysis_options.yaml`
 had included a package that was never a dependency, so nothing but the built-in
-checks ran. The 101 remaining findings are all `info` and pre-date that fix;
+checks ran. The 100 remaining findings are all `info` and pre-date that fix;
 working through them is separate from keeping the baseline free of warnings.
