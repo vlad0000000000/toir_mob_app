@@ -280,6 +280,14 @@ Never _throwServerError(http.Response response, String fallback) {
   if (response.statusCode == 401) {
     throw AuthExpiredException();
   }
+  // Отказ по модели доступа — с машинным кодом: «нет права» поправимо, «уже
+  // взял другой» окончательно, и очередь обязана их различать.
+  const utf8Decoder = Utf8Decoder(allowMalformed: true);
+  final denied = AccessDeniedException.fromResponse(
+    response.statusCode,
+    utf8Decoder.convert(response.bodyBytes),
+  );
+  if (denied != null) throw denied;
   // Код ответа тащим дальше: по нему очередь отличает отказ по существу от
   // временного сбоя сервера и решает, повторять отправку или нет.
   throw ServerFailureException(

@@ -107,6 +107,13 @@ extension ScanApi on API {
       final stockError = _parseInsufficientStock(responseBody);
       if (stockError != null) throw stockError;
 
+      // Отказ по модели доступа: задачу уже выполнил другой исполнитель или у
+      // роли нет права. По коду, а не по тексту — очередь называет такие
+      // отказы по-своему и решает, можно ли их повторить.
+      final denied =
+          AccessDeniedException.fromResponse(response.statusCode, responseBody);
+      if (denied != null) throw denied;
+
       // Код ответа приклеиваем к сообщению: по нему очередь отличает
       // временный сбой сервера (5xx) от отказа по существу (4xx). Из текста
       // для обходчика метку вырезает `scanErrorMessage`.

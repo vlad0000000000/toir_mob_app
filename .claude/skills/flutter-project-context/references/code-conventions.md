@@ -267,7 +267,11 @@ Future<void> syncUsageUnitTypes() async {
   `SubscriptionBlockedException` (тариф) и `NoBusinessAccessException` (роль):
   все — наследники `AuthExpiredException`, поэтому очередь сохраняет запись
   без пометки об отказе. Разбор 403 — `AccessBlockedException.fromResponse`,
-  по `code`, а не по тексту.
+  по `code`, а не по тексту. Отказ одной операции по доступу —
+  `AccessDeniedException` (наследник `ServerFailureException`, несёт `code`):
+  «нет права» и «уже выполнил другой» очередь называет своими строками и
+  обрабатывает по-разному (`data-and-integrations.md`, «Отказы по модели
+  доступа»).
 - Детект офлайна — **[ЖЁСТКО]** общий `isOfflineError` из
   `utils/offline_error.dart`. Своих копий не заводить: их было три, и каждая
   ошибалась по-своему.
@@ -341,7 +345,7 @@ Doc-комментарии `///` **на русском**, перед класс�
 
 ## Тесты
 
-`flutter test` **зелёный: 254 теста в 31 файле** — и должен таким оставаться.
+`flutter test` **зелёный: 267 тестов в 32 файлах** — и должен таким оставаться.
 Только unit и только на чистую логику: симметричность Hive-адаптеров
 (`repair_adapter_test`, `pending_repair_adapter_test`), разбор отказов сервера
 (`scan_error_messages_test`, `repair_error_messages_test`), поведение записей

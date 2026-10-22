@@ -254,6 +254,55 @@ extension DataProviderOutbox on DataProvider {
     return search();
   }
 
+  /// Снимает пометку «нет прав» со всех отклонённых записей очередей —
+  /// осмотров, наработки, черновиков и правок ремонтов. Возвращает, сколько
+  /// записей вернулось в отправку.
+  ///
+  /// Зовётся, когда у обходчика поменялся доступ (другая версия профиля):
+  /// администратор мог вернуть право, и записи должны уйти сами, без похода
+  /// обходчика по экранам разбора. Если права так и нет, сервер откажет тем
+  /// же — запись снова встанет с пометкой и будет ждать следующей смены
+  /// доступа. Остальные отказы (нехватка ЗИП, «уже выполнил другой»,
+  /// занятое оборудование) не трогаем: от смены доступа они не исчезают.
+  Future<int> retryNoRightsRejections() async {
+    var cleared = 0;
+    for (final entry in scanBox.toMap().entries) {
+      final scan = entry.value;
+      if (!isNoRightsReason(scan.lastError)) continue;
+      scan.lastError = null;
+      scan.lastShortages = null;
+      await scanBox.put(entry.key, scan);
+      cleared++;
+    }
+    for (final entry in scanUsageBox.toMap().entries) {
+      final usage = entry.value;
+      if (!isNoRightsReason(usage.lastError)) continue;
+      usage.lastError = null;
+      await scanUsageBox.put(entry.key, usage);
+      cleared++;
+    }
+    for (final draft in pendingRepairBox.values.toList()) {
+      if (!isRepairNoRightsMessage(draft.lastError)) continue;
+      await pendingRepairBox.put(draft.localId, draft.clearRejection());
+      cleared++;
+    }
+    for (final update in pendingRepairUpdateBox.values.toList()) {
+      if (!isRepairNoRightsMessage(update.lastError)) continue;
+      await pendingRepairUpdateBox.put(
+          update.repairUuid, update.clearRejection());
+      cleared++;
+    }
+    if (cleared > 0) {
+      refreshRejectedScansCount();
+      refreshRejectedUsageCount();
+      invalidateScanTaskCache();
+      repairsRevision.value++;
+      _outboxLog.warning(
+          'доступ изменился — в отправку возвращено записей: $cleared');
+    }
+    return cleared;
+  }
+
   /// Повторить отправку отклонённого черновика вручную — с экрана списка.
   /// Снимает пометку об отказе, чтобы очередь снова взяла его в работу.
   Future<void> retryPendingRepair(String localId) async {
@@ -329,6 +378,25 @@ extension DataProviderOutbox on DataProvider {
           continue;
         }
         if (isRetryableRepairError(e)) continue;
+        // У роли нет права на это действие с ремонтом. Ремонт перечитывать
+        // незачем — дело не в нём, и без права сервер его, скорее всего, и
+        // не отдаст, а ответ «нет доступа к ремонту» превратился бы в
+        // окончательное «передан другому». Помечаем своей причиной: по ней
+        // правка уйдёт заново, когда доступ поменяется
+        // ([retryNoRightsRejections]).
+        if (e is AccessDeniedException && e.isNoRights) {
+          if (!pendingRepairUpdateBox.containsKey(current.repairUuid)) continue;
+          await pendingRepairUpdateBox.put(
+            current.repairUuid,
+            current.markRejected(
+              reason: repairNoRightsMessage,
+              conflictKind: RepairConflictKind.other.code,
+            ),
+          );
+          _outboxLog.severe(
+              'правка ремонта ${current.repairUuid} отклонена: нет прав: $e');
+          continue;
+        }
         // Сервер отказал. Чтобы обходчику было что показать, дочитываем
         // текущее состояние ремонта — чаще всего окажется, что администратор
         // закрыл ремонт или передал его другому.

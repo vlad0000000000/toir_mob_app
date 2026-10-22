@@ -19,6 +19,13 @@ String scanErrorMessage(Object error) {
   if (error is InsufficientStockException) {
     return ScanQueueStrings.errorInsufficientStock;
   }
+  // Отказ по модели доступа — своими словами, а не текстом сервера: по этой
+  // строке экран разбора и повтор после смены доступа узнают вид отказа
+  // ([isTakenByOtherReason], [isNoRightsReason]).
+  if (error is AccessDeniedException) {
+    if (error.isTakenByOther) return ScanQueueStrings.errorTakenByOther;
+    if (error.isNoRights) return ScanQueueStrings.errorNoRights;
+  }
   if (isOfflineError(error)) {
     return ScanQueueStrings.errorNoConnection;
   }
@@ -49,6 +56,16 @@ String scanStoredReason(String? stored) {
   }
   return _looksRussian(raw) ? raw : ScanQueueStrings.errorGeneric;
 }
+
+/// Сохранённая причина — «задачу уже выполнил другой исполнитель»: повторять
+/// отправку бессмысленно, остаётся удалить запись.
+bool isTakenByOtherReason(String? stored) =>
+    stored == ScanQueueStrings.errorTakenByOther;
+
+/// Сохранённая причина — «нет прав»: запись повторяют, когда доступ меняется
+/// (`DataProvider.retryNoRightsRejections`).
+bool isNoRightsReason(String? stored) =>
+    stored == ScanQueueStrings.errorNoRights;
 
 /// Отказ, который сам рассосётся: связи нет или сервер временно недоступен.
 ///

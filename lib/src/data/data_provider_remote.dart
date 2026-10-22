@@ -271,7 +271,15 @@ extension DataProviderRemote on DataProvider {
       // трогает, остаётся последний известный.
       final freshProfile = currentUser.accessProfile;
       if (!apiLoginFailed && freshProfile != null) {
+        final before = storedAccessProfile(currentUser.uuid);
         await saveAccessProfile(currentUser.uuid, freshProfile);
+        // Доступ поменялся с прошлого входа — отклонённое за «нет прав»
+        // пробуем отправить заново; фоновая синхронизация этого уже не
+        // заметит: она сравнит со свежесохранённым.
+        if (before != null &&
+            before.accessVersion != freshProfile.accessVersion) {
+          await retryNoRightsRejections();
+        }
       }
 
       // Сохраняем данные логина только при успешном завершении

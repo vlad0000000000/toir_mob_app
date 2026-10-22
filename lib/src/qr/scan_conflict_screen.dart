@@ -110,6 +110,10 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
       (_scan.lastShortages ?? '').isNotEmpty ||
       _reason == ScanQueueStrings.errorInsufficientStock;
 
+  /// Задачу уже выполнил другой исполнитель — общая задача или задача
+  /// направления закрывается один раз. Окончательно: повторять нечего.
+  bool get _isTakenByOther => isTakenByOtherReason(_scan.lastError);
+
   /// Названия позиций, сохранённые вместе с осмотром. Разбираем один раз на
   /// построение экрана: список короткий, а обращений к нему несколько.
   late final Map<String, String> _names = _parseNames();
@@ -503,7 +507,10 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
     final confirmed = await confirmRepairDelete(
       context,
       title: ScanConflictStrings.deleteTitle,
-      body: ScanConflictStrings.deleteBody,
+      // Задачу закрыл другой — «снова станет активной» было бы неправдой.
+      body: _isTakenByOther
+          ? ScanConflictStrings.deleteTakenBody
+          : ScanConflictStrings.deleteBody,
       note: RepairStrings.deleteIrreversible,
     );
     if (!confirmed || !mounted) return;
@@ -630,7 +637,11 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
           ] else ...[
             const SizedBox(height: AppConstants.spacingMD),
             Text(
-              ScanConflictStrings.genericHint,
+              _isTakenByOther
+                  ? ScanConflictStrings.takenByOtherHint
+                  : isNoRightsReason(_scan.lastError)
+                      ? ScanConflictStrings.noRightsHint
+                      : ScanConflictStrings.genericHint,
               style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
             ),
           ],
@@ -742,27 +753,31 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              SizedBox(
-                height: 52,
-                width: double.infinity,
-                // Правил расход — отправляем исправленное, не правил —
-                // повторяем прежнее. Разные действия и подписаны по-разному:
-                // повтор без правки при неизменившемся складе даст тот же
-                // отказ, и обходчик должен это понимать до нажатия.
-                child: ElevatedButton.icon(
-                  onPressed:
-                      _isBusy ? null : (_hasChanges ? _sendEdited : _retry),
-                  icon: Icon(
-                    _hasChanges ? Icons.check_rounded : Icons.refresh_rounded,
-                  ),
-                  label: Text(
-                    _hasChanges
-                        ? ScanConflictStrings.retryEdited
-                        : ScanConflictStrings.retry,
+              // Задачу закрыл другой — повтор даст тот же отказ, кнопки нет:
+              // остаётся только удалить.
+              if (!_isTakenByOther) ...[
+                SizedBox(
+                  height: 52,
+                  width: double.infinity,
+                  // Правил расход — отправляем исправленное, не правил —
+                  // повторяем прежнее. Разные действия и подписаны по-разному:
+                  // повтор без правки при неизменившемся складе даст тот же
+                  // отказ, и обходчик должен это понимать до нажатия.
+                  child: ElevatedButton.icon(
+                    onPressed:
+                        _isBusy ? null : (_hasChanges ? _sendEdited : _retry),
+                    icon: Icon(
+                      _hasChanges ? Icons.check_rounded : Icons.refresh_rounded,
+                    ),
+                    label: Text(
+                      _hasChanges
+                          ? ScanConflictStrings.retryEdited
+                          : ScanConflictStrings.retry,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: AppConstants.spacingSM),
+                const SizedBox(height: AppConstants.spacingSM),
+              ],
               // Заливкой, а не текстом: удаление необратимо, и рядом с
               // зелёной «Повторить отправку» бледная надпись читалась как
               // второстепенная ссылка, а не как опасное действие.

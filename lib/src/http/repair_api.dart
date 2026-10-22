@@ -308,6 +308,9 @@ extension RepairApi on API {
           .map((json) => RepairPhoto.fromJson(json as Map<String, dynamic>))
           .toList();
     }
+    final denied =
+        AccessDeniedException.fromResponse(streamed.statusCode, body);
+    if (denied != null) throw denied;
     throw Exception(_detailFromBody(
       body,
       'Не удалось загрузить фото: ${streamed.statusCode}',

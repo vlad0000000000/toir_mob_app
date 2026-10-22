@@ -15,6 +15,12 @@ String repairErrorMessage(Object error) {
   if (isOfflineError(error)) {
     return 'Нет связи с сервером. Проверьте интернет и повторите.';
   }
+  // Отказ по модели доступа. «Нет прав» — своей строкой: по ней очередь
+  // повторит отправку, когда доступ поменяется. «Уже взят» — текстом
+  // сервера, он и так по-русски и точнее общей фразы.
+  if (error is AccessDeniedException && error.isNoRights) {
+    return repairNoRightsMessage;
+  }
   final raw = _stripExceptionPrefix(error.toString()).trim();
   for (final entry in _translations.entries) {
     if (raw == entry.key || raw.contains(entry.key)) {
@@ -53,6 +59,16 @@ const String repairEquipmentBusyMessage =
 /// Отказ именно про занятое оборудование.
 bool isEquipmentBusyMessage(String? reason) =>
     reason != null && reason.contains(repairEquipmentBusyMessage);
+
+/// Отказ «у роли нет права» на действие с ремонтом, его направление или
+/// подразделение. Не окончательный: администратор может вернуть доступ, и
+/// тогда очередь повторит отправку сама (`DataProvider.retryNoRightsRejections`)
+/// — поэтому и признак, и текст свои, а не серверные.
+const String repairNoRightsMessage =
+    'У вашей роли нет прав на это действие с ремонтом. Данные сохранены и '
+    'уйдут, когда администратор вернёт доступ';
+
+bool isRepairNoRightsMessage(String? reason) => reason == repairNoRightsMessage;
 
 /// Точный текст сервера для «ключ идемпотентности ещё обрабатывается»
 /// (`backend/crud/repair.create_repair_idempotently`).

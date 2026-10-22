@@ -248,3 +248,67 @@ class ServerFailureException implements Exception {
   @override
   String toString() => 'Exception: $message';
 }
+
+/// Сервер отказал в одной операции по модели доступа: у роли нет права, объект
+/// вне направления или подразделения, либо задачу или ремонт уже взял другой
+/// исполнитель. Машиночитаемый `code` — из тела ответа 403/409.
+///
+/// В отличие от [AccessBlockedException], работать в приложении дальше можно —
+/// закрыта одна операция. Наследник [ServerFailureException]: код ответа и
+/// формат [toString] те же, а 403/409 не «временный сбой», так что разбор
+/// очередей по-прежнему считает это отказом по существу, — но по [code]
+/// очередь отличает его от прочих отказов и называет причину по-своему.
+class AccessDeniedException extends ServerFailureException {
+  final String code;
+
+  AccessDeniedException(super.statusCode, this.code, super.message);
+
+  static const String permissionDenied = 'permission_denied';
+  static const String directionDenied = 'direction_denied';
+  static const String divisionDenied = 'division_denied';
+  static const String alreadyTaken = 'already_taken';
+  static const String closedByOther = 'inspection_closed_by_other';
+
+  /// Нет права: на действие, на направление или подразделение объекта.
+  /// Поправимо — администратор может выдать доступ, и запись уйдёт.
+  static const Set<String> noRightsCodes = {
+    permissionDenied,
+    directionDenied,
+    divisionDenied,
+  };
+
+  /// Задачу или ремонт уже взял или выполнил другой исполнитель.
+  /// Окончательно — сделанное этим обходчиком сервер не примет.
+  static const Set<String> takenCodes = {alreadyTaken, closedByOther};
+
+  bool get isNoRights => noRightsCodes.contains(code);
+
+  bool get isTakenByOther => takenCodes.contains(code);
+
+  /// Разбирает отказ сервера. `null` — у ответа нет известного `code`: это
+  /// обычный отказ, его разбирают как раньше.
+  ///
+  /// Только 403 и 409: на них сервер и отвечает этими кодами
+  /// (`backend/security/errors.py`). Закрытый доступ целиком (тариф, роль)
+  /// сюда не попадает — его раньше перехватывает общий клиент.
+  static AccessDeniedException? fromResponse(int statusCode, String body) {
+    if (statusCode != 403 && statusCode != 409) return null;
+    try {
+      final data = jsonDecode(body);
+      if (data is! Map<String, dynamic>) return null;
+      final code = data['code'];
+      if (code is! String ||
+          !(noRightsCodes.contains(code) || takenCodes.contains(code))) {
+        return null;
+      }
+      final detail = data['detail'];
+      return AccessDeniedException(
+        statusCode,
+        code,
+        detail is String && detail.trim().isNotEmpty ? detail : code,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+}

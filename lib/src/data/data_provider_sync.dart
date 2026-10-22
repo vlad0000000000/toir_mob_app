@@ -611,13 +611,21 @@ extension DataProviderSync on DataProvider {
       final token = API.jwtToken;
       if (user == null || token == null || user.uuid.isEmpty) return;
       final generation = cacheGeneration;
+      final before = storedAccessProfile(user.uuid);
       final me = await api.me(token);
       final profile = me.accessProfile;
       if (profile == null) return;
-      await _commit(generation, 'Профиль доступа', () async {
+      final committed = await _commit(generation, 'Профиль доступа', () async {
         await saveAccessProfile(user.uuid, profile);
         accessProfile.value = profile;
       });
+      // Доступ поменялся — записи, отклонённые за «нет прав», пробуем
+      // отправить заново: администратор мог право и вернуть.
+      if (committed &&
+          before != null &&
+          before.accessVersion != profile.accessVersion) {
+        await retryNoRightsRejections();
+      }
       final blockCode = profile.blockCode;
       if (blockCode != null) {
         handleAccessBlocked(NoBusinessAccessException(blockCode), token);
