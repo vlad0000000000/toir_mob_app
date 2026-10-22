@@ -232,6 +232,7 @@ class _PprTaskItem extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     final periodicTask = task.periodicTask;
+    final scopeLabel = GlobalState.dataProvider.taskScopeLabelFor(task);
 
     return Padding(
       padding: const EdgeInsets.only(top: AppConstants.spacingSM),
@@ -270,7 +271,13 @@ class _PprTaskItem extends StatelessWidget {
                       if (periodicTask != null) ...[
                         const SizedBox(height: 2),
                         Text(
-                          periodicTask.equipment.name,
+                          // Подпись «общая» или чужое направление — через
+                          // точку после оборудования: одна строка, как в
+                          // карточке оборудования, только с его названием.
+                          [
+                            periodicTask.equipment.name,
+                            if (scopeLabel != null) scopeLabel,
+                          ].join(' · '),
                           style: tt.bodySmall
                               ?.copyWith(color: cs.onSurfaceVariant),
                         ),

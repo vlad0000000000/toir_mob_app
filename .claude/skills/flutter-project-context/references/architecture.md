@@ -30,7 +30,7 @@ src/
                        (несёт код ответа), InsufficientStock (+ shortages),
                        AccessBlocked → SubscriptionBlocked, NoBusinessAccess
   http/                api.dart (общий _client, окно недоступности) + 8 part-файлов
-  model/               28 файлов, 29 рукописных TypeAdapter (следующий typeId — 30)
+  model/               29 файлов, 29 рукописных TypeAdapter (следующий typeId — 30)
   notifications/       сервис, экран, карточка, SSE-парсер, push/ (второй изолят)
   qr/                  qa_actions (хаб), qr_screen (сканер), qr_result_screen (ядро),
                        scan_conflict_screen (разбор отклонённого осмотра)

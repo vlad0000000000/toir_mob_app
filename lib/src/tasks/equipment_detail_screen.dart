@@ -299,12 +299,26 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     final isSelected =
         _isSelectionMode && _selectionController.selectedTasks.contains(task);
 
-    final title = Text(
-      task.periodicTask?.title ?? 'Назначенная задача',
-      style: tt.bodyLarge?.copyWith(
-        fontWeight: FontWeight.w600,
-        color: cs.onSurface,
-      ),
+    final scopeLabel = GlobalState.dataProvider.taskScopeLabelFor(task);
+    final title = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          task.periodicTask?.title ?? 'Назначенная задача',
+          style: tt.bodyLarge?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: cs.onSurface,
+          ),
+        ),
+        if (scopeLabel != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            scopeLabel,
+            style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+          ),
+        ],
+      ],
     );
 
     final eyeIcon = task.periodicTask != null

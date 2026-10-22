@@ -5,6 +5,7 @@ import '../../src/model/periodic_task_models.dart';
 import '../../src/model/responsible_user.dart';
 import '../../src/model/equipment_fault.dart';
 import 'spare_part_usage.dart';
+import 'task_access.dart';
 
 class Task {
   final String uuid;
@@ -25,6 +26,12 @@ class Task {
   /// выбирали, — см. [SparePartUsage].
   final SparePartUsage? sparePartUsage;
 
+  /// Исполнитель, направления экземпляра и что с ним можно сделать — по
+  /// правилам ролей доступа. `null` — запись прошлой версии приложения:
+  /// видимость тогда решает прежнее правило (см. `DataProvider`), а после
+  /// ближайшей синхронизации поле появится.
+  final TaskAccess? access;
+
   Task({
     required this.uuid,
     required this.resultStatus,
@@ -37,6 +44,7 @@ class Task {
     this.equipmentFault,
     this.photos = const [],
     this.sparePartUsage,
+    this.access,
   });
 
   /// Комментарий осмотра. Сервер отдаёт его либо строкой (старый формат),
@@ -83,6 +91,7 @@ class Task {
           ? SparePartUsage.fromJson(
               json['spare_part_usage'] as Map<String, dynamic>)
           : null,
+      access: TaskAccess.fromInspectionJson(json),
     );
   }
 
@@ -126,6 +135,15 @@ class TaskAdapter extends TypeAdapter<Task> {
       // просто без раздела расхода — он появится после синхронизации.
       sparePartUsage = null;
     }
+    // Доступ — отдельным полем после расхода и со своим try/catch: у
+    // записей прошлой версии его нет, а у ещё более старых нет и расхода —
+    // тогда оба чтения упрутся в конец записи независимо друг от друга.
+    TaskAccess? access;
+    try {
+      access = TaskAccess.decode(reader.read() as String?);
+    } catch (_) {
+      access = null;
+    }
     return Task(
       uuid: uuid,
       resultStatus: resultStatus,
@@ -138,6 +156,7 @@ class TaskAdapter extends TypeAdapter<Task> {
       equipmentFault: equipmentFault,
       photos: photos,
       sparePartUsage: sparePartUsage,
+      access: access,
     );
   }
 
@@ -159,5 +178,7 @@ class TaskAdapter extends TypeAdapter<Task> {
     writer.write(obj.sparePartUsage == null
         ? null
         : jsonEncode(obj.sparePartUsage!.toJson()));
+    // Последним — см. чтение. Тоже строкой JSON и по той же причине.
+    writer.write(obj.access?.encode());
   }
 }

@@ -38,6 +38,7 @@ import 'repair_photo_files.dart';
 import 'sync_schedule.dart';
 import 'subscription_blocks.dart';
 import 'sync_window.dart';
+import 'task_visibility.dart';
 import 'usage_order.dart';
 
 part 'data_provider_remote.dart';
@@ -353,12 +354,26 @@ class DataProvider {
     return (done: done, total: done + getTasksForPpr(ppr.uuid).length);
   }
 
-  /// Задача текущего пользователя: назначенная — по ответственному,
-  /// периодическая — по роли. В отличие от [_isTaskAvailable] работает и для
-  /// закрытых осмотров (нужно для счётчика выполненных задач ППР).
+  /// Подпись к задаче в списке: «Общая задача» или чужое направление.
+  /// `null` — подписывать нечего. Правило — [taskScopeLabel].
+  String? taskScopeLabelFor(Task task) => taskScopeLabel(
+        task.access,
+        profile: accessProfile.value,
+        sharedLabel: TaskScopeStrings.shared,
+      );
+
+  /// Задача текущего пользователя. В отличие от [_isTaskAvailable] работает
+  /// и для закрытых осмотров — нужно для счётчика выполненных задач ППР.
+  ///
+  /// Точный ответ — исполнитель экземпляра: общую задачу или задачу
+  /// направления закрывает кто-то один, и «моя» она, только если закрыл я.
+  /// Исполнитель неизвестен (ответ прошлой версии сервера) — прежнее
+  /// правило: назначенная — по ответственному, периодическая — по должности.
   bool isTaskMine(Task task) {
     final user = GlobalState.authUser;
     if (user == null) return false;
+    final doneByMe = isTaskDoneByMe(task.access, user.uuid);
+    if (doneByMe != null) return doneByMe;
     final responsible = task.responsibleUser;
     if (responsible != null) return responsible.uuid == user.uuid;
     final roles = task.periodicTask?.customRoles ?? const [];
@@ -1557,25 +1572,41 @@ class DataProvider {
   }
 
   /// Показывать ли задачу текущему пользователю: не закрыта локально,
-  /// периодическая — по его роли, назначенная — по ответственному.
+  /// плановая — в его области и выполнима ([isScheduledTaskAvailable]),
+  /// назначенная — ему и выполнима ([isOpenTaskActionable]).
+  ///
+  /// Задача без [Task.access] — запись прошлой версии приложения, до первой
+  /// синхронизации: для неё прежнее правило по должности. Оно не видит
+  /// общих задач и задач обходчика без направления, но ничего чужого не
+  /// показывает — а синхронизация заменит такие записи через минуту.
   bool _isTaskAvailable(Task task, Map<String, String?> tasksInScans) {
     if (tasksInScans.containsKey(task.uuid) || isTaskClosedLocally(task.uuid)) {
       return false;
     }
-    if (GlobalState.authUser == null) {
+    final user = GlobalState.authUser;
+    if (user == null) {
       return false;
     }
+    final access = task.access;
     if (task.resultStatus == "scheduled") {
       // Осмотр без периодической задачи (её удалили) ролей не несёт —
       // показывать его некому. Раньше здесь падал `!`.
       final periodicTask = task.periodicTask;
       if (periodicTask == null) return false;
+      if (access != null) {
+        return isScheduledTaskAvailable(
+          access,
+          userUuid: user.uuid,
+          profile: accessProfile.value,
+        );
+      }
       return periodicTask.customRoles
-              .where((role) => role.id == GlobalState.authUser!.customRoleId)
+              .where((role) => role.id == user.customRoleId)
               .length >
           0;
     } else if (task.resultStatus == "open") {
-      return task.responsibleUser?.uuid == GlobalState.authUser!.uuid;
+      if (task.responsibleUser?.uuid != user.uuid) return false;
+      return access == null || isOpenTaskActionable(access);
     } else {
       return false;
     }
