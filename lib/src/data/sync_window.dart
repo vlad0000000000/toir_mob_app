@@ -64,6 +64,13 @@ Future<SyncWindow<T>> _loadOnce<T>(
     updatedSince: since,
     cursorMode: true,
   );
+  // Курсор выдан до смены доступа обходчика — окно по старой области не
+  // годится. Пустая граница и есть сигнал вызывающему перейти на полный
+  // проход (тот же, что у сервера без инкрементального режима). Раньше это
+  // срабатывало лишь потому, что в таком ответе нет `sync_until`.
+  if (first.resyncRequired && !fullPass) {
+    return (items: <T>[], deleted: <String>{}, syncUntil: null);
+  }
   final items = <T>[...first.items];
   final deleted = <String>{...first.deletedUuids};
 

@@ -70,6 +70,21 @@ const String repairNoRightsMessage =
 
 bool isRepairNoRightsMessage(String? reason) => reason == repairNoRightsMessage;
 
+/// Перевод «No access to this repair» — ремонт есть, но обходчику больше не
+/// виден: передан другому или ушёл из его направления/подразделения. Текст
+/// сервер держит стабильным ради этого признака (`NO_ACCESS_TO_REPAIR` в
+/// `backend/security/policies/repairs.py`).
+const String repairNoAccessMessage = 'Нет доступа к этому ремонту';
+
+/// Ремонт обходчику больше не виден: нет доступа к нему, нет права на
+/// ремонты или его не найти (404 отдаётся и на объект вне области — его
+/// существование сервер не раскрывает).
+bool isRepairOutOfScope(Object error) {
+  if (error is AccessDeniedException) return error.isNoRights;
+  if (error is ServerFailureException && error.statusCode == 404) return true;
+  return repairErrorMessage(error) == repairNoAccessMessage;
+}
+
 /// Точный текст сервера для «ключ идемпотентности ещё обрабатывается»
 /// (`backend/crud/repair.create_repair_idempotently`).
 const String _idempotencyInFlight =
@@ -139,7 +154,7 @@ const Map<String, String> _translations = {
 
   // Доступ и состояние ремонта
   'Repair not found': 'Ремонт не найден',
-  'No access to this repair': 'Нет доступа к этому ремонту',
+  'No access to this repair': repairNoAccessMessage,
   'Company was not found': 'Компания не найдена',
   'Company is deactivated. Please renew your subscription.':
       'Доступ компании приостановлен. Обратитесь к администратору.',

@@ -17,10 +17,15 @@ class SparePartsPage {
   /// телефона и сервера расходятся, и часть изменений выпала бы из окна.
   final DateTime? syncUntil;
 
+  /// Окно выдано до смены доступа к ЗИП — нужен полный проход. См.
+  /// [SyncPage.resyncRequired].
+  final bool resyncRequired;
+
   const SparePartsPage({
     required this.items,
     this.deletedUuids = const [],
     this.syncUntil,
+    this.resyncRequired = false,
   });
 }
 
@@ -103,6 +108,7 @@ extension SparePartApi on API {
             item['uuid'] as String,
       ],
       syncUntil: DateTime.tryParse(decoded['sync_until']?.toString() ?? ''),
+      resyncRequired: parseResyncRequired(decoded),
     );
   }
 

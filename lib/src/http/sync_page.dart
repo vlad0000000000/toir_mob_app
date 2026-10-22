@@ -32,14 +32,26 @@ class SyncPage<T> {
   /// им не является — сервер может ещё отдавать [deletedUuids].
   final String? nextCursor;
 
+  /// Сервер отказался отвечать по этому окну: курсор выдан **до** смены
+  /// доступа обходчика (`resync_required`, причина `access_changed`).
+  /// Изменения в окне посчитаны по старой области — что ушло из неё, сервер
+  /// удалением не пришлёт. Нужен полный проход, курсор — заново.
+  final bool resyncRequired;
+
   const SyncPage({
     required this.items,
     this.deletedUuids = const [],
     this.syncUntil,
     this.cursorMode = false,
     this.nextCursor,
+    this.resyncRequired = false,
   });
 }
+
+/// Признак `resync_required` в ответе инкрементального списка — общий для
+/// всех трёх разборов страниц (справочники, каталог ЗИП, ремонты).
+bool parseResyncRequired(dynamic decoded) =>
+    decoded is Map && decoded['resync_required'] == true;
 
 /// Курсор отклонён сервером (422): подпись не сошлась, устарел, другие
 /// фильтры. Окно начинают заново от сохранённой границы.
@@ -138,5 +150,6 @@ SyncPage<T> parseSyncPage<T>(
     // «окно выбрано целиком».
     cursorMode: decoded.containsKey('next_cursor'),
     nextCursor: decoded['next_cursor'] as String?,
+    resyncRequired: parseResyncRequired(decoded),
   );
 }

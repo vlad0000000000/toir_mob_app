@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:intl/intl.dart';
@@ -737,6 +739,49 @@ class DataProvider {
   /// Токен сессии, блокировку которой уже обработали: остальные 403 той же
   /// пачки (все запросы, летевшие в этот момент) — уже не новость.
   String? _blockedSessionToken;
+
+  /// Сервер сообщил версию доступа (`X-Access-Version`) на ответе к запросу
+  /// с токеном [requestToken]. Зовётся из общего HTTP-клиента
+  /// ([API.onAccessVersion]) на каждом ответе.
+  ///
+  /// Другая версия, чем у профиля, — администратор поменял роль, права,
+  /// направление или подразделения. Сервер уже отвечает по-новому, а
+  /// приложение держало бы старые замки и списки до фоновой синхронизации —
+  /// перечитываем сразу ([refreshAccess]).
+  ///
+  /// Чужой токен (запоздавший ответ прошлой сессии) и неизвестный профиль
+  /// не трогаем: профиль прошлой версии приложения нальёт обычная
+  /// синхронизация, а сравнивать без него не с чем.
+  void handleAccessVersion(String accessVersion, String? requestToken) {
+    final user = GlobalState.authUser;
+    if (user == null || requestToken == null) return;
+    if (requestToken != user.JWTToken) return;
+    final known = accessProfile.value?.accessVersion;
+    if (known == null || known == accessVersion) return;
+    refreshAccess();
+  }
+
+  /// Отложенное перечитывание доступа: на смену версии приходит не один ответ,
+  /// а все запросы, летевшие в этот момент, и каждый сообщает о ней.
+  Timer? _accessRefreshTimer;
+
+  /// Доступ поменялся: перечитать профиль, затем справочники и задачи.
+  ///
+  /// Секунда тишины склеивает серию сигналов (заголовки пачки запросов, SSE
+  /// `access_changed`) в один проход. Профиль — первым: по нему перерисуются
+  /// замки и отфильтруются задачи, а отклонённое за «нет прав» вернётся в
+  /// отправку ([DataProviderOutbox.retryNoRightsRejections]). Справочники —
+  /// свежим проходом ([DataProviderSync.mainSyncFresh]): идущий начался ещё
+  /// при старом доступе. Курсоры инкрементальных справочников сбросит сам
+  /// сервер ответом `resync_required`.
+  void refreshAccess() {
+    _accessRefreshTimer?.cancel();
+    _accessRefreshTimer = Timer(const Duration(seconds: 1), () async {
+      if (!GlobalState.isAuthorized) return;
+      await syncAccessProfile();
+      await mainSyncFresh();
+    });
+  }
 
   /// Сервер закрыл доступ — истёк тариф, роль сняли или отключили — в ответ
   /// на запрос с токеном [requestToken]. Зовётся из общего HTTP-клиента

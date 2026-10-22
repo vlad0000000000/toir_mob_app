@@ -300,6 +300,14 @@ class RepairCardStrings {
   // Карточка
   static const String title = 'Ремонт';
   static const String loadFailedTitle = 'Не удалось загрузить ремонт';
+
+  /// Ремонт есть, но обходчику больше не виден: передан другому или его
+  /// доступ поменяли. Не «не загрузился» — повтор тут не поможет.
+  static const String outOfScopeTitle = 'Нет доступа к ремонту';
+  static const String outOfScopeHint =
+      'Ремонт передали другому сотруднику или изменился ваш доступ. Если он '
+      'нужен для работы, обратитесь к руководителю.';
+  static const String toRepairs = 'К ремонтам';
   static const String loadFailedHint = 'Проверьте соединение и потяните вниз.';
   static const String staleDataBanner =
       'Показаны сохранённые данные — подробности не загрузились. Потяните '

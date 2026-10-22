@@ -115,6 +115,13 @@ class NotificationsService {
     if (data is Map && data['type'] == 'repair_changed') {
       _syncRepairsOnSignal();
     }
+    // Тот же сигнал «доступ изменился», пойманный потоком foreground-сервиса:
+    // когда приложение открыто, его поток в главном изоляте может быть и не
+    // поднят.
+    if (data is Map && data['type'] == 'access_changed') {
+      if (GlobalState.isAuthorized) GlobalState.dataProvider.refreshAccess();
+      refreshList();
+    }
     // Тап по пушу (`type == 'push_tap'`) обрабатывается отдельной
     // подпиской в PushNotificationRouter — независимо от того, был ли
     // позван bootstrap.
@@ -361,7 +368,24 @@ class NotificationsService {
       return;
     }
     if (event != 'notification') return;
+    // Доступ обходчика поменяли: сервер шлёт `notification` с
+    // `action: access_changed` и закрывает поток. Кроме центра уведомлений
+    // (видимые уведомления тоже могли поменяться) перечитываем доступ и
+    // справочники. Поток переподключится сам — уже с новой областью.
+    if (_isAccessChanged(dataStr)) {
+      GlobalState.dataProvider.refreshAccess();
+    }
     refreshList();
+  }
+
+  /// Событие — «доступ изменился» (`action: access_changed`).
+  static bool _isAccessChanged(String dataStr) {
+    try {
+      final data = jsonDecode(dataStr);
+      return data is Map && data['action'] == 'access_changed';
+    } catch (_) {
+      return false;
+    }
   }
 
   Timer? _repairSyncDebounce;

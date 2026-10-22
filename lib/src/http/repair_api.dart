@@ -12,10 +12,15 @@ class RepairsPage {
   /// Момент, до которого сервер посчитал изменения, — граница следующего окна.
   final DateTime? syncUntil;
 
+  /// Окно выдано до смены доступа — нужен полный проход. См.
+  /// [SyncPage.resyncRequired].
+  final bool resyncRequired;
+
   const RepairsPage({
     required this.items,
     this.deletedUuids = const [],
     this.syncUntil,
+    this.resyncRequired = false,
   });
 }
 
@@ -109,6 +114,7 @@ extension RepairApi on API {
             item['uuid'] as String,
       ],
       syncUntil: DateTime.tryParse(decoded['sync_until']?.toString() ?? ''),
+      resyncRequired: parseResyncRequired(decoded),
     );
   }
 

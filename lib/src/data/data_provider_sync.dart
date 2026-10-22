@@ -393,8 +393,11 @@ extension DataProviderSync on DataProvider {
         syncUntil: until,
       );
       // Сервер не понял инкрементальный режим — откатываемся на полный
-      // проход, чтобы не принять «всё подряд» за список изменений.
-      if (page.syncUntil == null) return _syncSparePartsFull(generation);
+      // проход, чтобы не принять «всё подряд» за список изменений. Так же —
+      // когда курсор выдан до смены доступа к ЗИП (`resync_required`).
+      if (page.syncUntil == null || page.resyncRequired) {
+        return _syncSparePartsFull(generation);
+      }
       until ??= page.syncUntil;
       changed.addAll(page.items);
       deleted.addAll(page.deletedUuids);
@@ -549,8 +552,9 @@ extension DataProviderSync on DataProvider {
           syncUntil: until,
         );
         // Сервер не понял режим — откатываемся на полный проход, иначе
-        // приняли бы «все ремонты подряд» за список изменений.
-        if (page.syncUntil == null) {
+        // приняли бы «все ремонты подряд» за список изменений. Так же —
+        // когда курсор выдан до смены доступа (`resync_required`).
+        if (page.syncUntil == null || page.resyncRequired) {
           // Курсор чужого прохода не трогаем: после смены аккаунта он уже
           // принадлежит новому обходчику. Запись полного прохода отбросит
           // его фиксация.
@@ -915,6 +919,15 @@ extension DataProviderSync on DataProvider {
   Future mainSync() {
     final generation = cacheGeneration;
     return _mainSyncPass.run(generation, () => _mainSyncImpl(generation));
+  }
+
+  /// Проход, начавшийся не раньше вызова, — после смены доступа
+  /// ([DataProvider.refreshAccess]). Идущий проход начался при старом
+  /// доступе, и присоединиться к нему значило бы получить старые списки.
+  /// См. [GenerationPass.runFresh].
+  Future mainSyncFresh() {
+    final generation = cacheGeneration;
+    return _mainSyncPass.runFresh(generation, () => _mainSyncImpl(generation));
   }
 
   Future<void> _mainSyncImpl(int generation) async {

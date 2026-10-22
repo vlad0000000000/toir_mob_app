@@ -75,6 +75,10 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
   List<RepairConsumption> _consumptions = [];
   bool _isLoading = true;
   bool _failed = false;
+
+  /// Сервер ответил, что ремонт обходчику больше не виден
+  /// ([isRepairOutOfScope]).
+  bool _outOfScope = false;
   bool _isSaving = false;
   bool _isClaiming = false;
   bool _isPhotoBusy = false;
@@ -237,6 +241,7 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
     setState(() {
       _isLoading = true;
       _failed = false;
+      _outOfScope = false;
     });
     try {
       final repair = await API().getRepair(widget.repairUuid);
@@ -265,6 +270,11 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
       final cached = _cachedRepair();
       setState(() {
         _isLoading = false;
+        // Ремонт ушёл из области обходчика — передан другому или доступ
+        // изменился. Не путаем с отсутствием связи: показывать сохранённую
+        // карточку как «данные не загрузились» значило бы звать к работе
+        // над ремонтом, которую сервер уже не примет.
+        _outOfScope = isRepairOutOfScope(e);
         if (cached != null && !_userEdited) {
           _applyRepair(cached);
           _applyPendingUpdate();
@@ -1198,6 +1208,26 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
           strokeWidth: 8,
           constraints: const BoxConstraints(minHeight: 128, minWidth: 128),
         ),
+      );
+    }
+    // Ремонт больше не виден обходчику. Карточку прячем, только если на ней
+    // нет его неотправленной правки: её он должен иметь возможность
+    // скопировать или удалить, а блок «Не отправлено» с причиной это даёт.
+    if (_outOfScope &&
+        GlobalState.dataProvider.pendingUpdateFor(widget.repairUuid) == null) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          EmptyState(
+            icon: Icons.lock_outline_rounded,
+            title: RepairCardStrings.outOfScopeTitle,
+            hint: RepairCardStrings.outOfScopeHint,
+            action: ElevatedButton(
+              onPressed: () => GoRouter.of(context).backOr('/repairs'),
+              child: const Text(RepairCardStrings.toRepairs),
+            ),
+          ),
+        ],
       );
     }
     if (repair == null) {

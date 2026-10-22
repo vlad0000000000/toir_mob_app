@@ -356,6 +356,13 @@ class NotificationsTaskHandler extends TaskHandler {
     }
 
     final action = data['action'] as String?;
+    // Доступ обходчика поменяли — пуш не показываем (это не уведомление), а
+    // будим main-изолят: ему перечитать доступ и справочники. Сервер следом
+    // закрывает поток, и переподключение получит уже новую область.
+    if (action == 'access_changed') {
+      FlutterForegroundTask.sendDataToMain({'type': 'access_changed'});
+      return;
+    }
     if (action != 'upsert') {
       // Сообщаем main isolate, что список изменился (если приложение открыто).
       FlutterForegroundTask.sendDataToMain({'type': 'sse_event', 'data': data});

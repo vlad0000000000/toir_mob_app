@@ -11,7 +11,7 @@ final _outboxLog = Logger('DataProviderOutbox');
 /// Перевод отказа «No access to this repair» — по нему очередь узнаёт, что
 /// ремонт передали другому сотруднику. Сравниваем с переводом, а не с
 /// английским оригиналом, чтобы источник строки был ровно один.
-const String _noAccessMessage = 'Нет доступа к этому ремонту';
+const String _noAccessMessage = repairNoAccessMessage;
 
 /// Перевод «Repair photo not found». Снимка на сервере уже нет — для
 /// отложенного удаления это успех, а не отказ.
