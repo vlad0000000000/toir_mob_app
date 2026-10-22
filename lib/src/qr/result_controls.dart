@@ -255,12 +255,18 @@ class _ResultControlsState extends State<ResultControls> {
     widget.consumptionController.value = [..._consumptions]..removeAt(index);
   }
 
-  List<UsageParameter> get _matchingUsage {
-    final role = GlobalState.authUser?.effectiveRole;
-    return widget.machine.usageParameters
-        .where((p) => p.maintenanceRole?.name == role)
-        .toList();
-  }
+  /// Параметры наработки, которые обходчик может внести, — **все** параметры
+  /// оборудования.
+  ///
+  /// Решение продукта: показания снимает тот, кто подошёл к оборудованию, а
+  /// не только направление, на которое настроено ТО. Сервер для ввода
+  /// показания проверяет право, а не направление
+  /// (`update_usage_parameter`: направление нужно только для настроек ТО).
+  /// Раньше отбор шёл по имени направления (`maintenanceRole.name ==
+  /// effectiveRole`) — переименование направления прятало параметры, а у
+  /// обходчика без направления их не было совсем. Нет права — раздел
+  /// заперт целиком (`SectionAccess.usage`).
+  List<UsageParameter> get _matchingUsage => widget.machine.usageParameters;
 
   bool get _hasMachineTasks {
     return GlobalState.dataProvider

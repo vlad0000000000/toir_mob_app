@@ -88,13 +88,22 @@ class NotificationFormatters {
     if (role != null && role.isNotEmpty) {
       return 'Исполнитель: $role';
     }
-    // 3) Фоллбэк — роль текущего пользователя. По ТЗ для «Новой задачи»
-    // исполнитель = роль, которой адресовано уведомление; сервер её не
-    // возвращает, но уведомление и так доходит только нужной роли, поэтому
-    // безопасно показать роль текущего юзера вместо прочерка.
-    final myRole = GlobalState.authUser?.effectiveRole;
-    if (myRole != null && myRole.isNotEmpty) {
-      return 'Исполнитель: $myRole';
+    // 3) Фоллбэк — направление текущего пользователя. По ТЗ для «Новой
+    // задачи» исполнитель = направление, которому адресовано уведомление;
+    // сервер его не возвращает, но уведомление и так доходит только нужному
+    // направлению, поэтому безопасно показать своё вместо прочерка.
+    //
+    // Из профиля доступа, а не из `effectiveRole`: у роли без направления
+    // поле совместимости равно техническому типу, и карточка показывала бы
+    // «Исполнитель: walker». Профиль неизвестен — прежнее поле, но не тип.
+    final profile = GlobalState.dataProvider.accessProfile.value;
+    final myDirection = profile != null
+        ? profile.direction?.name
+        : GlobalState.authUser?.effectiveRole;
+    if (myDirection != null &&
+        myDirection.isNotEmpty &&
+        myDirection != 'walker') {
+      return 'Исполнитель: $myDirection';
     }
     return 'Исполнитель: —';
   }

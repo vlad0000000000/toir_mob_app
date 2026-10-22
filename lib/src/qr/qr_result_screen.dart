@@ -485,7 +485,14 @@ class _QRResultScreenState extends State<QRResultScreen> {
   /// оборудованию (`UsageUpdate.createdAt`). Сотые — потому что в базе
   /// `Numeric(15, 2)`: в составе осмотра лишний знак сервер отклоняет вместе
   /// с осмотром, а отдельным запросом молча обрезает.
+  ///
+  /// Без права на ввод показаний — пусто, что бы ни лежало в контроллере.
+  /// Поле на экране в этом случае заперто, но роль могли сменить, пока
+  /// карточка была открыта, а показание в составе осмотра без права сервер
+  /// не принимает и откатывает весь осмотр — вместе с закрытием задачи и
+  /// списанием ЗИП. Потерять одно показание дешевле.
   List<UsageUpdate> createUsageScans() {
+    if (!GlobalState.dataProvider.sectionAccess.usage) return const [];
     return [
       for (final usage in usageController.value ?? const <UsageUpdate>[])
         UsageUpdate(
