@@ -49,11 +49,11 @@ These break user data or the build if ignored. Full detail lives in the skill.
 ```bash
 flutter pub get
 flutter analyze     # baseline: 101 infos, zero warnings/errors; any warning is your regression
-flutter test        # baseline: green, 202 tests in 28 files
+flutter test        # baseline: green, 223 tests in 29 files
 flutter run -d <device>
 ```
 
-`flutter test` is green and must stay green — 28 suites under `test/`, covering
+`flutter test` is green and must stay green — 29 suites under `test/`, covering
 the symmetry of the `Repair`, `PendingRepair` and `Scan` Hive adapters, how the
 inspection and repair outboxes classify a failure (retry, reject, or treat as
 already delivered), spare-part consumption and write-off, the insufficient-stock

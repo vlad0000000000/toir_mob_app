@@ -772,3 +772,19 @@ class SubscriptionStrings {
   static String title({required bool deactivated}) =>
       deactivated ? deactivatedTitle : expiredTitle;
 }
+
+/// Нет бизнес-доступа: роль доступа не назначена, отключена или учётная
+/// запись не привязана к компании.
+///
+/// Пояснение и плашка — те же, что у тарифа ([SubscriptionStrings.body],
+/// [SubscriptionStrings.dataSafe]): обходчику в обоих случаях нужно одно —
+/// понять, что работать нельзя, к кому идти и что сделанное не пропало.
+/// Отличается только заголовок — по нему руководитель поймёт, что чинить.
+class AccessRoleStrings {
+  AccessRoleStrings._();
+
+  static const String roleMissingTitle = 'Роль доступа не назначена';
+  static const String roleInactiveTitle = 'Роль доступа отключена';
+  static const String companyMissingTitle =
+      'Учётная запись не привязана к компании';
+}

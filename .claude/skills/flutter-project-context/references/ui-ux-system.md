@@ -261,7 +261,7 @@ Material Icons, вариант `_rounded` (доминирует) или `_outlin
 | Экран-форма с липким CTA | `qr/qr_result_screen.dart` + `result_controls.dart` |
 | Ввод числа крупными кнопками | `_QuantityStepper` в `repairs/repair_detail_screen.dart` |
 | Диалог необратимого действия | `_SubmitConfirmDialog` там же |
-| Информационный диалог-причина (значок, пояснение, плашка, одна кнопка) | `login/subscription_blocked_dialog.dart` |
+| Информационный диалог-причина (значок, пояснение, плашка, одна кнопка) | `login/access_blocked_dialog.dart` |
 | Модальный тупик / разрешение конфликта | `repairs/repair_conflict_screen.dart`, `qr/scan_conflict_screen.dart` |
 | Блок расхода ЗИП | `widgets/spare_part_consumption.dart` |
 | Сворачиваемые группы | `tasks/ppr_list_screen.dart`, `tasks/equipment_detail_screen.dart` |

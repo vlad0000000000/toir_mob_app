@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 import '../../global_state.dart';
 import '../../src/http/api.dart';
+import '../../src/model/access_profile.dart';
 import '../../src/model/company.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/pending_repair.dart';
@@ -657,44 +658,83 @@ class DataProvider {
     keys: () => stringBox.keys.whereType<String>(),
   );
 
+  /// Профиль доступа текущего обходчика: роль, права, направление,
+  /// подразделения. `null` — не вошёл или профиль ещё ни разу не приходил
+  /// (вход прошлой версией приложения, без сети с тех пор).
+  ///
+  /// [ValueNotifier] — по той же причине, что [activeRepairsCount]:
+  /// [DataProvider] не реактивный, а права меняются во время работы.
+  /// Значение ставят вход ([GlobalState.authUser]) и синхронизация
+  /// ([DataProviderSync.syncAccessProfile]).
+  late final ValueNotifier<AccessProfile?> accessProfile =
+      ValueNotifier<AccessProfile?>(
+    storedAccessProfile(userBox.get('auth_user')?.uuid),
+  );
+
+  /// Профиль доступа пользователя [userUuid] из `stringBox`.
+  ///
+  /// Хранится под uuid, а не один на телефон: на одном устройстве работают
+  /// несколько обходчиков, и офлайн-вход каждого сверяется со своим
+  /// профилем. Кэш аккаунта ([clearCachedData]) профили не трогает — это не
+  /// данные справочников, а то, что сервер сказал о доступе.
+  AccessProfile? storedAccessProfile(String? userUuid) {
+    if (userUuid == null || userUuid.isEmpty) return null;
+    return AccessProfile.decode(stringBox.get('$_accessProfileKey$userUuid'));
+  }
+
+  Future<void> saveAccessProfile(String userUuid, AccessProfile profile) async {
+    if (userUuid.isEmpty) return;
+    await stringBox.put('$_accessProfileKey$userUuid', profile.encode());
+  }
+
+  static const String _accessProfileKey = 'access_profile:';
+
   /// Событие «доступ закрыт во время работы» — растёт на каждую новую
-  /// блокировку сессии. Слушает `main.dart`: выход и переход на экран входа.
+  /// блокировку сессии: тариф истёк, роль сняли или отключили. Слушает
+  /// `main.dart`: выход и переход на экран входа.
   ///
   /// Счётчик, а не значение: значение «залипало» — заполненное однажды, оно
   /// больше не будило слушателей, и следующая блокировка проходила молча.
-  final ValueNotifier<int> subscriptionBlockEvents = ValueNotifier<int>(0);
+  final ValueNotifier<int> accessBlockEvents = ValueNotifier<int>(0);
 
   /// Событие «экран входа на месте — можно показывать причину». Растёт
   /// **после** перехода на экран входа, и слушает его открытый экран входа.
   ///
-  /// Отдельно от [subscriptionBlockEvents] намеренно: покажи экран окно сразу
+  /// Отдельно от [accessBlockEvents] намеренно: покажи экран окно сразу
   /// по блокировке, переход (`clearStackAndNavigate`), начатый позже —
   /// например, после долгой остановки push-сервиса, — закрыл бы окно вместе
   /// со стеком, а причина к тому времени уже сброшена.
-  final ValueNotifier<int> subscriptionNoticeEvents = ValueNotifier<int>(0);
+  final ValueNotifier<int> accessNoticeEvents = ValueNotifier<int>(0);
 
   /// Причина, которую экран входа ещё не показал. Показал — сбрасывает;
   /// удачный вход тоже сбрасывает: к новой сессии она не относится.
-  SubscriptionBlockedException? pendingSubscriptionNotice;
+  AccessBlockedException? pendingAccessNotice;
 
   /// Токен сессии, блокировку которой уже обработали: остальные 403 той же
   /// пачки (все запросы, летевшие в этот момент) — уже не новость.
   String? _blockedSessionToken;
 
-  /// Сервер ответил «доступ компании закрыт» на запрос с токеном
-  /// [requestToken]. Зовётся из общего HTTP-клиента
-  /// ([API.onSubscriptionBlocked]).
+  /// Сервер закрыл доступ — истёк тариф, роль сняли или отключили — в ответ
+  /// на запрос с токеном [requestToken]. Зовётся из общего HTTP-клиента
+  /// ([API.onAccessBlocked]) и из синхронизации профиля
+  /// ([DataProviderSync.syncAccessProfile]).
   ///
   /// Реагируем, только если это запрос **текущей** сессии. Ответ на запрос,
   /// отправленный ещё прошлым обходчиком, может прийти уже после входа
   /// другого — и записал бы блокировку новому, и выкинул бы его. Запросы без
   /// токена — это сам вход, его разбирает [DataProviderRemote.login].
   ///
+  /// Блокировка запоминается, чтобы офлайн-вход её не обходил: тариф — на
+  /// компанию ([SubscriptionBlocks]), роль — в профиле пользователя
+  /// ([AccessProfile.blockedBy]). Профиля ещё нет (вошёл прошлой версией и с
+  /// тех пор не синхронизировался) — роль запомнить негде; офлайн-вход тогда
+  /// пустит, но первый же запрос к серверу снова выведет на экран входа.
+  ///
   /// Очереди при этом ничего не теряют: исключение — наследник
   /// [AuthExpiredException], записи остаются неотклонёнными и уйдут, когда
   /// доступ вернут и обходчик войдёт снова.
-  void handleSubscriptionBlocked(
-    SubscriptionBlockedException blocked,
+  void handleAccessBlocked(
+    AccessBlockedException blocked,
     String? requestToken,
   ) {
     final user = GlobalState.authUser;
@@ -702,9 +742,16 @@ class DataProvider {
     if (requestToken != user.JWTToken) return;
     if (_blockedSessionToken == requestToken) return;
     _blockedSessionToken = requestToken;
-    subscriptionBlocks.block(user.username, blocked.accessState);
-    pendingSubscriptionNotice = blocked;
-    subscriptionBlockEvents.value++;
+    if (blocked is SubscriptionBlockedException) {
+      subscriptionBlocks.block(user.username, blocked.accessState);
+    } else {
+      final profile = storedAccessProfile(user.uuid);
+      if (profile != null) {
+        saveAccessProfile(user.uuid, profile.blockedBy(blocked.code));
+      }
+    }
+    pendingAccessNotice = blocked;
+    accessBlockEvents.value++;
   }
 
   /// Идёт синхронизация, запущенная кнопкой «Синхронизировать данные».

@@ -105,23 +105,59 @@ class AuthExpiredException implements Exception {
   String toString() => message;
 }
 
+/// Работать в приложении нельзя совсем: сервер закрыл доступ на уровне
+/// компании или роли. Обходчика не пускают или выводят на экран входа.
+///
+/// Наследник [AuthExpiredException] намеренно: для очередей отправки это тот
+/// же случай — данные не виноваты, помечать их отклонёнными нельзя, они
+/// уйдут сами, когда доступ вернут. Все ветки очередей, разбирающие
+/// протухший токен, разбирают и это.
+///
+/// Два вида: [SubscriptionBlockedException] (тариф, компания отключена) и
+/// [NoBusinessAccessException] (нет роли, роль отключена, нет компании).
+class AccessBlockedException extends AuthExpiredException {
+  /// Машиночитаемый `code` отказа — как прислал сервер.
+  final String code;
+
+  AccessBlockedException(this.code, String message) : super(message);
+
+  /// Разбирает ответ сервера. `null` — доступ не закрыт целиком: обычный 403
+  /// «нет прав на это действие» и прочее идут своим путём.
+  ///
+  /// По машиночитаемому `code`, а не по тексту `detail`: текст русский и
+  /// может меняться, код — нет.
+  static AccessBlockedException? fromResponse(int statusCode, String body) {
+    return SubscriptionBlockedException.fromResponse(statusCode, body) ??
+        NoBusinessAccessException.fromResponse(statusCode, body);
+  }
+
+  /// `code` из тела отказа 403. `null` — не 403, не JSON или кода нет.
+  static String? _forbiddenCode(int statusCode, String body) {
+    if (statusCode != 403) return null;
+    try {
+      final data = jsonDecode(body);
+      if (data is! Map<String, dynamic>) return null;
+      final code = data['code'];
+      return code is String ? code : null;
+    } catch (_) {
+      // Тело не JSON — это не наш отказ.
+      return null;
+    }
+  }
+}
+
 /// Доступ компании закрыт: истёк тариф или компанию отключили.
 ///
 /// Сервер пускает на вход (200, токены и `access_state` в ответе), но на
 /// любой следующий запрос отвечает 403 с `code`: `subscription_expired` или
 /// `company_deactivated`. Работа в приложении при этом запрещена — обходчика
 /// выводят на экран входа.
-///
-/// Наследник [AuthExpiredException] намеренно: для очередей отправки это тот
-/// же случай — данные не виноваты, помечать их отклонёнными нельзя, они
-/// уйдут сами, когда доступ вернут. Все ветки очередей, разбирающие
-/// протухший токен, разбирают и это.
-class SubscriptionBlockedException extends AuthExpiredException {
-  /// `subscription_expired` или `company_deactivated` — как прислал сервер.
-  final String accessState;
+class SubscriptionBlockedException extends AccessBlockedException {
+  SubscriptionBlockedException(String accessState)
+      : super(accessState, 'Subscription blocked: $accessState');
 
-  SubscriptionBlockedException(this.accessState)
-      : super('Subscription blocked: $accessState');
+  /// `subscription_expired` или `company_deactivated` — как прислал сервер.
+  String get accessState => code;
 
   /// Состояния доступа, при которых работа запрещена.
   static const Set<String> blockedStates = {
@@ -139,18 +175,42 @@ class SubscriptionBlockedException extends AuthExpiredException {
   /// может меняться, код — нет.
   static SubscriptionBlockedException? fromResponse(
       int statusCode, String body) {
-    if (statusCode != 403) return null;
-    try {
-      final data = jsonDecode(body);
-      if (data is! Map<String, dynamic>) return null;
-      final code = data['code'];
-      if (code is String && blockedStates.contains(code)) {
-        return SubscriptionBlockedException(code);
-      }
-    } catch (_) {
-      // Тело не JSON — это не наш отказ.
-    }
-    return null;
+    final code = AccessBlockedException._forbiddenCode(statusCode, body);
+    return code != null && blockedStates.contains(code)
+        ? SubscriptionBlockedException(code)
+        : null;
+  }
+}
+
+/// У обходчика нет бизнес-доступа: роль доступа не назначена, отключена или
+/// учётная запись не привязана к компании.
+///
+/// Сервер пускает на вход и отвечает на `/v1/user/me` (по нему приложение и
+/// узнаёт причину заранее — `AccessProfile.blockCode`), но на любой рабочий
+/// запрос отвечает 403 с `code` `access_role_missing`,
+/// `access_role_inactive` или `company_missing`. Как и с тарифом, работать
+/// нельзя, а данные в очереди не виноваты.
+class NoBusinessAccessException extends AccessBlockedException {
+  NoBusinessAccessException(String code)
+      : super(code, 'No business access: $code');
+
+  static const String companyMissing = 'company_missing';
+  static const String roleMissing = 'access_role_missing';
+  static const String roleInactive = 'access_role_inactive';
+
+  /// Коды, при которых сервер закрывает бизнес-доступ
+  /// (`AccessContext.ensure_business_access`).
+  static const Set<String> blockedCodes = {
+    companyMissing,
+    roleMissing,
+    roleInactive,
+  };
+
+  static NoBusinessAccessException? fromResponse(int statusCode, String body) {
+    final code = AccessBlockedException._forbiddenCode(statusCode, body);
+    return code != null && blockedCodes.contains(code)
+        ? NoBusinessAccessException(code)
+        : null;
   }
 }
 

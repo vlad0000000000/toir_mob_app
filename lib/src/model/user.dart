@@ -1,5 +1,7 @@
 import 'package:hive_ce/hive.dart';
 
+import 'access_profile.dart';
+
 class User {
   final String username;
   String password = '';
@@ -15,6 +17,13 @@ class User {
   /// В Hive **не пишется** (адаптер не трогаем): нужна только в момент входа,
   /// а связь «логин → компания» хранится отдельно в `stringBox`.
   String? companyId;
+
+  /// Профиль доступа из `/user/me` — только что полученный с сервера.
+  ///
+  /// В Hive **не пишется**, как и [companyId]: профиль живёт в `stringBox`
+  /// под uuid пользователя (`DataProvider.storedAccessProfile`). Пользователь
+  /// из бокса этого поля не несёт.
+  AccessProfile? accessProfile;
 
   User({required this.username, required this.role});
 

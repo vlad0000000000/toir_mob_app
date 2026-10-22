@@ -26,10 +26,11 @@ src/
                        hive_storage_location.dart, repair_photo_files.dart
   design/              app_constants.dart (токены), app_theme.dart (2 схемы)
                        theme_extensions.dart — МЁРТВЫЙ, 0 импортов
-  exceptions/          7 исключений: 3 про логин, AuthExpired, NoConnection,
-                       ServerFailure (несёт код ответа), InsufficientStock (+ shortages)
+  exceptions/          3 про логин, AuthExpired, NoConnection, ServerFailure
+                       (несёт код ответа), InsufficientStock (+ shortages),
+                       AccessBlocked → SubscriptionBlocked, NoBusinessAccess
   http/                api.dart (общий _client, окно недоступности) + 8 part-файлов
-  model/               27 файлов, 29 рукописных TypeAdapter (следующий typeId — 30)
+  model/               28 файлов, 29 рукописных TypeAdapter (следующий typeId — 30)
   notifications/       сервис, экран, карточка, SSE-парсер, push/ (второй изолят)
   qr/                  qa_actions (хаб), qr_screen (сканер), qr_result_screen (ядро),
                        scan_conflict_screen (разбор отклонённого осмотра)

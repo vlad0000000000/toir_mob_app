@@ -15,17 +15,22 @@ extension AuthApi on API {
       final decodedBytes = utf8Decoder.convert(response.bodyBytes);
       final Map<String, dynamic> data = jsonDecode(decodedBytes);
       User user = User(role: '', username: '');
-      final scope = data['access_scope'];
-      if (scope is Map && scope['company_id'] != null) {
-        user.companyId = '${scope['company_id']}';
-      }
-      user.effectiveRole = data['effective_role'];
-      user.customRoleId = data['custom_role_id'];
-      user.uuid = data['uuid'];
+      final profile = AccessProfile.fromMeJson(data);
+      user.accessProfile = profile;
+      user.companyId = profile.companyId;
+      // Поля совместимости бэкенд отдаёт как `null`, когда у роли нет
+      // направления. Раньше они читались как обязательные: `null` в поле
+      // `int` — это `TypeError`, а не `Exception`, мимо всех веток разбора
+      // входа, и обходчик без направления видел «не удалось войти».
+      user.effectiveRole = data['effective_role'] as String? ?? '';
+      user.customRoleId = data['custom_role_id'] as int? ?? -1;
+      user.uuid = data['uuid'] as String? ?? '';
       return user;
-    } else {
-      throw Exception('Failed to authenticate: ${response.statusCode}');
     }
+    // Отказ — через общий разбор: 401 отдельно, у прочих код ответа. По нему
+    // вход отличает «сервер ответил отказом» (пускать по локальной записи
+    // нельзя) от «сервер не дошёл» (можно).
+    _throwServerError(response, 'Не удалось получить данные пользователя');
   }
 
   Future<Company> getCompany() async {

@@ -8,6 +8,7 @@ import 'package:http_parser/http_parser.dart';
 import 'package:logging/logging.dart';
 import '../../src/model/usage_update.dart';
 import '../../global_state.dart';
+import '../../src/model/access_profile.dart';
 import '../../src/model/company.dart';
 import '../../src/model/consumption_norm.dart';
 import '../../src/model/inventory_record.dart';
@@ -102,12 +103,13 @@ class _OfflineAwareClient extends http.BaseClient {
       rethrow;
     }
     if (response.statusCode != 403) return response;
-    // Блокировка по тарифу приходит 403 на **любой** запрос — ловим её здесь,
-    // в одном месте, а не в каждом из тридцати методов API. 403 редок, так
+    // Закрытый доступ — истёк тариф, роль сняли или отключили — приходит 403
+    // на **любой** запрос. Ловим его здесь, в одном месте, а не в каждом из
+    // тридцати методов API. 403 редок, так
     // что прочитать тело заранее дёшево; не наш отказ — отдаём тело дальше
     // нетронутым, вызывающий разберёт его как раньше.
     final bytes = await response.stream.toBytes();
-    final blocked = SubscriptionBlockedException.fromResponse(
+    final blocked = AccessBlockedException.fromResponse(
       response.statusCode,
       utf8.decode(bytes, allowMalformed: true),
     );
@@ -118,7 +120,7 @@ class _OfflineAwareClient extends http.BaseClient {
       final token = authorization != null && authorization.startsWith('Bearer ')
           ? authorization.substring('Bearer '.length)
           : null;
-      API.onSubscriptionBlocked?.call(blocked, token);
+      API.onAccessBlocked?.call(blocked, token);
       throw blocked;
     }
     return http.StreamedResponse(
@@ -170,7 +172,7 @@ class API {
 
   static Session? currentSession;
 
-  /// Сообщает о блокировке по тарифу, замеченной на любом запросе.
+  /// Сообщает о закрытом доступе (тариф, роль), замеченном на любом запросе.
   ///
   /// Ставит `main.dart` — там есть и хранилище, и роутер: обходчика выводят
   /// на экран входа. Сам `API` о них знать не должен.
@@ -179,9 +181,9 @@ class API {
   /// токена, сам вход): по нему отличают свою сессию от запоздавшего ответа
   /// прошлой.
   static void Function(
-    SubscriptionBlockedException blocked,
+    AccessBlockedException blocked,
     String? requestToken,
-  )? onSubscriptionBlocked;
+  )? onAccessBlocked;
 
   // Таймауты сетевых запросов
   static const Duration _readTimeout =

@@ -15,7 +15,7 @@ import '../../strings.dart';
 import '../../src/exceptions/app_exceptions.dart';
 
 import '../update_manager.dart';
-import 'subscription_blocked_dialog.dart';
+import 'access_blocked_dialog.dart';
 
 class LoginScreen extends StatefulWidget {
   LoginScreen({super.key});
@@ -36,7 +36,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     _passwordVisible = false;
     super.initState();
-    // Сюда вывели принудительно — сервер закрыл доступ компании во время
+    // Сюда вывели принудительно — сервер закрыл доступ (тариф, роль) во время
     // работы. Объясняем почему, иначе выход выглядел бы как сбой.
     //
     // И при открытии экрана, и пока он открыт: блокировка может прийти во
@@ -45,11 +45,10 @@ class _LoginScreenState extends State<LoginScreen> {
     // на экран входа выполнен» — окно, показанное раньше перехода, переход
     // закрыл бы вместе со стеком.
     WidgetsBinding.instance.addPostFrameCallback((_) => _showPendingNotice());
-    GlobalState.dataProvider.subscriptionNoticeEvents
-        .addListener(_onSubscriptionNotice);
+    GlobalState.dataProvider.accessNoticeEvents.addListener(_onAccessNotice);
   }
 
-  void _onSubscriptionNotice() {
+  void _onAccessNotice() {
     // После кадра: переход на экран входа только что выполнен.
     WidgetsBinding.instance.addPostFrameCallback((_) => _showPendingNotice());
   }
@@ -57,20 +56,19 @@ class _LoginScreenState extends State<LoginScreen> {
   /// Показывает причину блокировки, если её ещё не показали, — один раз.
   void _showPendingNotice() {
     final provider = GlobalState.dataProvider;
-    final blocked = provider.pendingSubscriptionNotice;
+    final blocked = provider.pendingAccessNotice;
     if (blocked == null || !mounted) return;
-    provider.pendingSubscriptionNotice = null;
-    _showSubscriptionBlocked(blocked);
+    provider.pendingAccessNotice = null;
+    _showAccessBlocked(blocked);
   }
 
-  void _showSubscriptionBlocked(SubscriptionBlockedException blocked) {
-    showSubscriptionBlockedDialog(context, blocked);
+  void _showAccessBlocked(AccessBlockedException blocked) {
+    showAccessBlockedDialog(context, blocked);
   }
 
   @override
   void dispose() {
-    GlobalState.dataProvider.subscriptionNoticeEvents
-        .removeListener(_onSubscriptionNotice);
+    GlobalState.dataProvider.accessNoticeEvents.removeListener(_onAccessNotice);
     loginController.dispose();
     passwordController.dispose();
     super.dispose();
@@ -142,8 +140,8 @@ class _LoginScreenState extends State<LoginScreen> {
           Dialogs.notify(context, Strings.invalidCredentialsTitle,
               Strings.invalidCredentialsDesc);
         }
-      } on SubscriptionBlockedException catch (blocked) {
-        if (mounted) _showSubscriptionBlocked(blocked);
+      } on AccessBlockedException catch (blocked) {
+        if (mounted) _showAccessBlocked(blocked);
       } catch (e) {
         if (mounted) {
           Dialogs.notify(

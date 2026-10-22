@@ -262,7 +262,12 @@ Future<void> syncUsageUnitTypes() async {
   `AuthExpiredException`, `NoConnectionException`, `ServerFailureException`
   (несёт код ответа; `toString()` печатается как прежний `Exception(текст)` —
   переводы ошибок разбирают строку, формат менять нельзя) и
-  `InsufficientStockException` со списком `InsufficientStockItem`.
+  `InsufficientStockException` со списком `InsufficientStockItem`. Плюс
+  семейство закрытого доступа — `AccessBlockedException` и наследники
+  `SubscriptionBlockedException` (тариф) и `NoBusinessAccessException` (роль):
+  все — наследники `AuthExpiredException`, поэтому очередь сохраняет запись
+  без пометки об отказе. Разбор 403 — `AccessBlockedException.fromResponse`,
+  по `code`, а не по тексту.
 - Детект офлайна — **[ЖЁСТКО]** общий `isOfflineError` из
   `utils/offline_error.dart`. Своих копий не заводить: их было три, и каждая
   ошибалась по-своему.
@@ -336,7 +341,7 @@ Doc-комментарии `///` **на русском**, перед класс�
 
 ## Тесты
 
-`flutter test` **зелёный: 202 теста в 28 файлах** — и должен таким оставаться.
+`flutter test` **зелёный: 223 теста в 29 файлах** — и должен таким оставаться.
 Только unit и только на чистую логику: симметричность Hive-адаптеров
 (`repair_adapter_test`, `pending_repair_adapter_test`), разбор отказов сервера
 (`scan_error_messages_test`, `repair_error_messages_test`), поведение записей

@@ -195,17 +195,32 @@ JWT Bearer. `POST /v1/auth/login` → `GET /v1/user/me`. `User` кладётся
 выхода на `/login` нет. Остальные методы превращают 401 в обычный `Exception`,
 который `sync*` проглотит.
 
-**403 с `code: subscription_expired | company_deactivated`** (тариф истёк,
-компанию отключили) общий клиент превращает в `SubscriptionBlockedException`
+**403 с `code`, закрывающим доступ целиком** — `subscription_expired`,
+`company_deactivated` (тариф), `access_role_missing`, `access_role_inactive`,
+`company_missing` (роль) — общий клиент превращает в `AccessBlockedException`
 на **любом** запросе и выводит обходчика на экран входа — см. «Вход» в
-`features-and-flows.md`. Выход — `login/sign_out.dart` (`signOut`), один для
-кнопки «Выйти» и принудительного выхода.
+`features-and-flows.md`. 403 «нет прав на это действие»
+(`permission_denied`, `direction_denied`, `division_denied`) сюда не
+относится: он идёт обычным отказом. Выход — `login/sign_out.dart`
+(`signOut`), один для кнопки «Выйти» и принудительного выхода.
+
+**Модель доступа сервера** (`feat/roles`). Тип учётной записи (`role` в
+ответе входа, `walker`) только пускает в приложение; что можно делать, задаёт
+роль доступа: набор прав из каталога бэкенда (`backend/security/permissions.py`;
+нужные приложению — `Perm` в `model/access_profile.dart`), одно направление
+или ни одного, плюс подразделения пользователя. Чтение сервер режет сам:
+без права на раздел мобильные списки отвечают 200 с пустым результатом, а не
+403. Права приложение получает из `/v1/user/me` (`AccessProfile`, см. «Вход» в
+`features-and-flows.md`). `custom_role_id` и `effective_role` в `/user/me` —
+поля совместимости, бывают `null`: каноничные — `direction`, `permissions`,
+`divisions`, `access_version`.
 
 **Офлайн-вход** сравнивает пароль с локально сохранённым — **пароль лежит в
 Hive открытым текстом**. Осознанный компромисс, шифрования Hive нет.
 
-Роль `walker` — единственный допуск. `effectiveRole` и `customRoleId`
-используются для фильтрации задач и наработки, экранов не ограничивают.
+Тип `walker` — единственный допуск. `effectiveRole` и `customRoleId`
+по-прежнему используются для фильтрации задач и наработки (переход на
+профиль доступа — отдельный этап); экранов права пока не ограничивают.
 
 ---
 

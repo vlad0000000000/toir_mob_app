@@ -132,16 +132,35 @@ extension DataProviderRemote on DataProvider {
       currentUser.customRoleId = currentUserMe.customRoleId;
       currentUser.uuid = currentUserMe.uuid;
       currentUser.companyId = currentUserMe.companyId;
+      currentUser.accessProfile = currentUserMe.accessProfile;
+      // Роль доступа не назначена или отключена. Сервер пускает на вход и
+      // отвечает на `/user/me`, но любой рабочий запрос получит 403 — не
+      // пускаем сразу, с понятной причиной, как при истёкшем тарифе. Профиль
+      // сохраняем: без него офлайн-вход пустил бы по локальной записи.
+      //
+      // Только обходчику: остальных ниже не пустит проверка типа учётной
+      // записи, и причина «не обходчик» для них точнее.
+      final profile = currentUserMe.accessProfile;
+      final blockCode = profile?.blockCode;
+      if (profile != null &&
+          blockCode != null &&
+          currentUser.role == 'walker') {
+        await saveAccessProfile(currentUserMe.uuid, profile);
+        throw NoBusinessAccessException(blockCode);
+      }
     } on InvalidCredentialsException {
       // Сервер вернул, что учетные данные неверны - не проверяем локальных пользователей
       rethrow;
-    } on SubscriptionBlockedException catch (e) {
-      // Доступ компании закрыт. Сервер ответил — значит, это не обрыв связи,
-      // и пускать по локальной записи нельзя. Раньше этот ответ попадал в
-      // общую ветку ниже и считался сбоем: обходчик входил «как офлайн», а вся
-      // очередь потом получала 403. Запоминаем блокировку — офлайн-вход до
+    } on AccessBlockedException catch (e) {
+      // Доступ закрыт: тариф или роль. Сервер ответил — значит, это не обрыв
+      // связи, и пускать по локальной записи нельзя. Раньше этот ответ
+      // попадал в общую ветку ниже и считался сбоем: обходчик входил «как
+      // офлайн», а вся очередь потом получала 403. Тариф запоминаем на
+      // компанию (роль уже записана в профиль выше) — офлайн-вход до
       // следующего удачного онлайн-входа тоже закрыт.
-      await subscriptionBlocks.block('$login', e.accessState);
+      if (e is SubscriptionBlockedException) {
+        await subscriptionBlocks.block('$login', e.accessState);
+      }
       rethrow;
     } on NoConnectionException {
       // Нет соединения с сервером - пробуем локальных пользователей
@@ -153,6 +172,14 @@ extension DataProviderRemote on DataProvider {
       // Ошибка HTTP соединения - пробуем локальных пользователей
       apiLoginFailed = true;
     } on Exception catch (e) {
+      // Сервер дошёл и отказал в данных пользователя (`/user/me`): учётную
+      // запись отключили, токен не принят. Это не обрыв связи — по локальной
+      // записи пускать нельзя. Сбой самого сервера (5xx) по-прежнему
+      // считается недоступностью: проверить вход нечем, офлайн-вход уместен.
+      if (e is AuthExpiredException ||
+          (e is ServerFailureException && !e.isTransient)) {
+        rethrow;
+      }
       // Проверяем, не является ли это ошибкой соединения
       if (e.toString().contains('SocketException') ||
           e.toString().contains('Failed host lookup') ||
@@ -188,6 +215,14 @@ extension DataProviderRemote on DataProvider {
         // Если была ошибка соединения, выбрасываем NoConnectionException
         // так как мы не можем проверить учетные данные на сервере
         throw NoConnectionException();
+      }
+
+      // Последний ответ сервера — «роль не назначена» или «роль отключена».
+      // Как и с тарифом: без связи не проверить, вернули ли роль, а пустить
+      // по локальной записи значило бы обойти блокировку, выключив сеть.
+      final blockCode = storedAccessProfile(currentUser.uuid)?.blockCode;
+      if (blockCode != null && currentUser.role == 'walker') {
+        throw NoBusinessAccessException(blockCode);
       }
     }
 
@@ -228,8 +263,16 @@ extension DataProviderRemote on DataProvider {
       // обработали» сбрасываем — иначе вход того же пользователя в ту же
       // секунду (токен совпадёт: время в нём с точностью до секунды) оставил
       // бы следующую блокировку без реакции.
-      pendingSubscriptionNotice = null;
+      pendingAccessNotice = null;
       _blockedSessionToken = null;
+
+      // Свежий профиль доступа — до смены пользователя: сеттер
+      // `GlobalState.authUser` берёт его отсюда. Офлайн-вход профиль не
+      // трогает, остаётся последний известный.
+      final freshProfile = currentUser.accessProfile;
+      if (!apiLoginFailed && freshProfile != null) {
+        await saveAccessProfile(currentUser.uuid, freshProfile);
+      }
 
       // Сохраняем данные логина только при успешном завершении
       await addUser(currentUser);

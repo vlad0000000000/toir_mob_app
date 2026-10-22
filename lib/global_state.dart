@@ -26,6 +26,10 @@ class GlobalState {
     // Вход или выход снимает пометку «сессия истекла»: очередь поднимет её
     // снова, если новый токен окажется таким же негодным.
     dataProvider.authExpired.value = false;
+    // Профиль доступа — того, кто вошёл: вход сохраняет свежий профиль до
+    // этой строки, офлайн-вход берёт прошлый сохранённый.
+    dataProvider.accessProfile.value =
+        user == null ? null : dataProvider.storedAccessProfile(user.uuid);
   }
 
   static User? get authUser {

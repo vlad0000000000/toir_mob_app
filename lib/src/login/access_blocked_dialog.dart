@@ -5,8 +5,8 @@ import '../design/app_constants.dart';
 import '../design/app_theme.dart';
 import '../exceptions/app_exceptions.dart';
 
-/// Причина, по которой обходчика не пустили или вывели: доступ компании
-/// закрыт.
+/// Причина, по которой обходчика не пустили или вывели: доступ закрыт —
+/// тариф компании или роль доступа.
 ///
 /// Собран как диалоги ремонтов (`_SubmitConfirmDialog`,
 /// `confirmRepairDelete`): значок в цветном квадрате, заголовок, короткое
@@ -15,32 +15,59 @@ import '../exceptions/app_exceptions.dart';
 /// главное («работать нельзя, к руководителю») — отдельно, а успокаивающее
 /// («данные целы») — в плашке.
 ///
-/// Тариф истёк — оранжевый: это поправимо, продлят — заработает.
-/// Компанию отключили — красный.
-Future<void> showSubscriptionBlockedDialog(
+/// Оранжевый — поправимо обычным порядком: тариф продлят, роль назначат.
+/// Красный — доступ закрыли осознанно: компанию или роль отключили.
+Future<void> showAccessBlockedDialog(
   BuildContext context,
-  SubscriptionBlockedException blocked,
+  AccessBlockedException blocked,
 ) {
+  final _AccessBlockedView view = switch (blocked) {
+    SubscriptionBlockedException(:final isDeactivated) => (
+        severe: isDeactivated,
+        icon: isDeactivated
+            ? Icons.domain_disabled_rounded
+            : Icons.event_busy_rounded,
+        title: SubscriptionStrings.title(deactivated: isDeactivated),
+      ),
+    _ => switch (blocked.code) {
+        NoBusinessAccessException.roleMissing => (
+            severe: false,
+            icon: Icons.person_off_rounded,
+            title: AccessRoleStrings.roleMissingTitle,
+          ),
+        NoBusinessAccessException.roleInactive => (
+            severe: true,
+            icon: Icons.lock_person_rounded,
+            title: AccessRoleStrings.roleInactiveTitle,
+          ),
+        _ => (
+            severe: true,
+            icon: Icons.domain_disabled_rounded,
+            title: AccessRoleStrings.companyMissingTitle,
+          ),
+      },
+  };
   return showDialog<void>(
     context: context,
-    builder: (_) => _SubscriptionBlockedDialog(
-      deactivated: blocked.isDeactivated,
-    ),
+    builder: (_) => _AccessBlockedDialog(view: view),
   );
 }
 
-class _SubscriptionBlockedDialog extends StatelessWidget {
-  final bool deactivated;
+/// Что показать: цвет (красный — [severe]), значок и заголовок.
+typedef _AccessBlockedView = ({bool severe, IconData icon, String title});
 
-  const _SubscriptionBlockedDialog({required this.deactivated});
+class _AccessBlockedDialog extends StatelessWidget {
+  final _AccessBlockedView view;
+
+  const _AccessBlockedDialog({required this.view});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    final accent = deactivated ? cs.error : cs.warning;
+    final accent = view.severe ? cs.error : cs.warning;
     final accentContainer =
-        deactivated ? cs.errorContainer : cs.warningContainer;
+        view.severe ? cs.errorContainer : cs.warningContainer;
 
     return Dialog(
       backgroundColor: cs.surfaceContainerLowest,
@@ -61,17 +88,11 @@ class _SubscriptionBlockedDialog extends StatelessWidget {
                 color: accentContainer,
                 borderRadius: BorderRadius.circular(AppConstants.radiusLG),
               ),
-              child: Icon(
-                deactivated
-                    ? Icons.domain_disabled_rounded
-                    : Icons.event_busy_rounded,
-                size: 36,
-                color: accent,
-              ),
+              child: Icon(view.icon, size: 36, color: accent),
             ),
             const SizedBox(height: AppConstants.spacingMD),
             Text(
-              SubscriptionStrings.title(deactivated: deactivated),
+              view.title,
               style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700),
               textAlign: TextAlign.center,
             ),

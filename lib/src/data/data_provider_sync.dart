@@ -594,6 +594,39 @@ extension DataProviderSync on DataProvider {
     }
   }
 
+  /// Перечитывает профиль доступа текущего обходчика (`GET /v1/user/me`).
+  ///
+  /// Роль, права и направление меняет администратор во время работы — сервер
+  /// применяет их со следующего же запроса, без повторного входа. Раз в
+  /// минуту, вместе со справочниками: один лёгкий запрос. Заодно профиль
+  /// появляется у тех, кто вошёл прошлой версией приложения и не выходил.
+  ///
+  /// Роль сняли или отключили — `/user/me` отвечает 200 (по нему и узнают
+  /// причину), а рабочие запросы получат 403. Не ждём их: выводим на экран
+  /// входа сразу, тем же путём, что и при отказе сервера
+  /// ([DataProvider.handleAccessBlocked]).
+  Future<void> syncAccessProfile() async {
+    try {
+      final user = GlobalState.authUser;
+      final token = API.jwtToken;
+      if (user == null || token == null || user.uuid.isEmpty) return;
+      final generation = cacheGeneration;
+      final me = await api.me(token);
+      final profile = me.accessProfile;
+      if (profile == null) return;
+      await _commit(generation, 'Профиль доступа', () async {
+        await saveAccessProfile(user.uuid, profile);
+        accessProfile.value = profile;
+      });
+      final blockCode = profile.blockCode;
+      if (blockCode != null) {
+        handleAccessBlocked(NoBusinessAccessException(blockCode), token);
+      }
+    } catch (e) {
+      _syncLog.warning('Failed sync access profile: $e');
+    }
+  }
+
   Future<void> syncCompany() async {
     _isLoading = true;
 
@@ -893,6 +926,7 @@ extension DataProviderSync on DataProvider {
       syncConsumptionNorms(),
       syncMyRepairs(),
       syncCompany(),
+      syncAccessProfile(),
       // Каталог ЗИП вернулся в общий проход — теперь он инкрементальный.
       // Исключали его, когда каждый проход перекачивал десятки тысяч позиций
       // сотнями страниц; сейчас в устоявшемся состоянии это один запрос с

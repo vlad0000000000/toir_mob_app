@@ -265,11 +265,12 @@ Future<void> main() async {
   //   await prefs.setBool('is_first_launch', false);
   // }
 
-  // Доступ компании закрыт (тариф истёк, компанию отключили): сервер отвечает
-  // 403 на любой запрос, его замечает общий HTTP-клиент. Работать дальше
-  // нельзя — выходим из аккаунта и уводим на экран входа, причину он покажет
-  // сам. Очереди при этом целы и уйдут после продления.
-  API.onSubscriptionBlocked = dataProvider.handleSubscriptionBlocked;
+  // Доступ закрыт (тариф истёк, компанию отключили, роль доступа сняли или
+  // отключили): сервер отвечает 403 на любой запрос, его замечает общий
+  // HTTP-клиент. Работать дальше нельзя — выходим из аккаунта и уводим на
+  // экран входа, причину он покажет сам. Очереди при этом целы и уйдут,
+  // когда доступ вернут.
+  API.onAccessBlocked = dataProvider.handleAccessBlocked;
   // Каждая новая блокировка сессии — событие (счётчик), а не «залипающее»
   // значение.
   //
@@ -279,11 +280,11 @@ Future<void> main() async {
   // перехода — открытый экран входа успел бы показать окно, и переход закрыл
   // бы его вместе со стеком. Поэтому окно показывается по отдельному
   // событию, которое растёт уже после перехода.
-  dataProvider.subscriptionBlockEvents.addListener(() async {
+  dataProvider.accessBlockEvents.addListener(() async {
     if (!GlobalState.isAuthorized) return;
     final stopping = signOut();
     MyApp._router.clearStackAndNavigate('/login');
-    dataProvider.subscriptionNoticeEvents.value++;
+    dataProvider.accessNoticeEvents.value++;
     await stopping;
   });
 
