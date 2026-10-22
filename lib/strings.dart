@@ -311,6 +311,17 @@ class RepairCardStrings {
   /// что ремонт ушёл дальше по процессу и его смотрит человек.
   static const String lockedUnderReview =
       'Ремонт отправлен на рассмотрение, данные проверит администратор';
+
+  /// Открытый ремонт заперт ролью доступа: смотреть можно, работать — нет.
+  static const String lockedNoAccess =
+      'У вашей роли нет доступа к работе с ремонтами — карточку можно только '
+      'посмотреть';
+
+  /// Ремонт виден по праву «Ремонты всех исполнителей», но исполнитель —
+  /// другой сотрудник: работать над ним может только он.
+  static const String lockedNotMine =
+      'Ремонт назначен на другого сотрудника — карточку можно только '
+      'посмотреть';
   static const String labelDetails = 'ДЕТАЛИ РЕМОНТА';
   static const String labelComment = 'КОММЕНТАРИЙ';
   static const String labelPhotos = 'ФОТО';
@@ -408,6 +419,12 @@ class RepairCardStrings {
   static const String consumptionUnknownNote =
       'Расход не загружен — нет связи с сервером. Показать его нечем: '
       'подключитесь и потяните карточку вниз.';
+
+  /// Ремонт свой и открыт, но роль не даёт доступа к ЗИП: каталог пуст, и
+  /// выбрать позицию не из чего. Расход останется тем, что уже записано.
+  static const String consumptionNoAccessNote =
+      'У вашей роли нет доступа к ЗИП — расход по ремонту укажет '
+      'администратор.';
   static const String addPosition = 'Добавить позицию';
   static const String fillFromNorm = 'Заполнить из нормы';
   static const String removePosition = 'Убрать позицию';
@@ -771,6 +788,37 @@ class SubscriptionStrings {
 
   static String title({required bool deactivated}) =>
       deactivated ? deactivatedTitle : expiredTitle;
+}
+
+/// Раздел или действие недоступны по роли доступа — замок на плитке, строке
+/// или поле и окно с объяснением по нажатию.
+///
+/// Обходчику роль не поменять, поэтому текст ведёт к руководителю. «К чему
+/// нет доступа» — дательным падежом, чтобы встать в одну фразу:
+/// «У вашей роли нет доступа к ремонтам».
+class AccessStrings {
+  AccessStrings._();
+
+  static const String title = 'Нет доступа';
+
+  /// Подпись на месте значения или «Открыть» у запертой плитки.
+  static const String locked = 'Нет доступа';
+
+  static String body(String what) =>
+      'У вашей роли нет доступа $what. Если он нужен для работы, обратитесь '
+      'к руководителю.';
+
+  static const String scanner = 'к оборудованию';
+  static const String tasks = 'к выполнению задач';
+  static const String inspection = 'к осмотрам без задачи';
+  static const String repairs = 'к ремонтам';
+  static const String repairCreate = 'к созданию ремонтов';
+  static const String repairWork = 'к работе с ремонтами';
+  static const String spareParts = 'к ЗИП';
+  static const String notifications = 'к уведомлениям';
+  static const String changeState = 'к смене состояния оборудования';
+  static const String usage = 'к вводу наработки';
+  static const String consumption = 'к расходу ЗИП';
 }
 
 /// Подписи к задаче в списке по её привязке к направлениям.

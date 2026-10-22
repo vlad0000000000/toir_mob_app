@@ -22,6 +22,7 @@ import '../model/repair.dart';
 import '../model/repair_conflict.dart';
 import '../utils/go_router_ext.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/no_access.dart';
 import '../widgets/spare_part_consumption.dart';
 import 'repair_clipboard.dart';
 import 'repair_error_messages.dart';
@@ -165,7 +166,32 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
     // после нажатия «Отправить» уехала бы незаметно для самого обходчика.
     // Разблокировать можно, отменив отправку, — см. [_cancelSubmit].
     if (_submittedDraft) return false;
-    return repair.isOpen && !repair.isUnassigned;
+    return repair.isOpen && !repair.isUnassigned && _workBlock == null;
+  }
+
+  /// Расход можно указывать: роль даёт доступ к ЗИП. Без него каталог пуст
+  /// (сервер отдаёт его пустым), и добавить позицию не из чего.
+  bool get _canEditConsumption =>
+      GlobalState.dataProvider.sectionAccess.spareParts;
+
+  /// Почему открытый назначенный ремонт этому обходчику не править — по
+  /// роли, а не по статусу. `null` — править можно.
+  ///
+  /// Сервер разрешает работу над ремонтом только его исполнителю и только с
+  /// правом `repair.execute`. Чужой ремонт в списке бывает: роль с правом
+  /// «Ремонты всех исполнителей» видит ремонты коллег своего направления.
+  String? get _workBlock {
+    final repair = _repair;
+    if (repair == null) return null;
+    if (!GlobalState.dataProvider.sectionAccess.repairWork) {
+      return RepairCardStrings.lockedNoAccess;
+    }
+    final me = GlobalState.authUser?.uuid ?? '';
+    final owner = repair.responsibleUserUuid ?? '';
+    if (me.isNotEmpty && owner.isNotEmpty && owner != me) {
+      return RepairCardStrings.lockedNotMine;
+    }
+    return null;
   }
 
   /// Черновик помечен к отправке и ждёт связи.
@@ -1222,11 +1248,16 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
           // Цвет по статусу: «на рассмотрении» оранжевым — работа сдана, ждём
           // администратора; «закрыт» нейтрально-серым — это уже не
           // предупреждение, а констатация.
+          // Открытый, не отправленный и всё же запертый — значит, по роли
+          // или ремонт чужой: нейтрально, это не предупреждение о сроках.
           _Banner(
-            text: repair.isClosed
-                ? RepairCardStrings.lockedClosed
-                : RepairCardStrings.lockedUnderReview,
-            warning: !repair.isClosed,
+            text: repair.isOpen && !_submittedDraft && _workBlock != null
+                ? _workBlock!
+                : repair.isClosed
+                    ? RepairCardStrings.lockedClosed
+                    : RepairCardStrings.lockedUnderReview,
+            warning: !repair.isClosed &&
+                !(repair.isOpen && !_submittedDraft && _workBlock != null),
           ),
           const SizedBox(height: AppConstants.spacingMD),
         ],
@@ -1282,7 +1313,8 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
         Divider(color: cs.outlineVariant, height: AppConstants.spacingLG * 2),
         SparePartConsumptionSection(
           lines: _consumptionLines,
-          editable: _editable,
+          // Без права на ЗИП каталог пуст — позицию выбрать не из чего.
+          editable: _editable && _canEditConsumption,
           // Ремонт закрыт — значит ЗИП уже списан со склада, и сравнение
           // расхода с остатком дало бы ложную тревогу про позицию, которая
           // как раз этим ремонтом и была списана.
@@ -1295,9 +1327,11 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
           //
           // Черновик сюда не попадает: `PendingRepair.toRepair` ставит
           // отметку сам — его расход лежит в очереди целиком.
-          emptyNote: repair.detailsLoaded
-              ? RepairCardStrings.consumptionEmptyNote
-              : RepairCardStrings.consumptionUnknownNote,
+          emptyNote: _editable && !_canEditConsumption
+              ? RepairCardStrings.consumptionNoAccessNote
+              : repair.detailsLoaded
+                  ? RepairCardStrings.consumptionEmptyNote
+                  : RepairCardStrings.consumptionUnknownNote,
           hasNorm: repair.normItems.isNotEmpty,
           // Кнопка гаснет, когда добавлять уже нечего (п. 4.3.9 отчёта):
           // нажимать её ради снекбара «всё добавлено» бессмысленно.
@@ -1316,6 +1350,22 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
   Widget? _buildBottomBar(Repair? repair) {
     if (repair == null) return null;
     if (repair.isUnassigned && repair.isOpen) {
+      // Взять ремонт не даёт роль — кнопка остаётся (так видно, что ремонт
+      // свободный), но с замком и объясняет, почему не нажимается.
+      if (!GlobalState.dataProvider.sectionAccess.repairWork) {
+        return _BottomBar(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () =>
+                    showNoAccessDialog(context, AccessStrings.repairWork),
+                icon: const NoAccessIcon(),
+                label: const Text(RepairCardStrings.claim),
+              ),
+            ),
+          ],
+        );
+      }
       return _BottomBar(
         children: [
           Expanded(

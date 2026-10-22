@@ -20,6 +20,7 @@ import '../model/usage_update.dart';
 import '../repairs/spare_part_picker_sheet.dart';
 import '../utils/any_controller.dart';
 import '../utils/quantity_format.dart';
+import '../widgets/no_access.dart';
 import '../widgets/spare_part_consumption.dart';
 
 /// Задача, по которой сервер ждёт фактический расход ЗИП.
@@ -425,6 +426,8 @@ class _ResultControlsState extends State<ResultControls> {
     final showPriority = problem == TypicalProblem.other;
     final allowMultiSelect = widget.equipmentDetailController.allowMultiSelect;
     final fieldsLocked = allowMultiSelect && selectedTasks.length >= 2;
+    // Что запрещено ролью — показывается с замком (`SectionAccess`).
+    final access = GlobalState.dataProvider.sectionAccess;
 
     String taskValue;
     Color? taskAccent;
@@ -472,13 +475,17 @@ class _ResultControlsState extends State<ResultControls> {
                           widget.equipmentDetailController,
                         )
                     : null,
+                lockedWhat: access.tasks ? null : AccessStrings.tasks,
               ),
+              // Проблема без задачи — это прямой осмотр, право на него
+              // отдельное от выполнения задач.
               _ActionRow(
                 icon: Icons.warning_amber_rounded,
                 title: 'Проблема',
                 value: problemValue,
                 valueColor: problemAccent,
                 onTap: _pickProblem,
+                lockedWhat: access.inspection ? null : AccessStrings.inspection,
               ),
               if (showPriority)
                 _ActionRow(
@@ -496,7 +503,21 @@ class _ResultControlsState extends State<ResultControls> {
           ),
 
           // ── Наработка ────────────────────────────────────────
-          if (usage.isNotEmpty) ...[
+          if (usage.isNotEmpty && !access.usage) ...[
+            // Без права показание не вводится вовсе: сервер отклонил бы с
+            // ним весь осмотр — и закрытие задачи, и списание ЗИП.
+            const SizedBox(height: AppConstants.spacingMD),
+            _SectionLabel('Наработка'),
+            _ActionCard(
+              children: [
+                _ActionRow(
+                  icon: Icons.speed_rounded,
+                  title: 'Показания счётчиков',
+                  lockedWhat: AccessStrings.usage,
+                ),
+              ],
+            ),
+          ] else if (usage.isNotEmpty) ...[
             const SizedBox(height: AppConstants.spacingMD),
             _SectionLabel(
               'Наработка',
@@ -565,7 +586,20 @@ class _ResultControlsState extends State<ResultControls> {
           // доступны»: при двух и более выбранных задачах расход и так не
           // показывается — [consumptionTaskOf] требует ровно одну задачу,
           // потому что отправлять его серверу можно только по конкретной.
-          if (consumptionTask != null) ...[
+          if (consumptionTask != null && !access.spareParts) ...[
+            // Без права на ЗИП каталог пуст — выбрать позицию не из чего.
+            const SizedBox(height: AppConstants.spacingMD),
+            _SectionLabel(RepairCardStrings.consumptionTitle),
+            _ActionCard(
+              children: [
+                _ActionRow(
+                  icon: Icons.inventory_2_outlined,
+                  title: 'Израсходованные позиции',
+                  lockedWhat: AccessStrings.consumption,
+                ),
+              ],
+            ),
+          ] else if (consumptionTask != null) ...[
             const SizedBox(height: AppConstants.spacingMD),
             SparePartConsumptionSection(
               lines: _consumptions,
@@ -722,6 +756,11 @@ class _ActionRow extends StatelessWidget {
   final bool enabled;
   final String? error;
 
+  /// Заперто по роли — к чему нет доступа (`AccessStrings`). Строка серая, с
+  /// замком вместо стрелки и подписью «Нет доступа», нажатие объясняет
+  /// почему; [value] и [onTap] при этом не используются.
+  final String? lockedWhat;
+
   const _ActionRow({
     required this.icon,
     required this.title,
@@ -730,15 +769,22 @@ class _ActionRow extends StatelessWidget {
     this.onTap,
     this.enabled = true,
     this.error,
+    this.lockedWhat,
   });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    final disabled = !enabled || onTap == null;
+    final what = lockedWhat;
+    final locked = what != null;
+    final value = locked ? AccessStrings.locked : this.value;
+    final valueColor = locked ? null : this.valueColor;
+    final onTap = locked ? () => showNoAccessDialog(context, what) : this.onTap;
+    // Запертая строка нажимается (объяснение), но выглядит неактивной.
+    final disabled = locked || !enabled || onTap == null;
     return InkWell(
-      onTap: disabled ? null : onTap,
+      onTap: locked || !disabled ? onTap : null,
       child: Padding(
         padding: const EdgeInsets.symmetric(
           horizontal: AppConstants.spacingMD,
@@ -770,7 +816,7 @@ class _ActionRow extends StatelessWidget {
                 if (value != null) ...[
                   Flexible(
                     child: Text(
-                      value!,
+                      value,
                       textAlign: TextAlign.end,
                       style: tt.bodyMedium?.copyWith(
                         color: valueColor ?? cs.onSurfaceVariant,
@@ -790,13 +836,15 @@ class _ActionRow extends StatelessWidget {
                 // по краю с «Не выбрана» у проблемы.
                 SizedBox(
                   width: 20,
-                  child: disabled
-                      ? null
-                      : Icon(
-                          Icons.chevron_right_rounded,
-                          size: 20,
-                          color: cs.onSurfaceVariant,
-                        ),
+                  child: locked
+                      ? const NoAccessIcon()
+                      : disabled
+                          ? null
+                          : Icon(
+                              Icons.chevron_right_rounded,
+                              size: 20,
+                              color: cs.onSurfaceVariant,
+                            ),
                 ),
               ],
             ),

@@ -14,6 +14,7 @@ import '../../src/utils/go_router_ext.dart';
 import '../../strings.dart';
 import '../../settings.dart';
 import '../widgets/app_bottom_sheet.dart';
+import '../widgets/no_access.dart';
 import '../model/usage_update.dart';
 import '../repairs/repair_delete_dialog.dart';
 import 'scan_conflict_screen.dart';
@@ -42,6 +43,10 @@ class _QRActionsState extends State<QRActions> {
     super.initState();
     GlobalState.dataProvider.rejectedScansCount
         .addListener(_onRejectedCountChanged);
+    // Роль меняют во время работы, и профиль перечитывается фоном раз в
+    // минуту: замки на плитках должны появляться и сниматься без ухода с
+    // главной.
+    GlobalState.dataProvider.accessProfile.addListener(_onAccessChanged);
     if (GlobalState.isAuthorized) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         NotificationsService.instance.bootstrap();
@@ -62,7 +67,12 @@ class _QRActionsState extends State<QRActions> {
   void dispose() {
     GlobalState.dataProvider.rejectedScansCount
         .removeListener(_onRejectedCountChanged);
+    GlobalState.dataProvider.accessProfile.removeListener(_onAccessChanged);
     super.dispose();
+  }
+
+  void _onAccessChanged() {
+    if (mounted) setState(() {});
   }
 
   // Разделы открываются через push, а не сбросом стека: хаб остаётся под
@@ -248,6 +258,9 @@ class _QRActionsState extends State<QRActions> {
 
     final allowRequestsWithoutQr =
         GlobalState.dataProvider.company?.allowRequestsWithoutQr ?? false;
+    // Недоступное по роли не прячем — плитка с замком и объяснением по
+    // нажатию (решение продукта, см. `SectionAccess`).
+    final access = GlobalState.dataProvider.sectionAccess;
 
     return Scaffold(
       appBar: MyAppBar.build(context) as AppBar,
@@ -300,6 +313,7 @@ class _QRActionsState extends State<QRActions> {
             title: Strings.scanner,
             subtitle: 'Откройте камеру и наведите на QR-код оборудования',
             onTap: _onScan,
+            lockedWhat: access.scanner ? null : AccessStrings.scanner,
           ),
           const SizedBox(height: AppConstants.spacingMD),
           // Четыре квадратные плитки сеткой 2×2. Порядок читается слева
@@ -311,6 +325,7 @@ class _QRActionsState extends State<QRActions> {
                   icon: Icons.checklist_rounded,
                   label: Strings.tasks,
                   onTap: _onTasks,
+                  lockedWhat: access.tasks ? null : AccessStrings.tasks,
                 ),
               ),
               const SizedBox(width: AppConstants.spacingMD),
@@ -322,6 +337,7 @@ class _QRActionsState extends State<QRActions> {
                     label: 'Ремонты',
                     onTap: _onRepairs,
                     badgeCount: count,
+                    lockedWhat: access.repairs ? null : AccessStrings.repairs,
                   ),
                 ),
               ),
@@ -336,11 +352,22 @@ class _QRActionsState extends State<QRActions> {
                   iconAsset: 'assets/images/spare_parts.svg',
                   label: 'ЗИП',
                   onTap: _onSpareParts,
+                  lockedWhat:
+                      access.spareParts ? null : AccessStrings.spareParts,
                 ),
               ),
               const SizedBox(width: AppConstants.spacingMD),
               Expanded(
-                child: _NotificationsCard(onTap: _onNotifications),
+                child: access.notifications
+                    ? _NotificationsCard(onTap: _onNotifications)
+                    // Без права уведомлений не будет вовсе — и счётчик
+                    // непрочитанных рисовать незачем: обычная плитка с замком.
+                    : _SecondaryActionCard(
+                        icon: Icons.notifications_outlined,
+                        label: 'Уведомления',
+                        onTap: _onNotifications,
+                        lockedWhat: AccessStrings.notifications,
+                      ),
               ),
             ],
           ),
@@ -360,6 +387,7 @@ class _QRActionsState extends State<QRActions> {
               label: 'Осмотр оборудования или ТМЦ',
               onTap: _onInspection,
               fullWidth: true,
+              lockedWhat: access.inspection ? null : AccessStrings.inspection,
             ),
           ],
           const SizedBox(height: AppConstants.spacingXL),
@@ -418,17 +446,24 @@ class _PrimaryActionCard extends StatelessWidget {
   final String subtitle;
   final VoidCallback onTap;
 
+  /// Заперто по роли — к чему нет доступа (`AccessStrings`). `null` —
+  /// доступно.
+  final String? lockedWhat;
+
   const _PrimaryActionCard({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.lockedWhat,
   });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
+    final what = lockedWhat;
+    if (what != null) return _buildLocked(context, what);
     return Material(
       color: cs.primary,
       borderRadius: BorderRadius.circular(AppConstants.radiusLG),
@@ -479,6 +514,60 @@ class _PrimaryActionCard extends StatelessWidget {
       ),
     );
   }
+
+  /// Запертая главная карточка — нейтральной заливкой вместо зелёной: яркий
+  /// призыв «сканируйте» к недоступному действию сбивал бы с толку.
+  Widget _buildLocked(BuildContext context, String what) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return Material(
+      color: cs.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(AppConstants.radiusLG),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => showNoAccessDialog(context, what),
+        child: Padding(
+          padding: const EdgeInsets.all(AppConstants.spacingLG),
+          child: Row(
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: cs.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+                ),
+                child: Icon(icon, color: cs.onSurfaceVariant, size: 36),
+              ),
+              const SizedBox(width: AppConstants.spacingMD),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: tt.titleLarge?.copyWith(
+                        color: cs.onSurfaceVariant,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      AccessStrings.locked,
+                      style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppConstants.spacingSM),
+              const NoAccessIcon(size: 24),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -502,6 +591,11 @@ class _SecondaryActionCard extends StatelessWidget {
   /// Счётчик справа (только в режиме [fullWidth]). Ноль — badge не рисуется.
   final int badgeCount;
 
+  /// Заперто по роли — к чему нет доступа (`AccessStrings`). `null` —
+  /// доступно. Запертая плитка остаётся на месте и нажимается: объясняет,
+  /// почему не открывается.
+  final String? lockedWhat;
+
   const _SecondaryActionCard({
     required this.icon,
     required this.label,
@@ -509,12 +603,21 @@ class _SecondaryActionCard extends StatelessWidget {
     this.fullWidth = false,
     this.iconAsset,
     this.badgeCount = 0,
+    this.lockedWhat,
   });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
+    final what = lockedWhat;
+    final locked = what != null;
+    // Счётчик у запертого раздела не показываем: открыть его всё равно нельзя.
+    final badgeCount = locked ? 0 : this.badgeCount;
+    final onTap = locked ? () => showNoAccessDialog(context, what) : this.onTap;
+    final labelStyle = locked
+        ? tt.titleMedium?.copyWith(color: cs.onSurfaceVariant)
+        : tt.titleMedium;
     return Material(
       color: cs.surfaceContainerLow,
       clipBehavior: Clip.antiAlias,
@@ -529,12 +632,13 @@ class _SecondaryActionCard extends StatelessWidget {
           child: fullWidth
               ? Row(
                   children: [
-                    _IconCircle(icon: icon, assetPath: iconAsset),
+                    _IconCircle(
+                        icon: icon, assetPath: iconAsset, muted: locked),
                     const SizedBox(width: AppConstants.spacingMD),
                     Expanded(
                       child: Text(
                         label,
-                        style: tt.titleMedium,
+                        style: labelStyle,
                       ),
                     ),
                     if (badgeCount > 0) ...[
@@ -564,8 +668,11 @@ class _SecondaryActionCard extends StatelessWidget {
                       ),
                       const SizedBox(width: AppConstants.spacingSM),
                     ],
-                    Icon(Icons.chevron_right_rounded,
-                        color: cs.onSurfaceVariant),
+                    if (locked)
+                      const NoAccessIcon(size: 20)
+                    else
+                      Icon(Icons.chevron_right_rounded,
+                          color: cs.onSurfaceVariant),
                   ],
                 )
               : Column(
@@ -576,7 +683,8 @@ class _SecondaryActionCard extends StatelessWidget {
                     Stack(
                       clipBehavior: Clip.none,
                       children: [
-                        _IconCircle(icon: icon, assetPath: iconAsset),
+                        _IconCircle(
+                            icon: icon, assetPath: iconAsset, muted: locked),
                         if (badgeCount > 0)
                           Positioned(
                             right: -4,
@@ -609,15 +717,29 @@ class _SecondaryActionCard extends StatelessWidget {
                     const SizedBox(height: AppConstants.spacingMD),
                     Text(
                       label,
-                      style: tt.titleMedium,
+                      style: labelStyle,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 2),
-                    Text(
-                      'Открыть',
-                      style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                    ),
+                    if (locked)
+                      Row(
+                        children: [
+                          const NoAccessIcon(size: 14),
+                          const SizedBox(width: 4),
+                          Text(
+                            AccessStrings.locked,
+                            style: tt.bodySmall
+                                ?.copyWith(color: cs.onSurfaceVariant),
+                          ),
+                        ],
+                      )
+                    else
+                      Text(
+                        'Открыть',
+                        style:
+                            tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                      ),
                   ],
                 ),
         ),
@@ -630,28 +752,32 @@ class _IconCircle extends StatelessWidget {
   final IconData icon;
   final String? assetPath;
 
-  const _IconCircle({required this.icon, this.assetPath});
+  /// Раздел заперт по роли — значок серый, без цвета раздела.
+  final bool muted;
+
+  const _IconCircle({required this.icon, this.assetPath, this.muted = false});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final asset = assetPath;
+    final background = muted ? cs.surfaceContainerHigh : cs.secondaryContainer;
+    final foreground = muted ? cs.onSurfaceVariant : cs.onSecondaryContainer;
     return Container(
       width: 44,
       height: 44,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: cs.secondaryContainer,
+        color: background,
         borderRadius: BorderRadius.circular(AppConstants.radiusMD),
       ),
       child: asset == null
-          ? Icon(icon, color: cs.onSecondaryContainer, size: 24)
+          ? Icon(icon, color: foreground, size: 24)
           : SvgPicture.asset(
               asset,
               width: 24,
               height: 24,
-              colorFilter:
-                  ColorFilter.mode(cs.onSecondaryContainer, BlendMode.srcIn),
+              colorFilter: ColorFilter.mode(foreground, BlendMode.srcIn),
             ),
     );
   }

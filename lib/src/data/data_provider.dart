@@ -35,6 +35,7 @@ import '../repairs/repair_error_messages.dart';
 import 'cache_commit_queue.dart';
 import 'generation_pass.dart';
 import 'repair_photo_files.dart';
+import 'section_access.dart';
 import 'sync_schedule.dart';
 import 'subscription_blocks.dart';
 import 'sync_window.dart';
@@ -685,6 +686,14 @@ class DataProvider {
       ValueNotifier<AccessProfile?>(
     storedAccessProfile(userBox.get('auth_user')?.uuid),
   );
+
+  /// Что доступно по роли текущего обходчика — для замков на экранах.
+  /// Правило — [SectionAccess]. Объект дешёвый, собирается на каждый вызов:
+  /// так он не отстаёт ни от профиля, ни от настройки компании.
+  SectionAccess get sectionAccess => SectionAccess(
+        profile: accessProfile.value,
+        qrFreeEnabled: company?.allowRequestsWithoutQr ?? false,
+      );
 
   /// Профиль доступа пользователя [userUuid] из `stringBox`.
   ///

@@ -28,6 +28,7 @@ import '../update_manager.dart';
 import '../utils/any_controller.dart';
 import '../utils/offline_error.dart';
 import '../utils/quantity_format.dart';
+import '../widgets/no_access.dart';
 import '../../src/onboarding/demo_equipment.dart';
 import 'result_controls.dart';
 
@@ -306,6 +307,23 @@ class _QRResultScreenState extends State<QRResultScreen> {
       return;
     }
 
+    // Право на выбранное — после проверок на ремонт: «оборудование в
+    // ремонте» объясняет больше, чем «нет доступа». «В ремонте» заводит
+    // ремонт (`repair.create`), остальное меняет само состояние
+    // (`equipment.edit`), и роль может давать одно без другого — поэтому
+    // список открыт, а недоступный пункт объясняется здесь.
+    final access = GlobalState.dataProvider.sectionAccess;
+    final toRepair = newState == _inRepairState;
+    if (!(toRepair ? access.repairCreate : access.changeState)) {
+      stateController.value = _previousState;
+      if (!mounted) return;
+      showNoAccessDialog(
+        context,
+        toRepair ? AccessStrings.repairCreate : AccessStrings.changeState,
+      );
+      return;
+    }
+
     // «В ремонте» — особый случай: состояние ставит сервер сам при создании
     // ремонта и отклоняет создание для оборудования, которое уже в этом
     // состоянии. Поменяем состояние сами — ремонт создать станет нельзя.
@@ -450,6 +468,13 @@ class _QRResultScreenState extends State<QRResultScreen> {
       showDetails: !Settings.qrResultShowSimplifiedView,
       lockedByRepair: () => _isLockedByRepair,
       onLockedTap: _explainLockedState,
+      // Ни сменить состояние, ни завести ремонт роль не даёт — выбирать в
+      // списке нечего. Если можно хоть одно, список открывается, а
+      // недоступный пункт объясняется при выборе ([_onStateChanged]).
+      noAccess: !GlobalState.dataProvider.sectionAccess.changeState &&
+          !GlobalState.dataProvider.sectionAccess.repairCreate,
+      onNoAccessTap: () =>
+          showNoAccessDialog(context, AccessStrings.changeState),
     );
   }
 
@@ -1086,12 +1111,18 @@ class _HeroPassport extends StatelessWidget {
   /// Что делать по нажатию на запертую пилюлю: объяснить причину.
   final VoidCallback onLockedTap;
 
+  /// Состояние менять не даёт роль — см. [_StateChip.noAccess].
+  final bool noAccess;
+  final VoidCallback onNoAccessTap;
+
   const _HeroPassport({
     required this.machine,
     required this.stateController,
     required this.showDetails,
     required this.lockedByRepair,
     required this.onLockedTap,
+    required this.noAccess,
+    required this.onNoAccessTap,
   });
 
   String? _subtitle() {
@@ -1203,6 +1234,8 @@ class _HeroPassport extends StatelessWidget {
                           initialValue: machine.state,
                           locked: lockedByRepair(),
                           onLockedTap: onLockedTap,
+                          noAccess: noAccess,
+                          onNoAccessTap: onNoAccessTap,
                         ),
                       ),
                     ],
@@ -1297,11 +1330,20 @@ class _StateChip extends StatefulWidget {
   /// Нажатие на запертую пилюлю — объяснить причину, а не промолчать.
   final VoidCallback? onLockedTap;
 
+  /// Менять состояние не даёт роль доступа. В отличие от [locked], пилюля
+  /// показывает настоящее состояние и не краснеет: оборудование не занято,
+  /// просто выбирать здесь этому обходчику нельзя. Ремонт важнее — при
+  /// [locked] этот признак не учитывается.
+  final bool noAccess;
+  final VoidCallback? onNoAccessTap;
+
   const _StateChip({
     required this.controller,
     this.initialValue,
     this.locked = false,
     this.onLockedTap,
+    this.noAccess = false,
+    this.onNoAccessTap,
   });
 
   @override
@@ -1423,6 +1465,7 @@ class _StateChipState extends State<_StateChip> with ControllerListenerMixin {
     final states = GlobalState.dataProvider.equipmentState?.states;
     if (states == null || states.isEmpty) return const SizedBox.shrink();
     final locked = widget.locked;
+    final noAccess = !locked && widget.noAccess;
     final hasValue = _value != null;
     // У запертой пилюли подпись всегда «В ремонте», а не то, что лежит в
     // контроллере. Состояние оборудования ставит сервер при создании ремонта,
@@ -1451,7 +1494,11 @@ class _StateChipState extends State<_StateChip> with ControllerListenerMixin {
       borderRadius: BorderRadius.circular(20),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: locked ? widget.onLockedTap : _pick,
+        onTap: locked
+            ? widget.onLockedTap
+            : noAccess
+                ? widget.onNoAccessTap
+                : _pick,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(10, 6, 8, 6),
           child: Row(
@@ -1477,8 +1524,10 @@ class _StateChipState extends State<_StateChip> with ControllerListenerMixin {
               ),
               const SizedBox(width: 4),
               Icon(
-                locked ? Icons.lock_outline_rounded : Icons.expand_more_rounded,
-                size: locked ? 15 : 18,
+                locked || noAccess
+                    ? Icons.lock_outline_rounded
+                    : Icons.expand_more_rounded,
+                size: locked || noAccess ? 15 : 18,
                 color: foreground,
               ),
             ],
