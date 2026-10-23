@@ -135,6 +135,34 @@ void main() {
     expect(stored.normItems, isEmpty);
     expect(stored.comment, '');
     expect(stored.startedAt, DateTime.utc(2026, 8, 19, 9));
+    // Тело создания ещё не фиксировалось.
+    expect(stored.isCreateFrozen, isFalse);
+
+    await reopened.close();
+  });
+
+  test('зафиксированное тело создания переживает запись и чтение', () async {
+    final draft = PendingRepair(
+      localId: 'local-3',
+      equipmentUuid: 'eq-3',
+      equipmentName: 'Насос',
+      startedAt: DateTime.utc(2026, 10, 24, 9),
+      createdAt: DateTime.utc(2026, 10, 24, 9),
+      comment: 'течь сальника',
+      consumptionNormUuid: 'norm-1',
+    ).freezeCreate(normUuid: 'norm-1');
+
+    final box = await Hive.openBox<PendingRepair>('pending_repairs_frozen');
+    await box.put(draft.localId, draft);
+    await box.close();
+    final reopened =
+        await Hive.openBox<PendingRepair>('pending_repairs_frozen');
+    final stored = reopened.get('local-3')!;
+
+    expect(stored.isCreateFrozen, isTrue);
+    expect(stored.createComment, 'течь сальника');
+    expect(stored.createNormUuid, 'norm-1');
+    expect(stored.normItems, isEmpty);
 
     await reopened.close();
   });

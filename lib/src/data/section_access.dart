@@ -55,13 +55,46 @@ class SectionAccess {
 
   bool get spareParts => can(Perm.sparePartsView);
 
+  /// Фактический расход для отправки в правке ремонта — или `null`, чтобы
+  /// поля в запросе не было вовсе.
+  ///
+  /// Сервер принимает `actual_consumptions` (даже пустой список) только с
+  /// правом на ЗИП, а без него отклоняет **всю** правку — и комментарий, и
+  /// отправку на рассмотрение. Роль без права расход и не меняет: блок на
+  /// карточке заперт. Непустой расход без права сюда не доходит — его
+  /// держит [consumptionsBlocked].
+  List<T>? consumptionsToSend<T>(List<T> consumptions) =>
+      spareParts ? consumptions : null;
+
+  /// Правку с расходом отправить нельзя: расход есть, а права на ЗИП уже
+  /// нет (сняли после того, как его внесли). Выбросить расход и отправить
+  /// остальное значило бы потерять его безвозвратно — запись после
+  /// отправки удаляется как доставленная, — а ремонт ушёл бы на
+  /// рассмотрение без расхода. Такую правку держат с причиной «нет прав»:
+  /// её видно в блоке «Не отправлено», и она уйдёт сама, когда доступ
+  /// вернут (`retryNoRightsRejections`).
+  bool consumptionsBlocked(List<Object?> consumptions) =>
+      !spareParts && consumptions.isNotEmpty;
+
   bool get notifications => can(Perm.notificationsView);
 
   /// Смена состояния оборудования (кроме «В ремонте» — его ставит сервер при
   /// создании ремонта, см. [repairCreate]).
-  bool get changeState => can(Perm.equipmentEdit);
+  ///
+  /// Хватает узкого `equipment.change_state`: приложение шлёт в PATCH только
+  /// поле `state`, а остальное сервер требует уже по `equipment.edit`.
+  /// Полное право тоже подходит — и у ролей, настроенных до появления узкого,
+  /// и у сервера, который узкого ещё не знает.
+  bool get changeState =>
+      can(Perm.equipmentChangeState) || can(Perm.equipmentEdit);
 
   /// Ввод показаний наработки — и отдельно, и в составе осмотра. Без права
   /// сервер отклонит весь осмотр, вместе с закрытием задачи.
-  bool get usage => can(Perm.equipmentView) && can(Perm.usageParametersEdit);
+  ///
+  /// Хватает узкого `usage_parameters.record`: приложение меняет только
+  /// текущее показание, настройки ТО не трогает. Полное
+  /// `usage_parameters.edit` подходит по той же причине, что у [changeState].
+  bool get usage =>
+      can(Perm.equipmentView) &&
+      (can(Perm.usageParametersRecord) || can(Perm.usageParametersEdit));
 }

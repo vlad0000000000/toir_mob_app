@@ -57,15 +57,16 @@ http/api.dart          ядро: baseUrl, jwtToken, таймауты, _client, �
 |---|---|---|
 | GET | `/v1/system/ping` (на 404 — `/docs` с Basic Auth, старый сервер) | `isAlive()` — пинг живости, без авторизации |
 | POST | `/v1/auth/login` | `login()` |
-| GET | `/v1/user/me` | `me()` |
-| GET | `/v1/company/me` | `getCompany()` |
+| GET | `/v1/user/me` (профиль доступа и блок `company` — флаги компании, `CompanyFlags`) | `me()` |
+| GET | `/v1/company/me` — только вход и сервер прошлой версии, у которого в `/user/me` нет блока `company` | `getCompany()` |
 | GET | `/v1/company/equipment` | `getEquipment()` |
 | GET | `/v1/company/equipment/states` | `getEquipmentStates()` |
 | GET | `/v1/company/equipment/usage-unit-types` | `getUsageUnitTypes()` |
 | PATCH | `/v1/company/equipment/{uuid}/usage-parameters/{uuid}` | `updateUsageParameter()` |
 | PATCH | `/v1/company/equipment/{uuid}` (multipart, `state`) | `updateEquipmentState()` |
 | GET | `/v1/company/fault_inspections/?status=open&responsible_user_uuids=…` | `getCurrentOpenTasks()` |
-| GET | `/v1/company/fault_inspections/?status=scheduled` | `getCurrentTasks()` |
+| GET | `/v1/company/fault_inspections/?status=scheduled&only_my_roles=true&executable_only=true` | `getCurrentTasks()` |
+| GET | `/v1/company/fault_inspections/?status=closed&executable_only=true` — возвращённые на доработку | `getReturnedTasks()` |
 | GET | `/v1/company/eq_fault/` | `getTypicalProblems()` |
 | GET | `/v1/company/periodic_task/periodicity-rules` | `getPeriodicityRules()` |
 | POST | `/v1/company/periodic_task/` (+ `/photos`) | `createPeriodicTask()` |
@@ -73,7 +74,7 @@ http/api.dart          ядро: baseUrl, jwtToken, таймауты, _client, �
 | GET/PATCH/POST | `/v1/company/notifications/mobile/*` | настройки, список, read |
 | GET | `/v1/company/notifications/mobile/stream` (SSE) | `openNotificationStream()` |
 | GET | `/v1/repairs/`, `/recent-closed`, `/{uuid}` | список, закрытые, карточка |
-| POST | `/v1/repairs/` | `createRepair()` — `Idempotency-Key` |
+| POST | `/v1/repairs/` | `createRepair()` — `Idempotency-Key` (`localId` черновика); сервер сверяет ключ с телом, поэтому тело **фиксируется в черновике при первой отправке** (`PendingRepair.freezeCreate`: `createComment`, `createNormUuid`, пишется до запроса) и все повторы шлют его, а не текущий комментарий. Комментарий — в самом создании: на него хватает `repair.create`, а `updateRepair()` требует `repair.execute`. Последний шаг очереди (`updateRepair`) уходит, только если есть что менять: комментарий изменился после создания (у черновика прошлой версии исходный неизвестен — уходит всегда, и очищенный тоже: `commentChangedSinceCreate`), есть расход или отправка на рассмотрение. Тот же ключ с другим телом — 409, переводится как «Для этого оборудования уже есть ремонт…»: черновик идёт путём занятого оборудования, с переносом в найденный ремонт. Норма — только с `spare_parts.view` (иначе сервер отклоняет создание целиком; на форме поле с замком) |
 | PATCH | `/v1/repairs/{uuid}` | `updateRepair()`, `claimRepair()` |
 | POST/DELETE | `/v1/repairs/{uuid}/photos` | фото — `Idempotency-Key` |
 | GET | `/v1/company/consumption_norms/` | нормы расхода по оборудованию |
@@ -112,10 +113,14 @@ http/api.dart          ядро: baseUrl, jwtToken, таймауты, _client, �
 осмотра сервер пишет в `inspector` автора, и заявка, заведённая обходчиком и
 назначенная другому, попала бы в его задачи. Отфильтровать это в запросе
 нельзя — страница короче `limit` оборвала бы постраничную загрузку.
-Плановые (`status=scheduled`) идут с `only_my_roles=true`: сервер отдаёт общие
-задачи, задачи направления обходчика и взятые им. Среди задач направления
-остаются взятые **другим** исполнителем — их отсекает клиент по
-`allowed_actions` (`data/task_visibility.dart`). Задачи ППР догружаются
+Плановые (`status=scheduled`) идут с `only_my_roles=true&executable_only=true`:
+сервер отдаёт общие задачи, задачи направления обходчика и взятые им, а
+взятые **другим** исполнителем отсекает сам. Сервер прошлой версии
+`executable_only` не знает — для него клиент по-прежнему отсекает их по
+`allowed_actions` (`data/task_visibility.dart`). Часть записей страницы
+клиент отбрасывает ещё и по окну времени, поэтому конец постраничной
+загрузки — по числу пришедших записей (`getCurrentTasks().fetched`), а не
+отобранных. Задачи ППР догружаются
 поштучно (`GET /fault_inspections/{uuid}`) мимо этого фильтра, поэтому
 клиент повторяет его сам — `isTaskInMyScope`.
 
@@ -127,6 +132,35 @@ http/api.dart          ядро: baseUrl, jwtToken, таймауты, _client, �
 Разбирается через `TaskAccess.fromServer`: нет ключа `allowed_actions` (старый
 бэкенд без модели доступа) — `null`, «неизвестно», и задачи видны по-старому;
 явный пустой список — сервер действительно запретил.
+
+**Возврат на доработку** (бэкенд `ec92144`). Проверяющий возвращает уже
+сданный результат исполнителю (`POST /fault_inspections/{uuid}/return`); статус
+осмотра остаётся `closed`, признак — блок `review` (`state: returned`,
+`return_comment`, `returned_by`, `revision`). Разбирается в `TaskAccess`
+(`returned`, `returnComment`, `returnedBy`, `reviewRevision`) — та же
+JSON-строка, без правки Hive. `Task.isReturnedForRework` — статус `closed` и
+признак вместе.
+- Загрузка — третьим проходом `syncTasks`:
+  `GET /fault_inspections/?status=closed&executable_only=true`
+  (`loadReturnedTasks` → `getReturnedTasks`). Только у сервера, который возврат
+  умеет (`DataProvider.returnsSupported`): признак — блок `company` в
+  `/user/me`, он из той же версии бэкенда. Сервер прошлой версии параметр
+  пропустит и отдаст все закрытые осмотры — поэтому без признака не ходим, а
+  страница не из возвращённых выключает запрос до перезапуска. Признак ещё
+  неизвестен (первый проход после запуска, профиль грузится параллельно) —
+  `loadReturnedTasks` отдаёт `null`, и доработки берутся из кэша, а не
+  стираются.
+- Видимость — `isReturnedTaskAvailable`: исполнитель — я, есть `execute`.
+- Повторная сдача — обычный осмотр закрытия с `Scan.reviewRevision` (поле формы
+  `review_revision`, последнее поле адаптера). Устаревшая версия (вернули ещё
+  раз, пока осмотр ждал связи) — 409 без машинного кода, текст с именем поля
+  переводится в `ScanQueueStrings.errorReworkOutdated`. Расход: не передан —
+  на сервере прежний, передан — заменяет, сервер спишет или вернёт разницу;
+  поэтому у доработки локальные остатки не уменьшаются (`Scan.isRework`).
+- Отметка «закрыто на телефоне» (`closed_task_*`) хранит версию результата
+  (`rev:N`, `closedMarkValue`); вернули позже — версия у сервера выросла, и
+  отметка задачу не прячет (`isClosedMarkCurrent`). Отметки прошлой версии
+  (`'1'`) — версия `-1`, возвращённую задачу не прячут.
 
 ### Заголовки, кодировка, multipart
 
@@ -159,8 +193,9 @@ http/api.dart          ядро: baseUrl, jwtToken, таймауты, _client, �
 
 `PATCH /v1/company/fault_inspections/{uuid}` принимает поле формы
 `actual_consumptions` и **сам списывает склад** при приёме осмотра. Не хватило
-остатка — 409 с машиночитаемым телом: `detail_code: "insufficient_stock"` и
-`shortages` вида `{spare_part_uuid, spare_part_name, required, available}`.
+остатка — 409 с машиночитаемым телом: `code: "insufficient_stock"` (бэкенд
+`ec92144`; прежнее имя поля `detail_code` сервер шлёт рядом на переходный
+период, клиент читает оба — `code` первым) и `shortages` вида `{spare_part_uuid, spare_part_name, required, available}`.
 Клиент разбирает его в `InsufficientStockException` и хранит вместе с осмотром
 (`Scan.lastShortages`), потому что экран разрешения конфликта открывается и
 через сутки без связи.
@@ -542,15 +577,23 @@ ad-hoc задачи уходят параллельно.
   У правки ремонта при этом ремонт не перечитывается: без права ответ «нет
   доступа к ремонту» превратился бы в окончательное «передан другому».
 
-**Заявка «Другое»** (`createPeriodicTask`) — два запроса: создание задачи и
-отдельно её фото. После того как задача создана, заявка считается доставленной
-**при любом исходе загрузки фото**: у создания нет `Idempotency-Key`, и возврат
-в очередь завёл бы на сервере вторую такую же задачу. Отказ или обрыв на фото
-пишется в журнал (`_apiLog.severe`); те же кадры уходят в самом осмотре и
-видны в истории осмотров. Фото задачи сервер принимает только с
-`tasks.edit`, а саму заявку — с `inspection.create`: пока бэкенд это не
-выровнял (`docs/backend-mobile-access-fixes.md` в корне workspace, п. 2), у
-роли без `tasks.edit` задача приходит без фото.
+**Заявка «Другое»** — два запроса: создание задачи (`createPeriodicTask`) и
+её фото (`uploadPeriodicTaskPhotos`), оба с постоянным `Idempotency-Key`. Ключ
+— `PeriodicTaskRequest.eventId` (у записей прошлой версии — от `key()`), у фото
+свой: `<ключ>:photos`. Сервер сверяет ключ с телом запроса, поэтому
+`toJson()` от повтора к повтору не меняется. Uuid созданной задачи пишется в
+запись (`serverUuid`) **до** загрузки фото: сорвалась загрузка — повтор идёт
+сразу к фото, второй задачи не будет. Что повторять, решает
+`isRetryableProblemPhotoError` (`data/problem_report_photos.dart`): обрыв,
+5xx, протухший доступ — повтор через 120 с; 409 (задачу уже взяли — фото
+сообщения о проблеме сервер больше не принимает), 403, 404, 413, 422 —
+снимки бросаются с записью в журнал, заявка доставлена; те же кадры уходят в
+самом осмотре. 410 и 409 на создании (`isProblemReportSettled`) — задачу по
+ключу удалили, такая задача уже есть или ключ использован с другим телом:
+повтор ответит тем же, запись убирается с записью в журнал.
+Фото сервер принимает от автора заявки по `inspection.create`, пока задачу не
+взяли, и по `tasks.edit`. Сервер прошлой версии ключ не знает и фото
+принимает только по `tasks.edit`.
 
 Известный пробел: у очереди ad-hoc задач пометки отказа нет вовсе — её `catch`
 возвращает запись в pending, и отказ **создания** по правам повторяется каждые

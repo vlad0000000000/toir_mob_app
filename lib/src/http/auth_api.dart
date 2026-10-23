@@ -22,6 +22,7 @@ extension AuthApi on API {
       // как до ролей: ничего не запирает, решает сервер.
       final profile = AccessProfile.fromServer(data);
       user.accessProfile = profile;
+      user.companyFlags = CompanyFlags.fromMe(data);
       final scope = data['access_scope'];
       if (scope is Map && scope['company_id'] != null) {
         user.companyId = '${scope['company_id']}';

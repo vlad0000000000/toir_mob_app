@@ -111,3 +111,38 @@ String? taskScopeLabel(
   ];
   return names.isEmpty ? null : names.join(', ');
 }
+
+/// Задача, возвращённая на доработку, видна её исполнителю — тому, кто
+/// записал результат, — пока сервер разрешает её выполнять.
+///
+/// Статус у неё `closed`: проверяющий возвращает уже сданный результат, и по
+/// статусу её не отличить от выполненной. Признак возврата —
+/// [TaskAccess.returned].
+bool isReturnedTaskAvailable(TaskAccess access, {required String userUuid}) =>
+    access.returned &&
+    access.inspectorUuid == userUuid &&
+    access.can(TaskAccess.actionExecute);
+
+/// Значение отметки «закрыто на этом телефоне» — версия результата, на
+/// которую ответил осмотр.
+String closedMarkValue(int revision) => 'rev:$revision';
+
+/// Версия из отметки. Отметки прошлой версии (`'1'`) версии не знают:
+/// `-1` — старше любой, и возвращённую задачу такая отметка не прячет.
+int parseClosedMark(String? value) {
+  if (value == null || !value.startsWith('rev:')) return -1;
+  return int.tryParse(value.substring(4)) ?? -1;
+}
+
+/// Отметка закрытия ещё действует: задача не возвращалась с тех пор, как её
+/// закрыли на этом телефоне.
+///
+/// Вернули на доработку — версия результата у сервера выросла
+/// ([TaskAccess.reviewRevision]), и отметка с прежней версией задачу больше
+/// не прячет. Иначе обходчик, сдавший задачу на этом телефоне, так и не
+/// увидел бы её возврата: отметка снимается, только когда сервер перестаёт
+/// отдавать задачу, а возвращённую он отдаёт снова.
+bool isClosedMarkCurrent({required int markedRevision, TaskAccess? access}) {
+  if (access == null || !access.returned) return true;
+  return markedRevision >= access.reviewRevision;
+}

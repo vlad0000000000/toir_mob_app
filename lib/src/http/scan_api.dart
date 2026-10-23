@@ -135,13 +135,16 @@ extension ScanApi on API {
 
   /// Разбирает тело отказа по нехватке ЗИП. `null` — отказ по другой причине.
   ///
-  /// Опознаём по `detail_code`, а не по тексту: формулировка `detail` на
-  /// сервере может меняться, код — нет.
+  /// Опознаём по машинному коду, а не по тексту: формулировка `detail` на
+  /// сервере может меняться, код — нет. Код — в `code`, как у всех отказов
+  /// (бэкенд `ec92144`); `detail_code` — его прежнее имя, сервер шлёт оба на
+  /// переходный период, а прошлая версия — только его.
   InsufficientStockException? _parseInsufficientStock(String body) {
     try {
       final data = jsonDecode(body);
       if (data is! Map<String, dynamic>) return null;
-      if (data['detail_code'] != 'insufficient_stock') return null;
+      final code = data['code'] ?? data['detail_code'];
+      if (code != 'insufficient_stock') return null;
       final raw = data['shortages'];
       return InsufficientStockException(
         data['detail'] as String? ?? 'Недостаточно ЗИП на складе',

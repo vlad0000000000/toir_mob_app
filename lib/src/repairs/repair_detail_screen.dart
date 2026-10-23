@@ -24,6 +24,7 @@ import '../utils/go_router_ext.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/no_access.dart';
 import '../widgets/spare_part_consumption.dart';
+import 'repair_access.dart';
 import 'repair_clipboard.dart';
 import 'repair_error_messages.dart';
 import 'repair_status_pill.dart';
@@ -188,18 +189,20 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
   /// Сервер разрешает работу над ремонтом только его исполнителю и только с
   /// правом `repair.execute`. Чужой ремонт в списке бывает: роль с правом
   /// «Ремонты всех исполнителей» видит ремонты коллег своего направления.
+  /// Решает подсказка сервера `allowed_actions`, без неё — право и
+  /// исполнитель ([repairWorkBlock]).
   String? get _workBlock {
     final repair = _repair;
     if (repair == null) return null;
-    if (!GlobalState.dataProvider.sectionAccess.repairWork) {
-      return RepairCardStrings.lockedNoAccess;
-    }
-    final me = GlobalState.authUser?.uuid ?? '';
-    final owner = repair.responsibleUserUuid ?? '';
-    if (me.isNotEmpty && owner.isNotEmpty && owner != me) {
-      return RepairCardStrings.lockedNotMine;
-    }
-    return null;
+    return switch (repairWorkBlock(
+      repair,
+      roleCanWork: GlobalState.dataProvider.sectionAccess.repairWork,
+      myUuid: GlobalState.authUser?.uuid ?? '',
+    )) {
+      RepairWorkBlock.noAccess => RepairCardStrings.lockedNoAccess,
+      RepairWorkBlock.notMine => RepairCardStrings.lockedNotMine,
+      null => null,
+    };
   }
 
   /// Черновик помечен к отправке и ждёт связи.
@@ -345,6 +348,21 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
       await _saveDraft(submitForReview: submitForReview);
       return;
     }
+    // В форме расход (из неотправленной правки), а права на ЗИП уже нет:
+    // без расхода отправить — потерять его, с расходом — сервер откажет во
+    // всей правке. Кладём в очередь как есть: она пометит правку «нет
+    // прав», блок «Не отправлено» её покажет, а уйдёт она сама, когда
+    // доступ вернут ([SectionAccess.consumptionsBlocked]).
+    final provider = GlobalState.dataProvider;
+    if (provider.sectionAccess.consumptionsBlocked(_consumptions)) {
+      await _queueUpdate(
+          submitForReview: submitForReview, clearRejection: true);
+      await provider.syncPendingRepairUpdates();
+      if (!mounted) return;
+      setState(() {});
+      _showSnack(message: repairNoRightsMessage, ok: false);
+      return;
+    }
     setState(() => _isSaving = true);
     // Поколение кэша — до запроса, см. [DataProvider.upsertRepair].
     final generation = GlobalState.dataProvider.cacheGeneration;
@@ -352,7 +370,8 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
       final updated = await API().updateRepair(
         repair.uuid,
         comment: _commentController.text.trim(),
-        consumptions: _consumptions,
+        consumptions: GlobalState.dataProvider.sectionAccess
+            .consumptionsToSend(_consumptions),
         submitForReview: submitForReview,
       );
       await GlobalState.dataProvider
@@ -1416,9 +1435,13 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
     // экране объясняют почему.
     if (_outOfScope) return null;
     if (repair.isUnassigned && repair.isOpen) {
-      // Взять ремонт не даёт роль — кнопка остаётся (так видно, что ремонт
-      // свободный), но с замком и объясняет, почему не нажимается.
-      if (!GlobalState.dataProvider.sectionAccess.repairWork) {
+      // Взять ремонт не даёт роль или сервер (ремонт вне области роли) —
+      // кнопка остаётся (так видно, что ремонт свободный), но с замком и
+      // объясняет, почему не нажимается.
+      if (!canClaimRepair(
+        repair,
+        roleCanWork: GlobalState.dataProvider.sectionAccess.repairWork,
+      )) {
         return _BottomBar(
           children: [
             Expanded(
@@ -1460,7 +1483,9 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
         const SizedBox(width: AppConstants.spacingMD),
         Expanded(
           child: ElevatedButton.icon(
-            onPressed: _isSaving ? null : _submit,
+            // Сохранять можно, а отправлять на рассмотрение сервер не даёт —
+            // кнопка неактивна, а не ведёт в заведомый отказ.
+            onPressed: _isSaving || !canSubmitRepair(repair) ? null : _submit,
             icon: _isSaving
                 ? const _ButtonSpinner()
                 : const Icon(Icons.send_rounded),

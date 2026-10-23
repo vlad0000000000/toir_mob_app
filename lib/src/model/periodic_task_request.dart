@@ -14,6 +14,25 @@ class PeriodicTaskRequest {
   final Map<String, dynamic> params;
   final List<String>? photos;
 
+  /// Постоянный ключ события — основа `Idempotency-Key` обоих запросов
+  /// заявки ([createIdempotencyKey], [photosIdempotencyKey]). Создаётся
+  /// вместе с записью и не меняется при повторах: потерянный ответ сервер
+  /// узнаёт по ключу и вторую задачу не заводит. `null` — запись прошлой
+  /// версии, ключ тогда выводится из [key].
+  final String? eventId;
+
+  /// Uuid задачи, уже созданной на сервере, — снимки ещё не приняты. Повтор
+  /// такой записи создание пропускает и грузит только фото. В [key] не
+  /// входит: запись остаётся под тем же ключом бокса.
+  final String? serverUuid;
+
+  /// Ключ создания задачи. Сервер сверяет с ним и само тело запроса, поэтому
+  /// [toJson] обязан давать одно и то же при каждом повторе.
+  String get createIdempotencyKey => eventId ?? 'problem-report-${key()}';
+
+  /// Ключ загрузки снимков — свой: у сервера это отдельная операция.
+  String get photosIdempotencyKey => '$createIdempotencyKey:photos';
+
   String key() {
     return GlobalState.digest(jsonEncode({
       'equipment_uuid': equipmentUuid,
@@ -42,8 +61,25 @@ class PeriodicTaskRequest {
     this.customRoleIds,
     required this.nextDueAt,
     required this.params,
-    required this.photos
+    required this.photos,
+    this.eventId,
+    this.serverUuid,
   });
+
+  /// Та же заявка, уже созданная на сервере под [uuid].
+  PeriodicTaskRequest withServerUuid(String uuid) => PeriodicTaskRequest(
+        equipmentUuid: equipmentUuid,
+        node: node,
+        title: title,
+        description: description,
+        periodicityRule: periodicityRule,
+        customRoleIds: customRoleIds,
+        nextDueAt: nextDueAt,
+        params: params,
+        photos: photos,
+        eventId: eventId,
+        serverUuid: uuid,
+      );
 
   // "equipment_uuid": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
   // "node": "string",
@@ -87,6 +123,10 @@ class PeriodicTaskRequestAdapter extends TypeAdapter<PeriodicTaskRequest> {
       nextDueAt: reader.read(),
       params: Map<String, dynamic>.from(reader.read()),
       photos: reader.read().cast<String>(),
+      // Поля добавлены позже — у записей прошлой версии их нет. Объект
+      // верхнего уровня (свой бокс), поэтому дочитать конец записи безопасно.
+      eventId: reader.availableBytes > 0 ? reader.read() as String? : null,
+      serverUuid: reader.availableBytes > 0 ? reader.read() as String? : null,
     );
   }
 
@@ -101,5 +141,7 @@ class PeriodicTaskRequestAdapter extends TypeAdapter<PeriodicTaskRequest> {
     writer.write(obj.nextDueAt);
     writer.write(obj.params);
     writer.write(obj.photos);
+    writer.write(obj.eventId);
+    writer.write(obj.serverUuid);
   }
 }

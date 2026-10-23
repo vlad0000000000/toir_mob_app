@@ -14,6 +14,7 @@ import '../model/repair.dart';
 import '../utils/dialogs.dart';
 import '../utils/go_router_ext.dart';
 import '../widgets/date_range_sheet.dart';
+import '../widgets/no_access.dart';
 import '../widgets/offline_banner.dart';
 import 'repair_error_messages.dart';
 
@@ -143,18 +144,23 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
       // Состав нормы кладём в черновик: без сети карточка не сможет ни
       // показать плановые количества, ни заполнить расход из нормы.
       normItems: _norm?.items ?? const [],
-    );
+      // Тело создания фиксируем сразу: если ответ потеряется и черновик
+      // уйдёт в очередь, повтор пошлёт ровно то же — сервер сверяет ключ с
+      // телом. Норма здесь возможна только с правом на ЗИП: без него поле на
+      // форме заперто.
+    ).freezeCreate(normUuid: _norm?.uuid);
     // Поколение кэша — до запроса, см. [DataProvider.upsertRepair].
     final generation = GlobalState.dataProvider.cacheGeneration;
     try {
       // Ключ идемпотентности берём у черновика с самого начала, даже когда
       // связь есть: если ответ потеряется по дороге, повтор из очереди уйдёт
-      // с тем же ключом и второй ремонт не появится.
+      // с тем же ключом и второй ремонт не появится. Комментарий — в самом
+      // создании: на него хватает права создания ремонтов.
       final repair = await API().createRepair(
         equipmentUuid: draft.equipmentUuid,
-        consumptionNormUuid: draft.consumptionNormUuid,
+        consumptionNormUuid: draft.createNormUuid,
         startedAt: draft.startedAt,
-        comment: draft.comment,
+        comment: draft.createComment,
         idempotencyKey: draft.localId,
       );
       await GlobalState.dataProvider
@@ -170,6 +176,9 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
       // этом не открываем: заполнять расход по несуществующему на сервере
       // ремонту нечем, сначала он должен доехать.
       if (isRetryableRepairError(e)) {
+        // Пока шёл запрос, могли выйти и войти другим обходчиком: черновик
+        // прежнего в чужую очередь не кладём — он ушёл бы с чужим токеном.
+        if (GlobalState.dataProvider.cacheGeneration != generation) return;
         await GlobalState.dataProvider.addPendingRepair(draft);
         if (!mounted) return;
         // Показываем список: там черновик виден с пометкой «Не отправлено», и
@@ -310,13 +319,26 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
           const SizedBox(height: AppConstants.spacingLG),
           _Label(RepairStrings.labelNorm),
           const SizedBox(height: AppConstants.spacingSM),
-          _PickerField(
-            icon: Icons.checklist_rounded,
-            value: _norm?.name ?? RepairStrings.normNotSet,
-            muted: _norm == null,
-            trailing: Icons.expand_more_rounded,
-            onTap: _isSaving ? null : _pickNorm,
-          ),
+          // Норма — часть ЗИП: без права на него сервер отклоняет создание
+          // ремонта с нормой целиком. Поле с замком объясняет, а не ведёт в
+          // отказ; ремонт без нормы создаётся как обычно.
+          if (GlobalState.dataProvider.sectionAccess.spareParts)
+            _PickerField(
+              icon: Icons.checklist_rounded,
+              value: _norm?.name ?? RepairStrings.normNotSet,
+              muted: _norm == null,
+              trailing: Icons.expand_more_rounded,
+              onTap: _isSaving ? null : _pickNorm,
+            )
+          else
+            _PickerField(
+              icon: Icons.checklist_rounded,
+              value: AccessStrings.locked,
+              muted: true,
+              trailing: Icons.lock_outline_rounded,
+              onTap: () =>
+                  showNoAccessDialog(context, AccessStrings.spareParts),
+            ),
           const SizedBox(height: 4),
           Text(
             RepairStrings.normHint,

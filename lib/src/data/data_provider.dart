@@ -20,6 +20,7 @@ import '../../src/model/scan.dart';
 import '../../src/model/session.dart';
 import '../../src/model/spare_part.dart';
 import '../../src/model/task.dart';
+import '../../src/model/task_access.dart';
 import '../../src/model/responsible_user.dart';
 import '../../src/model/typical_problem.dart';
 import '../../src/model/usage_unit.dart';
@@ -35,6 +36,7 @@ import '../feature_flags.dart';
 import '../qr/scan_error_messages.dart';
 import '../repairs/repair_error_messages.dart';
 import 'access_session.dart';
+import 'problem_report_photos.dart';
 import 'cache_commit_queue.dart';
 import 'generation_pass.dart';
 import 'repair_photo_files.dart';
@@ -801,6 +803,21 @@ class DataProvider {
   /// версией доступа.
   int get accessSession => _accessSession;
 
+  /// Сервер умеет возврат результата на доработку — и, значит, запрос
+  /// [loadReturnedTasks]. `null` — ещё не знаем (до первого `/user/me`),
+  /// `false` — не умеет. Узнаём по ответу `/user/me` ([noteServerFeatures]),
+  /// а не храним: сервер обновляют, и приложение увидит это сразу.
+  bool? returnsSupported;
+
+  /// Отмечает, что умеет сервер, по ответу `/user/me`. Блок `company`
+  /// появился в той же версии бэкенда, что и возврат на доработку.
+  /// Однажды распознанное «не умеет» (страница [loadReturnedTasks] пришла не
+  /// из возвращённых) держится до перезапуска.
+  void noteServerFeatures(User me) {
+    if (returnsSupported == false) return;
+    returnsSupported = me.companyFlags != null;
+  }
+
   /// Порядок ответов `/user/me` в [syncAccessProfile]: запоздалый ответ
   /// более раннего запроса не ложится поверх свежего.
   final _profileResponses = AccessResponseOrder();
@@ -1159,15 +1176,27 @@ class DataProvider {
   /// Индекс, а не чтение бокса на каждую задачу: список задач фильтруется в
   /// цикле по всему ящику, и поход в Hive на каждой итерации был бы дороже
   /// самой фильтрации.
-  Set<String> _closedTaskUuids = {};
+  ///
+  /// Значение — версия результата, на которую обходчик ответил
+  /// ([closedMarkValue]): возвращённую позже на доработку задачу отметка
+  /// прятать не должна.
+  Map<String, int> _closedTaskUuids = {};
 
-  /// Закрыл ли обходчик эту задачу сам — осмотр отправлен либо ждёт в очереди.
-  bool isTaskClosedLocally(String uuid) => _closedTaskUuids.contains(uuid);
+  /// Закрыл ли обходчик эту задачу сам — осмотр отправлен либо ждёт в
+  /// очереди. Задача, которую с тех пор вернули на доработку ([access]),
+  /// закрытой уже не считается ([isClosedMarkCurrent]).
+  bool isTaskClosedLocally(String uuid, {TaskAccess? access}) {
+    final marked = _closedTaskUuids[uuid];
+    return marked != null &&
+        isClosedMarkCurrent(markedRevision: marked, access: access);
+  }
 
-  Future<void> markTaskClosedLocally(String uuid) async {
-    if (uuid.isEmpty || _closedTaskUuids.contains(uuid)) return;
-    _closedTaskUuids = {..._closedTaskUuids, uuid};
-    await stringBox.put('$_closedTaskPrefix$uuid', '1');
+  /// [revision] — версия результата, которую закрывает осмотр: при обычном
+  /// закрытии — текущая версия задачи, при доработке — `Scan.reviewRevision`.
+  Future<void> markTaskClosedLocally(String uuid, {int revision = 0}) async {
+    if (uuid.isEmpty || _closedTaskUuids[uuid] == revision) return;
+    _closedTaskUuids = {..._closedTaskUuids, uuid: revision};
+    await stringBox.put('$_closedTaskPrefix$uuid', closedMarkValue(revision));
   }
 
   /// Снимает отметки с задач, которых сервер больше не отдаёт.
@@ -1175,19 +1204,23 @@ class DataProvider {
   /// Отметка нужна ровно до того момента, как сервер сам перестанет считать
   /// задачу активной. Дальше она бесполезна и только копилась бы в боксе.
   Future<void> pruneClosedTasks(Set<String> stillReturned) async {
-    final stale = _closedTaskUuids.difference(stillReturned);
+    final stale = _closedTaskUuids.keys.toSet().difference(stillReturned);
     if (stale.isEmpty) return;
     for (final uuid in stale) {
       await stringBox.delete('$_closedTaskPrefix$uuid');
     }
-    _closedTaskUuids = _closedTaskUuids.difference(stale);
+    _closedTaskUuids = {
+      for (final entry in _closedTaskUuids.entries)
+        if (!stale.contains(entry.key)) entry.key: entry.value,
+    };
   }
 
   void _rebuildClosedTaskIndex() {
     _closedTaskUuids = {
       for (final key in stringBox.keys)
         if (key is String && key.startsWith(_closedTaskPrefix))
-          key.substring(_closedTaskPrefix.length),
+          key.substring(_closedTaskPrefix.length):
+              parseClosedMark(stringBox.get(key)),
     };
   }
 
@@ -1491,7 +1524,12 @@ class DataProvider {
           isMaintenanceTask(task)) {
         await stringBox.put('maintenance_task_$taskUuid', '1');
       }
-      await markTaskClosedLocally(taskUuid);
+      // С версией результата: вернут задачу ещё раз — версия вырастет, и
+      // отметка её не спрячет.
+      await markTaskClosedLocally(
+        taskUuid,
+        revision: scan.reviewRevision ?? task?.access?.reviewRevision ?? 0,
+      );
       await taskBox.delete(taskUuid);
     }
   }
@@ -1697,14 +1735,16 @@ class DataProvider {
 
   /// Показывать ли задачу текущему пользователю: не закрыта локально,
   /// плановая — в его области и выполнима ([isScheduledTaskAvailable]),
-  /// назначенная — ему и выполнима ([isOpenTaskActionable]).
+  /// назначенная — ему и выполнима ([isOpenTaskActionable]), возвращённая на
+  /// доработку — её исполнителю ([isReturnedTaskAvailable]).
   ///
   /// Задача без [Task.access] — запись прошлой версии приложения, до первой
   /// синхронизации: для неё прежнее правило по должности. Оно не видит
   /// общих задач и задач обходчика без направления, но ничего чужого не
   /// показывает — а синхронизация заменит такие записи через минуту.
   bool _isTaskAvailable(Task task, Map<String, String?> tasksInScans) {
-    if (tasksInScans.containsKey(task.uuid) || isTaskClosedLocally(task.uuid)) {
+    if (tasksInScans.containsKey(task.uuid) ||
+        isTaskClosedLocally(task.uuid, access: task.access)) {
       return false;
     }
     final user = GlobalState.authUser;
@@ -1734,6 +1774,10 @@ class DataProvider {
         access: access,
         userUuid: user.uuid,
       );
+    } else if (task.resultStatus == "closed") {
+      // Закрытая приходит только одна — возвращённая на доработку.
+      return access != null &&
+          isReturnedTaskAvailable(access, userUuid: user.uuid);
     } else {
       return false;
     }

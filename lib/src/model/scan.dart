@@ -110,6 +110,17 @@ class Scan {
   /// `null` — наработки в осмотре нет. В [key] не входит.
   final String? usageUpdates;
 
+  /// Повторная сдача результата, возвращённого на доработку: версия
+  /// результата (`review.revision`), на которую обходчик отвечает. Уходит
+  /// полем формы `review_revision`; без неё сервер доработку не примет, а с
+  /// устаревшей (результат вернули ещё раз) — ответит 409.
+  ///
+  /// `null` — обычное закрытие задачи. В [key] не входит.
+  final int? reviewRevision;
+
+  /// Повторная сдача возвращённого результата ([reviewRevision]).
+  bool get isRework => reviewRevision != null;
+
   bool get isRejected => (lastError ?? '').isNotEmpty;
 
   /// Новый [eventId]: 128 случайных бит, hex.
@@ -160,6 +171,7 @@ class Scan {
       eventId: eventId,
       usageKeys: usageKeys,
       usageUpdates: usageUpdates,
+      reviewRevision: reviewRevision,
     );
   }
 
@@ -205,7 +217,8 @@ class Scan {
       this.lastShortages,
       this.eventId,
       this.usageKeys,
-      this.usageUpdates});
+      this.usageUpdates,
+      this.reviewRevision});
 
   Map<String, dynamic> toJson() {
     var result = <String, dynamic>{
@@ -225,6 +238,8 @@ class Scan {
       // Строка JSON поля формы. `null` — поля нет вовсе: сервер считает это
       // пустым списком, наработка в осмотре не меняется.
       'usage_updates': usageUpdates,
+      // Поля формы — строки: `sendScan` отсеивает всё, что не строка.
+      if (reviewRevision != null) 'review_revision': '$reviewRevision',
     };
     if (isOtherFault == true) {
       result['is_other_fault'] = 'true';
@@ -299,6 +314,12 @@ class ScanAdapter extends TypeAdapter<Scan> {
     } catch (_) {
       usageUpdates = null; // записи до атомарной отправки наработки
     }
+    int? reviewRevision;
+    try {
+      reviewRevision = reader.read() as int?;
+    } catch (_) {
+      reviewRevision = null; // записи до доработки результата — обычные
+    }
     return Scan(
       files: files,
       periodicTaskUuid: periodicTaskUuid,
@@ -318,6 +339,7 @@ class ScanAdapter extends TypeAdapter<Scan> {
       eventId: eventId,
       usageKeys: usageKeys,
       usageUpdates: usageUpdates,
+      reviewRevision: reviewRevision,
     );
   }
 
@@ -342,5 +364,6 @@ class ScanAdapter extends TypeAdapter<Scan> {
     writer.write(obj.eventId);
     writer.write(obj.usageKeys);
     writer.write(obj.usageUpdates);
+    writer.write(obj.reviewRevision);
   }
 }

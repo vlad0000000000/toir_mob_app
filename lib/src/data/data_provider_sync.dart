@@ -609,6 +609,12 @@ extension DataProviderSync on DataProvider {
       final session = _accessSession;
       final ticket = _profileResponses.begin();
       final me = await api.me(token);
+      // Флаги компании едут в этом же ответе (блок `company`). Сервер прошлой
+      // версии его не присылает — тогда флаги берём, как раньше, из
+      // `/v1/company/me`.
+      final flags = me.companyFlags;
+      if (flags == null) await syncCompany();
+      noteServerFeatures(me);
       final profile = me.accessProfile;
       if (profile == null) return;
       var wrote = false;
@@ -625,6 +631,18 @@ extension DataProviderSync on DataProvider {
         // могут прийти наоборот. Записан ответ более позднего запроса —
         // этот старше, его права уже неактуальны (см. [AccessResponseOrder]).
         if (!_profileResponses.tryApply(ticket)) return;
+        // До профиля: экраны перерисовываются по [accessProfile], и
+        // [sectionAccess] должен увидеть уже свежие флаги (осмотр без QR).
+        if (flags != null) {
+          final company = flags.applyTo(
+            _company,
+            companyId: int.tryParse(me.companyId ?? ''),
+          );
+          if (company != null) {
+            _company = company;
+            await companyBox.put('company', company);
+          }
+        }
         await saveAccessProfile(user.uuid, profile);
         if (profile.blockCode == null) await clearAccessBlock(user.uuid);
         // Пока шла запись, мог пройти вход: он сохранит свой профиль позже
@@ -731,10 +749,16 @@ extension DataProviderSync on DataProvider {
     _isLoading = true;
     try {
       final generation = cacheGeneration;
-      // Два независимых постраничных прохода — тянем их параллельно, а не
-      // один за другим.
-      final loaded = await Future.wait([loadAllTasks(), loadAllOpenTasks()]);
-      final tasks = [...loaded[0], ...loaded[1]];
+      // Три независимых постраничных прохода — тянем их параллельно, а не
+      // один за другим. Третий — возвращённые на доработку: у них статус
+      // `closed`, ни в плановые, ни в открытые они не попадают.
+      final loaded = await Future.wait<List<Task>?>(
+          [loadAllTasks(), loadAllOpenTasks(), loadReturnedTasks()]);
+      // Умеет ли сервер возврат, ещё неизвестно (`null`) — доработки берём из
+      // кэша, а не стираем: ящик ниже перезаписывается целиком.
+      final reworks = loaded[2] ??
+          taskBox.values.where((task) => task.isReturnedForRework).toList();
+      final tasks = [...loaded[0]!, ...loaded[1]!, ...reworks];
       Map<String, Task> tasksDict = {};
       for (var task in tasks) {
         tasksDict[task.uuid] = task;
@@ -756,7 +780,10 @@ extension DataProviderSync on DataProvider {
         // ещё лежит в очереди, сервер честно отдаёт задачу как `scheduled`,
         // и она всплывала обратно в списке. Сам же экран и запускал эту
         // гонку — `mainSync()` вызывается сразу после отправки.
-        tasksDict.removeWhere((uuid, _) => isTaskClosedLocally(uuid));
+        // Возвращённую на доработку после закрытия — не прячем: её версия
+        // результата новее отметки.
+        tasksDict.removeWhere(
+            (uuid, task) => isTaskClosedLocally(uuid, access: task.access));
         await taskBox.clear();
         await taskBox.putAll(tasksDict);
         // Отметка нужна ровно до тех пор, пока сервер сам не перестанет
@@ -957,7 +984,8 @@ extension DataProviderSync on DataProvider {
       syncEquipmentStates(),
       syncConsumptionNorms(),
       syncMyRepairs(),
-      syncCompany(),
+      // Флаги компании — внутри: они приходят в `/user/me`, а у сервера
+      // прошлой версии профиль сам дозапросит `/v1/company/me`.
       syncAccessProfile(),
       // Каталог ЗИП вернулся в общий проход — теперь он инкрементальный.
       // Исключали его, когда каждый проход перекачивал десятки тысяч позиций

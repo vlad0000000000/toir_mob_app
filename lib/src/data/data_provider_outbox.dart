@@ -71,11 +71,24 @@ extension DataProviderOutbox on DataProvider {
         // (например, когда доехал ремонт, но не доехали снимки) черновик уже
         // помнит серверный uuid.
         if (current.serverUuid == null) {
+          // Тело создания фиксируем при первой отправке и пишем **до**
+          // запроса: сервер сверяет ключ с телом, и повтор после потерянного
+          // ответа обязан совпасть, даже если обходчик с тех пор поправил
+          // комментарий или право на ЗИП пропало. Норма — только с правом:
+          // без него сервер отклоняет создание с нормой целиком.
+          if (!current.isCreateFrozen) {
+            current = current.freezeCreate(
+              normUuid:
+                  sectionAccess.spareParts ? current.consumptionNormUuid : null,
+            );
+            if (!pendingRepairBox.containsKey(current.localId)) continue;
+            await pendingRepairBox.put(current.localId, current);
+          }
           final repair = await api.createRepair(
             equipmentUuid: current.equipmentUuid,
-            consumptionNormUuid: current.consumptionNormUuid,
+            consumptionNormUuid: current.createNormUuid,
             startedAt: current.startedAt,
-            comment: current.comment,
+            comment: current.createComment,
             idempotencyKey: current.localId,
           );
           await upsertRepair(repair);
@@ -105,10 +118,38 @@ extension DataProviderOutbox on DataProvider {
         // Последний шаг конвейера: расход, комментарий и — если обходчик уже
         // нажал «Отправить» — перевод в «На рассмотрении». Только теперь, по
         // порядку из п. 4.5.4: создание → фото → статус.
+        //
+        // И только если есть что менять. Комментарий уже ушёл в создании;
+        // правка ремонта требует права работы над ним, которого у роли,
+        // создающей ремонты, может и не быть, — запрос «ни о чём» получил
+        // бы 403, и черновик застрял бы с уже созданным ремонтом.
+        // У черновика прошлой версии исходный комментарий неизвестен — он
+        // уходит всегда, в том числе очищенный
+        // ([PendingRepair.commentChangedSinceCreate]).
+        final commentChanged = current.commentChangedSinceCreate;
+        if (!commentChanged &&
+            current.consumptions.isEmpty &&
+            !current.submitForReview) {
+          await deletePendingRepair(current.localId);
+          _authExpiredFlag.set(false, requestSession: session);
+          sent++;
+          continue;
+        }
+        // Расход есть, а права на ЗИП уже нет — урезанной не отправляем,
+        // иначе расход пропал бы вместе с черновиком. Держим с причиной
+        // «нет прав» (см. [SectionAccess.consumptionsBlocked]).
+        if (sectionAccess.consumptionsBlocked(current.consumptions)) {
+          if (!pendingRepairBox.containsKey(current.localId)) continue;
+          await pendingRepairBox.put(
+            current.localId,
+            current.markRejected(reason: repairNoRightsMessage),
+          );
+          continue;
+        }
         final finished = await api.updateRepair(
           current.serverUuid!,
-          comment: current.comment,
-          consumptions: current.consumptions,
+          comment: commentChanged ? current.comment : null,
+          consumptions: sectionAccess.consumptionsToSend(current.consumptions),
           submitForReview: current.submitForReview,
         );
         await upsertRepair(finished);
@@ -372,10 +413,24 @@ extension DataProviderOutbox on DataProvider {
             continue;
           }
         }
+        // Расход есть, а права на ЗИП уже нет — не отправляем урезанной:
+        // запись после отправки удаляется, и расход пропал бы. Держим с
+        // причиной «нет прав» (см. [SectionAccess.consumptionsBlocked]).
+        if (sectionAccess.consumptionsBlocked(current.consumptions)) {
+          if (!pendingRepairUpdateBox.containsKey(current.repairUuid)) continue;
+          await pendingRepairUpdateBox.put(
+            current.repairUuid,
+            current.markRejected(
+              reason: repairNoRightsMessage,
+              conflictKind: RepairConflictKind.other.code,
+            ),
+          );
+          continue;
+        }
         final repair = await api.updateRepair(
           current.repairUuid,
           comment: current.comment,
-          consumptions: current.consumptions,
+          consumptions: sectionAccess.consumptionsToSend(current.consumptions),
           submitForReview: current.submitForReview,
         );
         await upsertRepair(repair);
@@ -748,7 +803,12 @@ extension DataProviderOutbox on DataProvider {
           // Сервер списал ЗИП — уменьшаем локальные остатки, не дожидаясь
           // синхронизации каталога: до неё целую минуту предупреждение о
           // нехватке считалось бы по числу, которого на складе уже нет.
-          await applyLocalStockWriteOff(scan.actualConsumptions);
+          // Кроме доработки: там сервер списывает или возвращает только
+          // разницу с прежним расходом, и вычесть весь расход было бы
+          // ошибкой — остатки поправит синхронизация каталога.
+          if (!scan.isRework) {
+            await applyLocalStockWriteOff(scan.actualConsumptions);
+          }
         } else {
           // Неуспешно - оставляем в pending с timestamp, вернется через 120 секунд
           // Ничего не делаем, скан уже в scanPendingBox с timestamp
@@ -776,7 +836,9 @@ extension DataProviderOutbox on DataProvider {
           }
           // Наш прошлый запрос дошёл — значит списание сервер выполнил, а мы
           // об этом не узнали. Остатки уменьшаем так же, как при успехе.
-          await applyLocalStockWriteOff(scan.actualConsumptions);
+          if (!scan.isRework) {
+            await applyLocalStockWriteOff(scan.actualConsumptions);
+          }
           continue;
         }
         if (!isRetryableScanError(e)) {
@@ -934,9 +996,10 @@ extension DataProviderOutbox on DataProvider {
   }
 
   /// Один проход за раз, повторный вызов присоединяется — как у осмотров.
-  /// Здесь это особенно важно: у создания ad-hoc задачи нет ключа
-  /// идемпотентности, и два прохода, снявшие одну запись, создали бы на
-  /// сервере две задачи.
+  /// Ключ идемпотентности у создания заявки теперь есть
+  /// ([PeriodicTaskRequest.createIdempotencyKey]), но сервер прошлой версии
+  /// его не знает: там два прохода, снявшие одну запись, создали бы две
+  /// задачи.
   Future<void> syncPeriodicTasks() => _periodicTaskSync.run(
       DataProvider._outboxPassGeneration, _syncPeriodicTasksImpl);
 
@@ -966,32 +1029,67 @@ extension DataProviderOutbox on DataProvider {
     for (final task in tasks) {
       // Снимок мог устареть, пока шёл проход, — как у осмотров.
       if (!periodicTaskBox.containsKey(task.key())) continue;
+      // Копится по ходу: после создания здесь уже лежит uuid задачи. Снаружи
+      // try — именно этот объект должен вернуться в очередь, иначе повтор
+      // создал бы задачу заново вместо того, чтобы догрузить снимки.
+      var current = task;
+      final timestampKey = 'periodic_task_pending_${task.key()}';
       try {
         // Перемещаем задачу в pending перед отправкой
         await periodicTaskBox.delete(task.key());
         await periodicTaskPendingBox.put(task.key(), task);
 
         // Сохраняем timestamp текущей попытки
-        final timestampKey = 'periodic_task_pending_${task.key()}';
         await stringBox.put(timestampKey, now.toString());
 
-        // Пытаемся отправить
-        if (await api.createPeriodicTask(task)) {
-          // Успешно - удаляем из всех хранилищ
+        if (current.serverUuid == null) {
+          final uuid = await api.createPeriodicTask(current);
+          // Успех без uuid — оставляем в pending, вернётся через 120 секунд;
+          // повтор с тем же ключом сервер узнает.
+          if (uuid == null) continue;
+          if ((current.photos ?? const <String>[]).isEmpty) {
+            await periodicTaskPendingBox.delete(task.key());
+            await stringBox.delete(timestampKey);
+            continue;
+          }
+          // Задача есть — запоминаем до снимков: сорвись их загрузка, повтор
+          // пойдёт сразу к ним, а не создаст вторую задачу.
+          current = current.withServerUuid(uuid);
+          await periodicTaskPendingBox.put(task.key(), current);
+        }
+
+        await api.uploadPeriodicTaskPhotos(
+          current.serverUuid!,
+          current.photos ?? const <String>[],
+          idempotencyKey: current.photosIdempotencyKey,
+        );
+        await periodicTaskPendingBox.delete(task.key());
+        await stringBox.delete(timestampKey);
+      } catch (e) {
+        final created = current.serverUuid != null;
+        // Заявка доставлена, а снимки сервер не примет уже никогда (задачу
+        // взяли в работу, нет права) — или создание отклонено так, что
+        // повтор ответит тем же (задачу по ключу удалили, такая уже есть).
+        // Ждать нечего: убираем запись, причина — в журнал.
+        if ((created && !isRetryableProblemPhotoError(e)) ||
+            (!created && isProblemReportSettled(e))) {
           await periodicTaskPendingBox.delete(task.key());
           await stringBox.delete(timestampKey);
-        } else {
-          // Неуспешно - оставляем в pending с timestamp, вернется через 120 секунд
-          // Ничего не делаем, задача уже в periodicTaskPendingBox с timestamp
+          _outboxLog.severe(created
+              ? 'снимки заявки ${current.serverUuid} не приняты сервером, '
+                  'заявка доставлена без них: $e'
+              : 'заявка ${task.key()} не создана, повтор бесполезен: $e');
+          continue;
         }
-      } catch (e) {
-        // При ошибке также оставляем в pending с timestamp
-        // Убеждаемся, что задача в periodicTaskPendingBox и timestamp сохранен
-        await periodicTaskPendingBox.put(task.key(), task);
-        final timestampKey = 'periodic_task_pending_${task.key()}';
+        // Остальное — повторим: оставляем в pending с timestamp, вместе с
+        // uuid созданной задачи, если он уже есть.
+        await periodicTaskPendingBox.put(task.key(), current);
         await stringBox.put(timestampKey, now.toString());
-        _outboxLog.warning('периодическая задача ${task.key()} не отправлена,'
-            ' вернётся через 120 с: $e');
+        _outboxLog.warning(created
+            ? 'снимки заявки ${current.serverUuid} не загрузились, '
+                'повтор через 120 с: $e'
+            : 'периодическая задача ${task.key()} не отправлена,'
+                ' вернётся через 120 с: $e');
       }
     }
   }

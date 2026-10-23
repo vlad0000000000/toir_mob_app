@@ -23,6 +23,22 @@ class RepairStatuses {
   }
 }
 
+/// Действия над ремонтом из `allowed_actions` сервера. Значения совпадают с
+/// `repair_allowed_actions` бэкенда (`backend/security/policies/repairs.py`);
+/// здесь — только те, по которым что-то решает мобилка.
+class RepairActions {
+  RepairActions._();
+
+  /// Взять свободный ремонт в работу.
+  static const String claim = 'claim';
+
+  /// Работать над своим ремонтом: комментарий, расход, фото.
+  static const String execute = 'execute';
+
+  /// Отправить на рассмотрение.
+  static const String submitReview = 'submit_review';
+}
+
 /// Ремонт оборудования.
 ///
 /// Одна модель обслуживает и список, и карточку: `GET /v1/repairs/` отдаёт
@@ -79,6 +95,17 @@ class Repair {
   /// обходчику оставалось поверить, что расход потерян.
   final bool detailsLoaded;
 
+  /// Что сервер разрешает текущему пользователю с этим ремонтом
+  /// ([RepairActions]). Считается теми же правилами политики, что и сами
+  /// изменения: право, свой ли ремонт, статус, направление, подразделение —
+  /// повторять их на телефоне не нужно.
+  ///
+  /// `null` — неизвестно: сервер прошлой версии, запись кэша прошлой версии
+  /// или черновик. Тогда кнопки решаются по-старому, по праву роли и
+  /// исполнителю (`repairWorkBlock`). Сервер всё равно перепроверяет каждое
+  /// действие.
+  final List<String>? allowedActions;
+
   Repair({
     required this.id,
     required this.uuid,
@@ -102,7 +129,12 @@ class Repair {
     this.photos = const [],
     this.normItems = const [],
     this.detailsLoaded = false,
+    this.allowedActions,
   });
+
+  /// Разрешено ли действие [action]. `null` — сервер не сказал
+  /// ([allowedActions]).
+  bool? allows(String action) => allowedActions?.contains(action);
 
   bool get isOpen => status == RepairStatuses.open;
 
@@ -173,8 +205,18 @@ class Repair {
       // «эта схема про расход не рассказывает». Значения у них одинаковые,
       // смысл противоположный.
       detailsLoaded: json.containsKey('actual_consumptions'),
+      // По наличию ключа: сервер прошлой версии поля не присылает, и это
+      // «неизвестно», а не «ничего нельзя».
+      allowedActions: _parseActions(json['allowed_actions']),
     );
   }
+
+  static List<String>? _parseActions(dynamic value) => value is List
+      ? [
+          for (final item in value)
+            if (item is String) item
+        ]
+      : null;
 
   /// Дополняет запись из списка подробностями, которые список не отдаёт.
   ///
@@ -217,6 +259,9 @@ class Repair {
       photos: cached.photos,
       normItems: sameNorm ? cached.normItems : const [],
       detailsLoaded: true,
+      // Разрешения — из списка: он отдаёт их так же, как карточка, и они
+      // свежее кэша.
+      allowedActions: allowedActions,
     );
   }
 
@@ -343,6 +388,7 @@ class RepairAdapter extends TypeAdapter<Repair> {
     final normItems = _readTrailingList<RepairNormItem>(reader);
     final detailsLoaded =
         _readDetailsLoaded(reader, comment, actualConsumptions, photos);
+    final allowedActions = _readAllowedActions(reader);
     return Repair(
       id: id,
       uuid: uuid,
@@ -366,7 +412,20 @@ class RepairAdapter extends TypeAdapter<Repair> {
       photos: photos,
       normItems: normItems,
       detailsLoaded: detailsLoaded,
+      allowedActions: allowedActions,
     );
+  }
+
+  /// Разрешения сервера — дописаны последними. У записей прошлой версии их
+  /// нет: «неизвестно» (`null`), а не пустой список, иначе кнопки ремонта,
+  /// закэшированного до обновления, заперлись бы до первой синхронизации.
+  static List<String>? _readAllowedActions(BinaryReader reader) {
+    try {
+      final value = reader.read();
+      return value is List ? value.cast<String>() : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   static List<T> _readTrailingList<T>(BinaryReader reader) {
@@ -426,6 +485,7 @@ class RepairAdapter extends TypeAdapter<Repair> {
     writer.write(obj.normItems);
     // Новое поле — строго в конец: read() читает его так же, через try/catch.
     writer.write(obj.detailsLoaded);
+    writer.write(obj.allowedActions);
   }
 }
 

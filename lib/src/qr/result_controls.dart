@@ -13,6 +13,7 @@ import '../../src/widgets/select_image_button.dart';
 import '../../src/widgets/select_task_button.dart';
 import '../../strings.dart';
 import '../design/app_constants.dart';
+import '../design/app_theme.dart';
 import '../model/spare_part_usage.dart';
 import '../model/task.dart';
 import '../model/typical_problem.dart';
@@ -508,6 +509,17 @@ class _ResultControlsState extends State<ResultControls> {
             ],
           ),
 
+          // ── Доработка ────────────────────────────────────────
+          // Выбрана задача, которую вернул проверяющий: причина и прежний
+          // результат — над формой и только для чтения. Сама форма пустая:
+          // обходчик сдаёт исправленное, а не правит старое.
+          for (final task in selectedTasks)
+            if (task.isReturnedForRework) ...[
+              const SizedBox(height: AppConstants.spacingMD),
+              _SectionLabel(ReworkStrings.sectionTitle),
+              _ReworkCard(task: task),
+            ],
+
           // ── Наработка ────────────────────────────────────────
           if (usage.isNotEmpty && !access.usage) ...[
             // Без права показание не вводится вовсе: сервер отклонил бы с
@@ -664,6 +676,142 @@ class _SectionLabel extends StatelessWidget {
 
 /// Подсказка вместо полей фото/комментария, когда выбрано 2+ задач и у
 /// компании включён множественный выбор задач при сканировании QR.
+/// Возвращённая на доработку задача: кто и почему вернул, что было сдано, и
+/// как поведёт себя расход при повторной сдаче.
+class _ReworkCard extends StatelessWidget {
+  final Task task;
+  const _ReworkCard({required this.task});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final access = task.access;
+    final reason = access?.returnComment ?? '';
+    final returnedBy = access?.returnedBy ?? '';
+    final comment = task.comment ?? '';
+    final consumption = task.sparePartUsage?.actual ?? const [];
+    final hasPrevious =
+        comment.isNotEmpty || consumption.isNotEmpty || task.photos.isNotEmpty;
+
+    Widget label(String text) => Padding(
+          padding: const EdgeInsets.only(top: AppConstants.spacingSM),
+          child: Text(
+            text,
+            style: tt.labelSmall?.copyWith(
+              color: cs.onSurfaceVariant,
+              letterSpacing: 0.4,
+            ),
+          ),
+        );
+
+    return Material(
+      color: cs.warning.withValues(alpha: 0.08),
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppConstants.radiusLG),
+        side: BorderSide(color: cs.warning.withValues(alpha: 0.5), width: 0.5),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(AppConstants.spacingMD),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              task.periodicTask?.title ?? 'Назначенная задача',
+              style: tt.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            if (reason.isNotEmpty) ...[
+              const SizedBox(height: AppConstants.spacingXS),
+              Text(
+                ReworkStrings.reason(reason),
+                style: tt.bodyMedium?.copyWith(
+                  color: cs.warning,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+            if (returnedBy.isNotEmpty) ...[
+              const SizedBox(height: 2),
+              Text(
+                ReworkStrings.returnedBy(returnedBy),
+                style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+              ),
+            ],
+            const SizedBox(height: AppConstants.spacingMD),
+            Text(
+              ReworkStrings.previousResult,
+              style: tt.labelSmall?.copyWith(
+                color: cs.onSurfaceVariant,
+                letterSpacing: 0.6,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (!hasPrevious)
+              Padding(
+                padding: const EdgeInsets.only(top: AppConstants.spacingXS),
+                child: Text(
+                  ReworkStrings.previousEmpty,
+                  style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+                ),
+              ),
+            if (comment.isNotEmpty) ...[
+              label(ReworkStrings.previousComment),
+              Text(comment, style: tt.bodyMedium),
+            ],
+            if (consumption.isNotEmpty) ...[
+              label(ReworkStrings.previousConsumption),
+              for (final item in consumption)
+                Text(
+                  '${item.sparePartName} × '
+                  '${formatConsumptionQuantity(item.quantity)}',
+                  style: tt.bodyMedium,
+                ),
+            ],
+            if (task.photos.isNotEmpty) ...[
+              label(ReworkStrings.previousPhotos),
+              const SizedBox(height: AppConstants.spacingXS),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final url in task.photos)
+                    ClipRRect(
+                      borderRadius:
+                          BorderRadius.circular(AppConstants.radiusSM),
+                      child: SizedBox(
+                        width: 56,
+                        height: 56,
+                        child: Image.network(
+                          url,
+                          fit: BoxFit.cover,
+                          // Без сети кадр не загрузится — на месте снимка
+                          // значок, а не красный экран ошибки.
+                          errorBuilder: (_, __, ___) => ColoredBox(
+                            color: cs.surfaceContainerHigh,
+                            child: Icon(Icons.image_outlined,
+                                color: cs.onSurfaceVariant),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+            if (task.sparePartUsage != null) ...[
+              const SizedBox(height: AppConstants.spacingMD),
+              Text(
+                ReworkStrings.consumptionHint,
+                style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _LockedFieldsHint extends StatelessWidget {
   @override
   Widget build(BuildContext context) {

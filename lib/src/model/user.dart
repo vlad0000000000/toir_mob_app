@@ -1,6 +1,7 @@
 import 'package:hive_ce/hive.dart';
 
 import 'access_profile.dart';
+import 'company.dart';
 
 class User {
   final String username;
@@ -24,6 +25,12 @@ class User {
   /// под uuid пользователя (`DataProvider.storedAccessProfile`). Пользователь
   /// из бокса этого поля не несёт.
   AccessProfile? accessProfile;
+
+  /// Флаги компании из `/user/me` (блок `company`). `null` — сервер блока
+  /// не прислал (прошлая версия бэкенда): флаги тогда берутся из
+  /// `/v1/company/me`. В Hive **не пишется**, как и [companyId]: кэш
+  /// компании — свой бокс (`DataProvider.companyBox`).
+  CompanyFlags? companyFlags;
 
   User({required this.username, required this.role});
 

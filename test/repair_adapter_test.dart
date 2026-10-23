@@ -32,7 +32,8 @@ void main() {
     await dir.delete(recursive: true);
   });
 
-  Repair sample({required bool detailsLoaded}) => Repair(
+  Repair sample({required bool detailsLoaded, List<String>? allowedActions}) =>
+      Repair(
         id: 867,
         uuid: 'repair-1',
         status: RepairStatuses.underReview,
@@ -66,6 +67,7 @@ void main() {
           ),
         ],
         detailsLoaded: detailsLoaded,
+        allowedActions: allowedActions,
       );
 
   Future<Repair> roundTrip(String boxName, Repair repair) async {
@@ -119,5 +121,27 @@ void main() {
     // Остальное на месте — отметка не должна утащить за собой соседние поля.
     expect(stored.comment, 'заменил сальник');
     expect(stored.actualConsumptions, hasLength(1));
+  });
+
+  test('разрешения сервера переживают запись и чтение', () async {
+    final stored = await roundTrip(
+      'repairs_actions',
+      sample(
+        detailsLoaded: true,
+        allowedActions: [RepairActions.execute, RepairActions.submitReview],
+      ),
+    );
+
+    expect(stored.allowedActions, ['execute', 'submit_review']);
+    expect(stored.detailsLoaded, isTrue);
+  });
+
+  test('«разрешения неизвестны» не превращаются в пустой список', () async {
+    // Пустой список — «сервер ничего не разрешил», `null` — «не сказал».
+    // Перепутать их — и кнопки ремонта заперлись бы без причины.
+    final stored =
+        await roundTrip('repairs_no_actions', sample(detailsLoaded: true));
+
+    expect(stored.allowedActions, isNull);
   });
 }

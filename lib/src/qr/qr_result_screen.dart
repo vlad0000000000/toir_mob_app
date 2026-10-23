@@ -633,6 +633,38 @@ class _QRResultScreenState extends State<QRResultScreen> {
             usageUpdates: carriesUsage ? maintenanceUsage : null));
         hasTasks = true;
       }
+      // Возвращённая на доработку: статус у неё `closed`, сдаётся снова как
+      // выполненная — с версией результата, на которую отвечает обходчик.
+      // Остальное — как у плановой: связь с периодической задачей (ожидание
+      // наработки), показание ТО в том же запросе.
+      final returned = task.access;
+      if (task.resultStatus == 'closed' &&
+          returned != null &&
+          returned.returned) {
+        final carriesUsage = maintenanceUsage != null &&
+            GlobalState.dataProvider.isMaintenanceTask(task);
+        result.add(Scan(
+            taskUuid: task.uuid,
+            resultStatus: 'closed',
+            files: taskImages,
+            comment: taskComment,
+            priority: '',
+            equipmentUuid: widget.machine.uuid,
+            faultUuid: '',
+            closedAt: GlobalState.nowUTCDate,
+            createdAt: widget.openDateTime,
+            // Расход не указан — поля нет, и на сервере остаётся прежний;
+            // указан — заменяет прежний (сервер спишет или вернёт разницу).
+            actualConsumptions:
+                task.uuid == consumptionTask?.uuid ? consumptionsPayload : null,
+            consumptionNames:
+                task.uuid == consumptionTask?.uuid ? consumptionNames : null,
+            periodicTaskUuid: task.periodicTask?.uuid ?? '',
+            eventId: Scan.newEventId(),
+            usageUpdates: carriesUsage ? maintenanceUsage : null,
+            reviewRevision: returned.reviewRevision));
+        hasTasks = true;
+      }
       if (task.resultStatus == 'open') {
         // Открытым бывает и ТО — переназначенное (`reassign` переводит
         // экземпляр из `scheduled` в `open`). Сервер пересчитывает следующее
@@ -799,6 +831,8 @@ class _QRResultScreenState extends State<QRResultScreen> {
             'target_type': 'ad_hoc',
             'priority': scan.priority,
           },
+          // Ключ события — один на все повторы отправки этой заявки.
+          eventId: Scan.newEventId(),
         );
         await GlobalState.dataProvider.addPeriodicTask(periodicTask);
       }
@@ -897,7 +931,11 @@ class _QRResultScreenState extends State<QRResultScreen> {
     // выбранных, — и предупреждение молчало ровно там, где нужнее всего:
     // расход в этом случае не только не заполнен, но и заполнить его негде.
     final consumptionTask = consumptionTaskOf(equipmentController);
-    final configuredTasks = configuredConsumptionTasksOf(equipmentController);
+    // Доработка без нового расхода ничего не «пропускает»: на сервере
+    // остаётся прежний, — переспрашивать о ней незачем.
+    final configuredTasks = configuredConsumptionTasksOf(equipmentController)
+        .where((task) => !task.isReturnedForRework)
+        .toList();
     final skipsWriteOff = configuredTasks.isNotEmpty &&
         (consumptionTask == null || _consumptionsPayload() == null);
     // Причина разная — «забыли заполнить» или «выбрано несколько задач», — и

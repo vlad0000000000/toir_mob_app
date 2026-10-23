@@ -104,6 +104,23 @@ void main() {
     );
   });
 
+  test('наработка — хватает узкого права на ввод показаний', () {
+    // Без настроек ТО: приложение меняет только текущее показание.
+    expect(
+      _access({'equipment.view', 'usage_parameters.record'}).usage,
+      isTrue,
+    );
+    expect(_access({'usage_parameters.record'}).usage, isFalse);
+  });
+
+  test('смена состояния — хватает узкого права, без правки карточки', () {
+    expect(
+      _access({'equipment.view', 'equipment.change_state'}).changeState,
+      isTrue,
+    );
+    expect(_access({'equipment.view'}).changeState, isFalse);
+  });
+
   test('смена состояния и создание ремонта — независимо друг от друга', () {
     final stateOnly = _access({'equipment.view', 'equipment.edit'});
     final repairOnly = _access({'repair.view', 'repair.create'});

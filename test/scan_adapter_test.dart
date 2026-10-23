@@ -97,6 +97,43 @@ void main() {
     expect(stored.usageKeys, isNull);
     expect(stored.equipmentUuid, 'eq-1');
     expect(stored.closedAt, '2026-10-17T10:05:00Z');
+    // Без версии результата — обычное закрытие, а не доработка.
+    expect(stored.reviewRevision, isNull);
+    expect(stored.isRework, isFalse);
+  });
+
+  test('доработка: версия результата переживает запись и уходит полем формы',
+      () async {
+    Hive.registerAdapter(ScanAdapter());
+    final scan = Scan(
+      resultStatus: 'closed',
+      equipmentUuid: 'eq-1',
+      taskUuid: 'task-1',
+      files: const [],
+      createdAt: '2026-10-23T10:00:00Z',
+      eventId: 'evt-1',
+      reviewRevision: 2,
+    );
+
+    final box = await Hive.openBox<Scan>('scans');
+    await box.put(scan.key(), scan);
+    await box.close();
+    final stored = (await Hive.openBox<Scan>('scans')).get(scan.key())!;
+
+    expect(stored.reviewRevision, 2);
+    expect(stored.isRework, isTrue);
+    // Поля формы — строки: `sendScan` отправляет только их.
+    expect(stored.toJson()['review_revision'], '2');
+    expect(
+      stored
+          .copyWithConsumption(actualConsumptions: null, consumptionNames: null)
+          .reviewRevision,
+      2,
+    );
+  });
+
+  test('обычное закрытие поля версии в форме не несёт', () {
+    expect(sample().toJson().containsKey('review_revision'), isFalse);
   });
 
   test('новые поля не меняют ключ и не уходят на сервер', () {

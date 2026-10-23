@@ -4,7 +4,9 @@ import '../../global_state.dart';
 import '../../src/app_bar/app_bar.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/task.dart';
+import '../../strings.dart';
 import '../design/app_constants.dart';
+import '../design/app_theme.dart';
 import '../widgets/empty_state.dart';
 import 'tasks_filter.dart';
 
@@ -63,7 +65,8 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
   /// сортировки, и ещё раз в `itemBuilder`; каждый вызов шёл по всем задачам
   /// и обоим боксам сканов. На двух сотнях единиц оборудования это тысячи
   /// полных проходов на один кадр.
-  List<(InventoryRecord, int)> _equipmentWithTasks() {
+  /// Оборудование с числом задач и числом из них возвращённых на доработку.
+  List<(InventoryRecord, int, int)> _equipmentWithTasks() {
     final equipment = GlobalState.dataProvider.inventoryRecords;
 
     // «Осмотр оборудования или ТМЦ» — это выбор объекта для осмотра, а не
@@ -72,21 +75,24 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
     // применялся — и обходчик видел вместо справочника случайный огрызок из
     // тех единиц, по которым сейчас висит задача.
     if (widget.isProblems) {
-      return [for (final item in equipment) (item, 0)];
+      return [for (final item in equipment) (item, 0, 0)];
     }
 
     // Сбрасываем кэш очередей на входе: внутри прохода он живёт и экономит
     // сотни обходов, но между кадрами очередь могла измениться.
     GlobalState.dataProvider.invalidateScanTaskCache();
-    final result = <(InventoryRecord, int)>[];
+    final withRework = <(InventoryRecord, int, int)>[];
+    final rest = <(InventoryRecord, int, int)>[];
     for (final item in equipment) {
       final tasks = _filteredTasksFor(item);
-      if (tasks.isNotEmpty) result.add((item, tasks.length));
+      if (tasks.isEmpty) continue;
+      final rework = tasks.where((task) => task.isReturnedForRework).length;
+      (rework > 0 ? withRework : rest).add((item, tasks.length, rework));
     }
-    // Сортировки здесь нет намеренно: прежняя сравнивала «есть ли задачи» у
-    // элементов, которые уже отобраны по наличию задач, — то есть всегда
-    // сравнивала единицу с единицей и ничего не меняла.
-    return result;
+    // Оборудование с задачами на доработку — первым: проверяющий ждёт
+    // исправления, и в общем списке такую задачу легко пропустить. В
+    // остальном порядок справочника, как и был.
+    return [...withRework, ...rest];
   }
 
   List<Task> _filteredTasksFor(InventoryRecord equipment) {
@@ -134,10 +140,11 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
         separatorBuilder: (_, __) =>
             const SizedBox(height: AppConstants.spacingSM),
         itemBuilder: (context, index) {
-          final (equipment, taskCount) = items[index];
+          final (equipment, taskCount, reworkCount) = items[index];
           return _EquipmentTile(
             equipment: equipment,
             taskCount: taskCount,
+            reworkCount: reworkCount,
             isProblems: isProblems,
             onTap: () {
               // push: список остаётся под карточкой, «назад» возвращает в него
@@ -196,12 +203,17 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
 class _EquipmentTile extends StatelessWidget {
   final InventoryRecord equipment;
   final int taskCount;
+
+  /// Сколько из задач вернули на доработку — отдельной строкой под
+  /// счётчиком.
+  final int reworkCount;
   final bool isProblems;
   final VoidCallback onTap;
 
   const _EquipmentTile({
     required this.equipment,
     required this.taskCount,
+    this.reworkCount = 0,
     required this.isProblems,
     required this.onTap,
   });
@@ -268,6 +280,16 @@ class _EquipmentTile extends StatelessWidget {
                         subtitle,
                         style: tt.bodySmall?.copyWith(
                           color: hasTasks ? cs.primary : cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                    if (!isProblems && reworkCount > 0) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        ReworkStrings.equipmentCount(reworkCount),
+                        style: tt.bodySmall?.copyWith(
+                          color: cs.warning,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],

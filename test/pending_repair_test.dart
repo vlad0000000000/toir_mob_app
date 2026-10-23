@@ -83,6 +83,95 @@ void main() {
     });
   });
 
+  group('тело создания', () {
+    PendingRepair fresh() => PendingRepair(
+          localId: 'local-2',
+          equipmentUuid: 'eq-1',
+          equipmentName: 'Насос',
+          startedAt: DateTime.utc(2026, 10, 24, 9),
+          createdAt: DateTime.utc(2026, 10, 24, 9),
+          comment: '  течь сальника ',
+          consumptionNormUuid: 'norm-1',
+        );
+
+    test('фиксируется при первой отправке — комментарий и норма', () {
+      final frozen = fresh().freezeCreate(normUuid: 'norm-1');
+
+      expect(fresh().isCreateFrozen, isFalse);
+      expect(frozen.isCreateFrozen, isTrue);
+      expect(frozen.createComment, 'течь сальника');
+      expect(frozen.createNormUuid, 'norm-1');
+    });
+
+    test('без права на ЗИП — без нормы', () {
+      final frozen = fresh().freezeCreate(normUuid: null);
+
+      expect(frozen.isCreateFrozen, isTrue);
+      expect(frozen.createNormUuid, isNull);
+    });
+
+    test('правка комментария после отправки тело не меняет', () {
+      // Повтор с тем же ключом обязан совпасть с первым запросом — сервер
+      // сверяет ключ с телом и иначе отвечает 409.
+      final edited = fresh()
+          .freezeCreate(normUuid: 'norm-1')
+          .copyWith(comment: 'течь сальника, заменил');
+
+      expect(edited.comment, 'течь сальника, заменил');
+      expect(edited.createComment, 'течь сальника');
+    });
+
+    test('комментарий не менялся после создания — правка не нужна', () {
+      expect(
+        fresh().freezeCreate(normUuid: null).commentChangedSinceCreate,
+        isFalse,
+      );
+    });
+
+    test('комментарий поправили после создания — уходит правкой', () {
+      final edited =
+          fresh().freezeCreate(normUuid: null).copyWith(comment: 'заменил');
+
+      expect(edited.commentChangedSinceCreate, isTrue);
+    });
+
+    test('черновик прошлой версии: очищенный комментарий тоже уходит', () {
+      // Ремонт уже создан, а с каким комментарием — неизвестно (тело не
+      // фиксировалось). Пустой текущий — не «без изменений»: иначе на
+      // сервере остался бы прежний текст.
+      final legacy = PendingRepair(
+        localId: 'local-3',
+        equipmentUuid: 'eq-1',
+        equipmentName: 'Насос',
+        startedAt: DateTime.utc(2026, 10, 24, 9),
+        createdAt: DateTime.utc(2026, 10, 24, 9),
+        comment: '',
+        serverUuid: 'srv-1',
+      );
+
+      expect(legacy.isCreateFrozen, isFalse);
+      expect(legacy.commentChangedSinceCreate, isTrue);
+    });
+
+    test('очистили зафиксированный комментарий — уходит правкой', () {
+      final cleared =
+          fresh().freezeCreate(normUuid: null).copyWith(comment: '');
+
+      expect(cleared.commentChangedSinceCreate, isTrue);
+    });
+
+    test('отказ и его снятие тело не теряют', () {
+      final frozen = fresh().freezeCreate(normUuid: 'norm-1');
+
+      final rejected = frozen.markRejected(reason: 'нет прав');
+      final cleared = rejected.clearRejection();
+
+      expect(rejected.createComment, 'течь сальника');
+      expect(cleared.createComment, 'течь сальника');
+      expect(cleared.createNormUuid, 'norm-1');
+    });
+  });
+
   group('toRepair', () {
     test('черновик отличим от серверного ремонта', () {
       final repair = rejectedDraft().toRepair();

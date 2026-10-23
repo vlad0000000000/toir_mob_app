@@ -206,6 +206,11 @@ const Map<String, String> _translations = {
   'A closed inspection cannot accept new usage_updates':
       'Задача уже закрыта — добавить к ней наработку нельзя. Внесите '
           'показание при следующем сканировании.',
+  // Доработка возвращённого результата (`update_fault_inspection_endpoint`):
+  // пока осмотр ждал связи, проверяющий вернул задачу ещё раз — сданное
+  // отвечает на прежний возврат. Машинного кода у отказа нет, узнаём по
+  // имени поля в тексте.
+  'review_revision': ScanQueueStrings.errorReworkOutdated,
   // Ключ события.
   'Idempotency-Key was already used with a different request':
       'Этот осмотр уже был отправлен с другими данными. Сообщите '

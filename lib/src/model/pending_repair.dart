@@ -75,6 +75,20 @@ class PendingRepair {
   /// пока сервер о ремонте не знает.
   final List<RepairNormItem> normItems;
 
+  /// Комментарий, с которым **впервые** ушло создание ремонта. `null` —
+  /// создание ещё не отправлялось.
+  ///
+  /// Сервер сверяет `Idempotency-Key` с телом запроса: повтор с другим телом
+  /// — 409. А тело у черновика меняется — обходчик правит комментарий, право
+  /// на ЗИП (а с ним норма) может пропасть. Поэтому тело фиксируется при
+  /// первой отправке ([freezeCreate]) и все повторы шлют ровно его. Комментарий
+  /// в создании нужен: на него хватает права создания, а правка ремонта
+  /// требует права работы над ним.
+  final String? createComment;
+
+  /// Норма, с которой впервые ушло создание ([createComment]).
+  final String? createNormUuid;
+
   PendingRepair({
     required this.localId,
     required this.equipmentUuid,
@@ -92,7 +106,46 @@ class PendingRepair {
     this.photoPaths = const [],
     this.submitForReview = false,
     this.normItems = const [],
+    this.createComment,
+    this.createNormUuid,
   });
+
+  /// Тело создания уже зафиксировано — создание отправлялось.
+  bool get isCreateFrozen => createComment != null;
+
+  /// Комментарий надо отправить правкой после создания: он изменился с тех
+  /// пор, как ушёл в создании.
+  ///
+  /// Тело не зафиксировано, а ремонт уже создан — черновик прошлой версии:
+  /// с каким комментарием ушло создание, неизвестно. «Неизвестно» — не
+  /// «пусто»: иначе очищенный обходчиком комментарий считался бы
+  /// неизменным, правка не ушла бы, и на сервере остался прежний текст.
+  /// Поэтому такой комментарий отправляется всегда — и пустой тоже.
+  bool get commentChangedSinceCreate =>
+      !isCreateFrozen || comment.trim() != createComment;
+
+  /// Черновик с зафиксированным телом создания: комментарий — текущий,
+  /// норма — [normUuid] (вызывающий решает, можно ли её отправить).
+  PendingRepair freezeCreate({String? normUuid}) => PendingRepair(
+        localId: localId,
+        equipmentUuid: equipmentUuid,
+        equipmentName: equipmentName,
+        startedAt: startedAt,
+        createdAt: createdAt,
+        consumptionNormUuid: consumptionNormUuid,
+        consumptionNormName: consumptionNormName,
+        comment: comment,
+        consumptions: consumptions,
+        attempts: attempts,
+        lastError: lastError,
+        conflictRepairUuid: conflictRepairUuid,
+        serverUuid: serverUuid,
+        photoPaths: photoPaths,
+        submitForReview: submitForReview,
+        normItems: normItems,
+        createComment: comment.trim(),
+        createNormUuid: normUuid,
+      );
 
   /// Новый черновик: ключ идемпотентности выводим из содержимого плюс момента
   /// создания. Тот же приём, что у `Scan.key()`, — двойное нажатие «Создать»
@@ -194,6 +247,8 @@ class PendingRepair {
       photoPaths: photoPaths ?? this.photoPaths,
       submitForReview: submitForReview ?? this.submitForReview,
       normItems: normItems,
+      createComment: createComment,
+      createNormUuid: createNormUuid,
     );
   }
 
@@ -221,6 +276,8 @@ class PendingRepair {
       photoPaths: photoPaths,
       submitForReview: submitForReview,
       normItems: normItems,
+      createComment: createComment,
+      createNormUuid: createNormUuid,
     );
   }
 
@@ -244,6 +301,8 @@ class PendingRepair {
       photoPaths: photoPaths,
       submitForReview: submitForReview,
       normItems: normItems,
+      createComment: createComment,
+      createNormUuid: createNormUuid,
     );
   }
 }
@@ -284,6 +343,10 @@ class PendingRepairAdapter extends TypeAdapter<PendingRepair> {
     final normItems =
         _readTrailing<List<dynamic>>(reader)?.cast<RepairNormItem>() ??
             const <RepairNormItem>[];
+    // Тело создания — у черновиков прошлой версии его нет: зафиксируется
+    // при следующей отправке.
+    final createComment = _readTrailing<String>(reader);
+    final createNormUuid = _readTrailing<String>(reader);
     return PendingRepair(
       localId: localId,
       equipmentUuid: equipmentUuid,
@@ -301,6 +364,8 @@ class PendingRepairAdapter extends TypeAdapter<PendingRepair> {
       photoPaths: photoPaths,
       submitForReview: submitForReview,
       normItems: normItems,
+      createComment: createComment,
+      createNormUuid: createNormUuid,
     );
   }
 
@@ -333,5 +398,7 @@ class PendingRepairAdapter extends TypeAdapter<PendingRepair> {
     writer.write(obj.photoPaths);
     writer.write(obj.submitForReview);
     writer.write(obj.normItems);
+    writer.write(obj.createComment);
+    writer.write(obj.createNormUuid);
   }
 }

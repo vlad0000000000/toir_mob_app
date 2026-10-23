@@ -74,6 +74,39 @@ extension DataProviderRemote on DataProvider {
   /// Открытые задачи обходчика обоих видов назначения — где он ответственный
   /// и где исполнитель (см. [TaskApi.getCurrentOpenTasks]). Одна задача может
   /// попасть в оба списка — склеиваем по uuid.
+  /// Задачи, возвращённые обходчику на доработку (см.
+  /// [TaskApi.getReturnedTasks]).
+  ///
+  /// Только у сервера, который возврат умеет ([returnsSupported]): прошлая
+  /// версия `executable_only` не знает и на `status=closed` отдала бы все
+  /// закрытые осмотры компании. Признак — блок `company` в `/user/me`: он
+  /// появился в той же версии бэкенда. Страница всё же оказалась не из
+  /// возвращённых — сервер помечается не умеющим до перезапуска.
+  ///
+  /// `null` — признак ещё неизвестен (первый проход после запуска: профиль и
+  /// задачи грузятся параллельно). Это «не знаю», а не «доработок нет»:
+  /// вызывающий оставляет сохранённые, иначе они пропали бы из списка до
+  /// следующего прохода.
+  Future<List<Task>?> loadReturnedTasks() async {
+    if (returnsSupported == null) return null;
+    if (returnsSupported == false) return const [];
+    const limit = 100;
+    var offset = 0;
+    final all = <Task>[];
+    while (true) {
+      final page = await api.getReturnedTasks(limit: limit, offset: offset);
+      if (!page.supported) {
+        returnsSupported = false;
+        return const [];
+      }
+      all.addAll(page.tasks);
+      if (page.fetched < limit) break;
+      offset += limit;
+      _guardPagingLimit(offset);
+    }
+    return all;
+  }
+
   Future<List<Task>> loadAllOpenTasks() async {
     final byUuid = <String, Task>{};
     for (final byInspector in const [false, true]) {
@@ -119,16 +152,18 @@ extension DataProviderRemote on DataProvider {
     int offset = 0;
     List<Task> all = [];
     while (true) {
-      List<Task> notAll =
-          await api.getCurrentTasks(limit: limit, offset: offset);
-      for (var task in notAll) {
-        all.add(task);
-      }
+      final page = await api.getCurrentTasks(limit: limit, offset: offset);
+      all.addAll(page.tasks);
       // Выходим на неполной странице, а не на пустой: иначе цикл всегда
       // делает ещё один — заведомо пустой — запрос просто чтобы узнать, что
       // данные кончились. На шести справочниках это шесть лишних round-trip
       // за каждую синхронизацию.
-      if (notAll.length < limit) {
+      //
+      // Неполная — по тому, сколько **прислал сервер**, а не сколько осталось
+      // после отбора на телефоне (окно времени). Раньше одна отсечённая
+      // запись на полной странице обрывала загрузку, и задачи со следующих
+      // страниц не приезжали вовсе.
+      if (page.fetched < limit) {
         break;
       }
       offset += limit;
@@ -156,6 +191,8 @@ extension DataProviderRemote on DataProvider {
       loggedIn.uuid = currentUserMe.uuid;
       loggedIn.companyId = currentUserMe.companyId;
       loggedIn.accessProfile = currentUserMe.accessProfile;
+      // Что умеет сервер — до первой синхронизации задач после входа.
+      noteServerFeatures(currentUserMe);
       // Роль доступа не назначена или отключена. Сервер пускает на вход и
       // отвечает на `/user/me`, но любой рабочий запрос получит 403 — не
       // пускаем сразу, с понятной причиной, как при истёкшем тарифе. Профиль

@@ -3,7 +3,9 @@ import '../../global_state.dart';
 import '../../src/app_bar/app_bar.dart';
 import '../../src/model/inventory_record.dart';
 import '../../src/model/task.dart';
+import '../../strings.dart';
 import '../design/app_constants.dart';
+import '../design/app_theme.dart';
 import 'task_models.dart';
 import 'equipment_detail_controller.dart';
 import 'periodic_task_card.dart';
@@ -39,12 +41,25 @@ final List<String> _periodOrderNames = periodColors.keys.toList();
 
 /// Порядок групп в списке. Группы ППР («ППР» и «ППР · Название») всегда
 /// наверху: имена конкретных ППР заранее не известны и в [periodColors] их нет.
-int _periodOrder(String period) =>
-    period.startsWith(kPprGroupName) ? -1 : _periodOrderNames.indexOf(period);
+///
+/// Задачи, возвращённые на доработку, — ещё выше ППР: их ждёт проверяющий.
+int _periodOrder(String period) {
+  if (period == ReworkStrings.group) return -2;
+  return period.startsWith(kPprGroupName)
+      ? -1
+      : _periodOrderNames.indexOf(period);
+}
+
+/// Цвет полосы группы доработки — тот же предупреждающий, что у пометки.
+const Color reworkGroupColor = Color(0xFFEA580C);
 
 /// Цвет полосы группы — с той же поправкой на именованные группы ППР.
-Color? periodColorFor(String period) =>
-    period.startsWith(kPprGroupName) ? pprGroupColor : periodColors[period];
+Color? periodColorFor(String period) {
+  if (period == ReworkStrings.group) return reworkGroupColor;
+  return period.startsWith(kPprGroupName)
+      ? pprGroupColor
+      : periodColors[period];
+}
 
 class EquipmentDetailScreen extends StatefulWidget {
   final InventoryRecord machine;
@@ -96,7 +111,11 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       var periodName = '';
       final periodicTask = task.periodicTask;
       final ppr = GlobalState.dataProvider.pprForTask(task);
-      if (ppr != null) {
+      if (task.isReturnedForRework) {
+        // Возвращённая на доработку — своей группой, независимо от ППР и
+        // периодичности: она уже выполнялась, и ждут её исправления.
+        periodName = ReworkStrings.group;
+      } else if (ppr != null) {
         // Осмотр входит в состав актуального ППР — выносим его в отдельную
         // группу вне зависимости от статуса. У ППР может не быть названия,
         // тогда группа называется просто «ППР».
@@ -316,6 +335,22 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
           Text(
             scopeLabel,
             style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+          ),
+        ],
+        // Причина возврата — прямо в списке: по ней обходчик понимает, что
+        // переделать, ещё до того, как откроет задачу.
+        if (task.isReturnedForRework) ...[
+          const SizedBox(height: 2),
+          Text(
+            [
+              ReworkStrings.badge,
+              if ((task.access?.returnComment ?? '').isNotEmpty)
+                ReworkStrings.reason(task.access!.returnComment!),
+            ].join(' · '),
+            style: tt.bodySmall?.copyWith(
+              color: cs.warning,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ],

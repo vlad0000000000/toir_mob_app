@@ -656,6 +656,13 @@ class ScanQueueStrings {
       'Нет связи с сервером. Проверьте интернет и повторите.';
   static const String errorGeneric = 'Сервер не принял осмотр';
 
+  /// Доработку сдали на прежний возврат, а проверяющий успел вернуть задачу
+  /// ещё раз. Сданное сервер не примет — задача снова в списке с новой
+  /// причиной.
+  static const String errorReworkOutdated =
+      'Задачу вернули на доработку ещё раз — удалите этот осмотр и выполните '
+      'задачу заново, с учётом новой причины';
+
   /// Перевод `InsufficientStockError.detail` — сервер отдаёт его по-английски
   /// намеренно и локализацию оставляет клиенту.
   static const String errorInsufficientStock =
@@ -922,6 +929,47 @@ class TaskScopeStrings {
   /// Задача без направления: её может выполнить любой обходчик компании, и
   /// первым её закроет кто-то один — подпись нужна, чтобы это было понятно.
   static const String shared = 'Общая задача';
+}
+
+/// Задачи, возвращённые проверяющим на доработку.
+class ReworkStrings {
+  ReworkStrings._();
+
+  /// Группа на экране задач оборудования — первой, выше ППР и периодичностей.
+  static const String group = 'На доработку';
+
+  /// Пометка у задачи и у оборудования в «Задачах».
+  static const String badge = 'На доработку';
+
+  static String equipmentCount(int n) {
+    final mod10 = n % 10;
+    final mod100 = n % 100;
+    if (mod10 == 1 && mod100 != 11) return '$n задача на доработку';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
+      return '$n задачи на доработку';
+    }
+    return '$n задач на доработку';
+  }
+
+  static String reason(String comment) => 'Причина: $comment';
+
+  static String returnedBy(String name) => 'Вернул: $name';
+
+  /// Заголовок блока на экране скана.
+  static const String sectionTitle = 'Возвращено на доработку';
+
+  static const String previousResult = 'ПРЕЖНИЙ РЕЗУЛЬТАТ';
+  static const String previousComment = 'Комментарий';
+  static const String previousConsumption = 'Расход ЗИП';
+  static const String previousPhotos = 'Фото';
+  static const String previousEmpty = 'Прежний результат без комментария, фото '
+      'и расхода';
+
+  /// Как поведёт себя расход при повторной сдаче — сервер: не передали —
+  /// прежний остаётся, передали — заменяет.
+  static const String consumptionHint =
+      'Расход указывайте, только если он изменился: указанный заменит прежний, '
+      'не указанный — прежний останется.';
 }
 
 /// Нет бизнес-доступа: роль доступа не назначена, отключена или учётная

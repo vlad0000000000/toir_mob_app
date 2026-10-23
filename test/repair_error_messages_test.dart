@@ -156,4 +156,29 @@ void _offlineClassificationTests() {
           'Exception: Сервер прилёг');
     });
   });
+
+  group('ключ повтора уже использован с другим телом', () {
+    final conflict = ServerFailureException(
+        409, 'Idempotency-Key was already used with a different request');
+
+    test('по-русски и как занятое оборудование — с переносом в ремонт', () {
+      // Ремонт этого черновика, скорее всего, уже создан прежней отправкой:
+      // очередь найдёт его, карточка предложит перенести данные.
+      final reason = repairErrorMessage(conflict);
+
+      expect(isEquipmentBusyMessage(reason), isTrue);
+      expect(reason, contains('прежняя отправка'));
+    });
+
+    test('повторять автоматически нельзя — ответ будет тем же', () {
+      expect(isRetryableRepairError(conflict), isFalse);
+    });
+
+    test('конфликт ключа снимка — свой текст, не занятое оборудование', () {
+      final reason = repairErrorMessage(ServerFailureException(409,
+          'Idempotency-Key was already used with a different photo upload'));
+
+      expect(isEquipmentBusyMessage(reason), isFalse);
+    });
+  });
 }

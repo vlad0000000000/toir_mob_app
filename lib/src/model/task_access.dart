@@ -32,11 +32,31 @@ class TaskAccess {
   /// `review`, `reassign`. Сервер всё равно перепроверяет каждое действие.
   final List<String> allowedActions;
 
+  /// Проверяющий вернул результат исполнителю на доработку (`review.state =
+  /// returned`). Статус осмотра при этом остаётся `closed` — по нему одному
+  /// возврат не узнать.
+  final bool returned;
+
+  /// Причина возврата — комментарий проверяющего.
+  final String? returnComment;
+
+  /// Кто вернул — ФИО проверяющего.
+  final String? returnedBy;
+
+  /// Версия результата (`review.revision`): растёт на каждом возврате.
+  /// Повторную сдачу сервер принимает только с текущей — она уходит в
+  /// осмотре полем `review_revision` (`Scan.reviewRevision`).
+  final int reviewRevision;
+
   const TaskAccess({
     this.inspectorUuid,
     this.directionScope,
     this.directions = const [],
     this.allowedActions = const [],
+    this.returned = false,
+    this.returnComment,
+    this.returnedBy,
+    this.reviewRevision = 0,
   });
 
   static const String scopeAll = 'all';
@@ -69,6 +89,11 @@ class TaskAccess {
   factory TaskAccess.fromInspectionJson(Map<String, dynamic> json) {
     final inspector = json['inspector'];
     final uuid = inspector is Map ? inspector['uuid'] : null;
+    // Проверка результата — только у экземпляра задачи; у прямого осмотра
+    // и у сервера прошлой версии блока нет.
+    final review = json['review'];
+    final returnedBy = review is Map ? review['returned_by'] : null;
+    final revision = review is Map ? review['revision'] : null;
     return TaskAccess(
       inspectorUuid: uuid is String && uuid.isNotEmpty ? uuid : null,
       directionScope: json['direction_scope'] as String?,
@@ -77,6 +102,10 @@ class TaskAccess {
         if (json['allowed_actions'] case final List<dynamic> raw)
           ...raw.whereType<String>(),
       ],
+      returned: review is Map && review['state'] == 'returned',
+      returnComment: review is Map ? review['return_comment'] as String? : null,
+      returnedBy: returnedBy is Map ? returnedBy['fullname'] as String? : null,
+      reviewRevision: revision is int ? revision : 0,
     );
   }
 
@@ -85,9 +114,16 @@ class TaskAccess {
         if (directionScope != null) 'direction_scope': directionScope,
         'directions': [for (final ref in directions) ref.toJson()],
         'allowed_actions': allowedActions,
+        if (returned) 'returned': true,
+        if (returnComment != null) 'return_comment': returnComment,
+        if (returnedBy != null) 'returned_by': returnedBy,
+        if (reviewRevision != 0) 'review_revision': reviewRevision,
       };
 
+  /// Разбор строки из Hive ([encode]). Поля возврата у записей прошлой
+  /// версии отсутствуют — значит «не возвращено», как и было.
   factory TaskAccess.fromJson(Map<String, dynamic> json) {
+    final revision = json['review_revision'];
     return TaskAccess(
       inspectorUuid: json['inspector_uuid'] as String?,
       directionScope: json['direction_scope'] as String?,
@@ -96,6 +132,10 @@ class TaskAccess {
         if (json['allowed_actions'] case final List<dynamic> raw)
           ...raw.whereType<String>(),
       ],
+      returned: json['returned'] == true,
+      returnComment: json['return_comment'] as String?,
+      returnedBy: json['returned_by'] as String?,
+      reviewRevision: revision is int ? revision : 0,
     );
   }
 

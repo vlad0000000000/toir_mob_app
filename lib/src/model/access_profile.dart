@@ -14,7 +14,15 @@ class Perm {
   static const String inspectionCreate = 'inspection.create';
   static const String equipmentView = 'equipment.view';
   static const String equipmentEdit = 'equipment.edit';
+
+  /// Узкое право обходчика: только поле `state` в
+  /// `PATCH /v1/company/equipment/{uuid}`, без остальной карточки.
+  static const String equipmentChangeState = 'equipment.change_state';
   static const String usageParametersEdit = 'usage_parameters.edit';
+
+  /// Узкое право обходчика: только текущее показание (`current_value`), без
+  /// настроек ТО — и отдельным запросом, и в составе осмотра.
+  static const String usageParametersRecord = 'usage_parameters.record';
   static const String pprView = 'ppr.view';
   static const String repairView = 'repair.view';
   static const String repairCreate = 'repair.create';

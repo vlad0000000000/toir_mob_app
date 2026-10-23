@@ -137,6 +137,11 @@ class NotificationTypes {
   /// доработку, ведёт прямо в карточку ремонта.
   static const String repairAssigned = 'repair_assigned';
 
+  /// Проверяющий вернул результат осмотра на доработку. Адресуется лично
+  /// исполнителю; заголовок и причину (`description`) присылает сервер.
+  static const String inspectionReturnedForRework =
+      'inspection_returned_for_rework';
+
   /// Подпись типа, зависящую от содержимого уведомления, собирает
   /// [NotificationFormatters.typeLabel]: там же живёт случай снятия с осмотра,
   /// и обе поправки к «сырому» типу должны быть в одном месте.
@@ -146,6 +151,8 @@ class NotificationTypes {
         return 'Назначен ремонт';
       case repairReturnedForRework:
         return 'Ремонт на доработку';
+      case inspectionReturnedForRework:
+        return 'Осмотр на доработку';
       case assignedInspection:
         return 'Назначение осмотра';
       case newTask:
