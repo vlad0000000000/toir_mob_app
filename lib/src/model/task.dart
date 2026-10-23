@@ -91,7 +91,7 @@ class Task {
           ? SparePartUsage.fromJson(
               json['spare_part_usage'] as Map<String, dynamic>)
           : null,
-      access: TaskAccess.fromInspectionJson(json),
+      access: TaskAccess.fromServer(json),
     );
   }
 

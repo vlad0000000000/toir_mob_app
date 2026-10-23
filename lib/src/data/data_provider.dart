@@ -34,6 +34,7 @@ import '../../strings.dart';
 import '../feature_flags.dart';
 import '../qr/scan_error_messages.dart';
 import '../repairs/repair_error_messages.dart';
+import 'access_session.dart';
 import 'cache_commit_queue.dart';
 import 'generation_pass.dart';
 import 'repair_photo_files.dart';
@@ -665,6 +666,13 @@ class DataProvider {
   /// входа отправка продолжится с того же места.
   final ValueNotifier<bool> authExpired = ValueNotifier<bool>(false);
 
+  /// [authExpired] для очередей: ставит и снимает флаг только ответ на
+  /// запрос текущей сессии. Номер сессии очередь запоминает до запроса —
+  /// иначе 401/403 на запрос, ушедший до выхода, поднял бы «Сессия истекла»
+  /// после нового входа (см. [SessionGuardedFlag]).
+  late final SessionGuardedFlag _authExpiredFlag =
+      SessionGuardedFlag(authExpired, () => _accessSession);
+
   /// Блокировки по тарифу на этом телефоне — по компании, чтобы офлайн-вход
   /// их не обходил (правило — [SubscriptionBlocks]). В `stringBox`,
   /// переживают перезапуск; кэш аккаунта ([clearCachedData]) их не трогает —
@@ -715,6 +723,34 @@ class DataProvider {
 
   static const String _accessProfileKey = 'access_profile:';
 
+  /// Запомненная блокировка роли пользователя [userUuid] — код отказа
+  /// сервера (`access_role_missing` и т. п.) или `null`.
+  ///
+  /// Два источника: профиль (`AccessProfile.blockCode`) и отдельная отметка
+  /// [rememberAccessBlock]. Отметка нужна, когда профиля ещё нет — сразу
+  /// после обновления приложения его нет ни у кого, и без неё отказ сервера
+  /// нигде бы не запомнился: офлайн-вход снова пустил бы, стоило выключить
+  /// сеть.
+  String? storedAccessBlock(String? userUuid) {
+    if (userUuid == null || userUuid.isEmpty) return null;
+    return storedAccessProfile(userUuid)?.blockCode ??
+        stringBox.get('$_accessBlockKey$userUuid');
+  }
+
+  Future<void> rememberAccessBlock(String userUuid, String code) async {
+    if (userUuid.isEmpty) return;
+    await stringBox.put('$_accessBlockKey$userUuid', code);
+  }
+
+  /// Сервер подтвердил доступ (онлайн-вход, профиль без блокировки) —
+  /// отметка больше не действует.
+  Future<void> clearAccessBlock(String userUuid) async {
+    if (userUuid.isEmpty) return;
+    await stringBox.delete('$_accessBlockKey$userUuid');
+  }
+
+  static const String _accessBlockKey = 'access_block:';
+
   /// Событие «доступ закрыт во время работы» — растёт на каждую новую
   /// блокировку сессии: тариф истёк, роль сняли или отключили. Слушает
   /// `main.dart`: выход и переход на экран входа.
@@ -740,22 +776,57 @@ class DataProvider {
   /// пачки (все запросы, летевшие в этот момент) — уже не новость.
   String? _blockedSessionToken;
 
+  /// Сессия с токеном [token] всё ещё текущая и не заблокирована — её
+  /// ответам можно верить при записи состояния доступа.
+  bool _isLiveSession(String token, int session) => isLiveAccessSession(
+        requestToken: token,
+        currentToken: GlobalState.authUser?.JWTToken,
+        blockedToken: _blockedSessionToken,
+        requestSession: session,
+        currentSession: _accessSession,
+      );
+
+  /// Номер сессии входа — см. [isLiveAccessSession]. Запрос состояния
+  /// доступа запоминает его до отправки, а ответ записывается, только если
+  /// за это время не было ни входа, ни выхода.
+  int _accessSession = 0;
+
+  /// Начинает новую сессию: ответы на запросы, начатые раньше, больше не
+  /// записываются. Зовут сеттер `GlobalState.authUser` (любой вход и выход)
+  /// и вход — ещё до того, как сохранит свежий профиль.
+  void startAccessSession() => _accessSession++;
+
+  /// Номер текущей сессии — для общего HTTP-клиента ([API.accessSession]):
+  /// он запоминает номер при отправке и возвращает его с отказом или
+  /// версией доступа.
+  int get accessSession => _accessSession;
+
+  /// Порядок ответов `/user/me` в [syncAccessProfile]: запоздалый ответ
+  /// более раннего запроса не ложится поверх свежего.
+  final _profileResponses = AccessResponseOrder();
+
   /// Сервер сообщил версию доступа (`X-Access-Version`) на ответе к запросу
-  /// с токеном [requestToken]. Зовётся из общего HTTP-клиента
-  /// ([API.onAccessVersion]) на каждом ответе.
+  /// с токеном [requestToken], отправленному в сессии [requestSession].
+  /// Зовётся из общего HTTP-клиента ([API.onAccessVersion]) на каждом ответе.
   ///
   /// Другая версия, чем у профиля, — администратор поменял роль, права,
   /// направление или подразделения. Сервер уже отвечает по-новому, а
   /// приложение держало бы старые замки и списки до фоновой синхронизации —
   /// перечитываем сразу ([refreshAccess]).
   ///
-  /// Чужой токен (запоздавший ответ прошлой сессии) и неизвестный профиль
-  /// не трогаем: профиль прошлой версии приложения нальёт обычная
-  /// синхронизация, а сравнивать без него не с чем.
-  void handleAccessVersion(String accessVersion, String? requestToken) {
+  /// Запоздавший ответ прошлой сессии (чужой токен или тот же, но до
+  /// нового входа) и неизвестный профиль не трогаем: профиль прошлой версии
+  /// приложения нальёт обычная синхронизация, а сравнивать без него не с
+  /// чем.
+  void handleAccessVersion(
+    String accessVersion,
+    String? requestToken,
+    int requestSession,
+  ) {
     final user = GlobalState.authUser;
     if (user == null || requestToken == null) return;
     if (requestToken != user.JWTToken) return;
+    if (requestSession != _accessSession) return;
     final known = accessProfile.value?.accessVersion;
     if (known == null || known == accessVersion) return;
     refreshAccess();
@@ -784,20 +855,22 @@ class DataProvider {
   }
 
   /// Сервер закрыл доступ — истёк тариф, роль сняли или отключили — в ответ
-  /// на запрос с токеном [requestToken]. Зовётся из общего HTTP-клиента
-  /// ([API.onAccessBlocked]) и из синхронизации профиля
-  /// ([DataProviderSync.syncAccessProfile]).
+  /// на запрос с токеном [requestToken], отправленный в сессии
+  /// [requestSession]. Зовётся из общего HTTP-клиента ([API.onAccessBlocked])
+  /// и из синхронизации профиля ([DataProviderSync.syncAccessProfile]).
   ///
   /// Реагируем, только если это запрос **текущей** сессии. Ответ на запрос,
   /// отправленный ещё прошлым обходчиком, может прийти уже после входа
-  /// другого — и записал бы блокировку новому, и выкинул бы его. Запросы без
-  /// токена — это сам вход, его разбирает [DataProviderRemote.login].
+  /// другого — и записал бы блокировку новому, и выкинул бы его. Токена для
+  /// этого мало: у повторного входа он может совпасть с прежним (время в нём
+  /// — до секунды), поэтому сверяем и номер сессии ([isLiveAccessSession]).
+  /// Запросы без токена — это сам вход, его разбирает
+  /// [DataProviderRemote.login].
   ///
   /// Блокировка запоминается, чтобы офлайн-вход её не обходил: тариф — на
-  /// компанию ([SubscriptionBlocks]), роль — в профиле пользователя
-  /// ([AccessProfile.blockedBy]). Профиля ещё нет (вошёл прошлой версией и с
-  /// тех пор не синхронизировался) — роль запомнить негде; офлайн-вход тогда
-  /// пустит, но первый же запрос к серверу снова выведет на экран входа.
+  /// компанию ([SubscriptionBlocks]), роль — отметкой по uuid
+  /// ([rememberAccessBlock]) и, если профиль уже есть, в нём самом
+  /// ([AccessProfile.blockedBy]) — чтобы замки и профиль не расходились.
   ///
   /// Очереди при этом ничего не теряют: исключение — наследник
   /// [AuthExpiredException], записи остаются неотклонёнными и уйдут, когда
@@ -805,15 +878,17 @@ class DataProvider {
   void handleAccessBlocked(
     AccessBlockedException blocked,
     String? requestToken,
+    int requestSession,
   ) {
     final user = GlobalState.authUser;
     if (user == null || requestToken == null) return;
-    if (requestToken != user.JWTToken) return;
-    if (_blockedSessionToken == requestToken) return;
+    // Та же сессия, тот же токен, и эту блокировку ещё не обрабатывали.
+    if (!_isLiveSession(requestToken, requestSession)) return;
     _blockedSessionToken = requestToken;
     if (blocked is SubscriptionBlockedException) {
       subscriptionBlocks.block(user.username, blocked.accessState);
     } else {
+      rememberAccessBlock(user.uuid, blocked.code);
       final profile = storedAccessProfile(user.uuid);
       if (profile != null) {
         saveAccessProfile(user.uuid, profile.blockedBy(blocked.code));
@@ -1654,8 +1729,11 @@ class DataProvider {
               .length >
           0;
     } else if (task.resultStatus == "open") {
-      if (task.responsibleUser?.uuid != user.uuid) return false;
-      return access == null || isOpenTaskActionable(access);
+      return isOpenTaskAvailable(
+        responsibleUuid: task.responsibleUser?.uuid,
+        access: access,
+        userUuid: user.uuid,
+      );
     } else {
       return false;
     }

@@ -112,7 +112,16 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
 
   /// Задачу уже выполнил другой исполнитель — общая задача или задача
   /// направления закрывается один раз. Окончательно: повторять нечего.
+  bool get _isClosedByOther => isClosedByOtherReason(_scan.lastError);
+
+  /// Задачу взял другой, но ещё не закрыл: её могут переназначить обратно,
+  /// поэтому повтор остаётся — в отличие от [_isClosedByOther].
   bool get _isTakenByOther => isTakenByOtherReason(_scan.lastError);
+
+  /// Отказ прошлой версии: взял или закрыл — неизвестно. Повтор доступен,
+  /// ответ сервера заменит причину точной.
+  bool get _isTakenOrClosedLegacy =>
+      isTakenOrClosedLegacyReason(_scan.lastError);
 
   /// Названия позиций, сохранённые вместе с осмотром. Разбираем один раз на
   /// построение экрана: список короткий, а обращений к нему несколько.
@@ -507,10 +516,13 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
     final confirmed = await confirmRepairDelete(
       context,
       title: ScanConflictStrings.deleteTitle,
-      // Задачу закрыл другой — «снова станет активной» было бы неправдой.
-      body: _isTakenByOther
-          ? ScanConflictStrings.deleteTakenBody
-          : ScanConflictStrings.deleteBody,
+      // Задача у другого исполнителя — «снова станет активной» было бы
+      // неправдой.
+      body: _isClosedByOther
+          ? ScanConflictStrings.deleteClosedBody
+          : _isTakenByOther || _isTakenOrClosedLegacy
+              ? ScanConflictStrings.deleteTakenBody
+              : ScanConflictStrings.deleteBody,
       note: RepairStrings.deleteIrreversible,
     );
     if (!confirmed || !mounted) return;
@@ -637,11 +649,15 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
           ] else ...[
             const SizedBox(height: AppConstants.spacingMD),
             Text(
-              _isTakenByOther
-                  ? ScanConflictStrings.takenByOtherHint
-                  : isNoRightsReason(_scan.lastError)
-                      ? ScanConflictStrings.noRightsHint
-                      : ScanConflictStrings.genericHint,
+              _isClosedByOther
+                  ? ScanConflictStrings.closedByOtherHint
+                  : _isTakenByOther
+                      ? ScanConflictStrings.takenByOtherHint
+                      : _isTakenOrClosedLegacy
+                          ? ScanConflictStrings.takenOrClosedHint
+                          : isNoRightsReason(_scan.lastError)
+                              ? ScanConflictStrings.noRightsHint
+                              : ScanConflictStrings.genericHint,
               style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
             ),
           ],
@@ -755,7 +771,7 @@ class _ScanConflictScreenState extends State<ScanConflictScreen> {
             children: [
               // Задачу закрыл другой — повтор даст тот же отказ, кнопки нет:
               // остаётся только удалить.
-              if (!_isTakenByOther) ...[
+              if (!_isClosedByOther) ...[
                 SizedBox(
                   height: 52,
                   width: double.infinity,

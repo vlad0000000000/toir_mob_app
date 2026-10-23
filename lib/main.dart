@@ -271,6 +271,10 @@ Future<void> main() async {
   // экран входа, причину он покажет сам. Очереди при этом целы и уйдут,
   // когда доступ вернут.
   API.onAccessBlocked = dataProvider.handleAccessBlocked;
+  // Номер сессии входа: общий клиент запоминает его при отправке запроса,
+  // и запоздалый отказ прошлой сессии не выкинет нового входа с тем же
+  // токеном.
+  API.accessSession = () => dataProvider.accessSession;
   // Роль, права или область поменяли во время работы — перечитываем доступ
   // и справочники сразу, по заголовку первого же ответа.
   API.onAccessVersion = dataProvider.handleAccessVersion;

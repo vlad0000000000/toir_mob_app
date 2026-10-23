@@ -326,6 +326,9 @@ extension DataProviderSync on DataProvider {
           updatedSince: since,
           syncUntil: first.syncUntil,
         );
+        // Доступ к ЗИП сменился посреди прохода — неполный каталог не
+        // записываем, см. [SyncAccessChanged].
+        if (page.resyncRequired) throw const SyncAccessChanged();
         all.addAll(page.items);
         if (page.items.length < 100) break;
         _guardPagingLimit(offset);
@@ -502,6 +505,9 @@ extension DataProviderSync on DataProvider {
           updatedSince: since,
           syncUntil: first.syncUntil,
         );
+        // Доступ сменился посреди прохода — неполный список не годится,
+        // см. [SyncAccessChanged]. Кэш остаётся прежним до следующего прохода.
+        if (page.resyncRequired) throw const SyncAccessChanged();
         all.addAll(page.items);
         if (page.items.length < 100) break;
         _guardPagingLimit(offset);
@@ -600,23 +606,44 @@ extension DataProviderSync on DataProvider {
       if (user == null || token == null || user.uuid.isEmpty) return;
       final generation = cacheGeneration;
       final before = storedAccessProfile(user.uuid);
+      final session = _accessSession;
+      final ticket = _profileResponses.begin();
       final me = await api.me(token);
       final profile = me.accessProfile;
       if (profile == null) return;
-      final committed = await _commit(generation, 'Профиль доступа', () async {
+      var wrote = false;
+      await _commit(generation, 'Профиль доступа', () async {
+        // Ответ мог запоздать. Пока он летел, другой запрос этой же сессии
+        // получил отказ «роль снята», приложение запомнило блокировку и
+        // вышло — а этот, начатый раньше, несёт ещё активный профиль.
+        // Записанный поверх, он стёр бы блокировку, и офлайн-вход снова
+        // пустил бы. Поколение кэша выход не меняет, поэтому проверяем
+        // саму сессию: с начала запроса не было входа или выхода, всё ещё
+        // вошёл тот же токен, и его не блокировали.
+        if (!_isLiveSession(token, session)) return;
+        // Два запроса одной сессии проверку выше проходят оба, а ответы
+        // могут прийти наоборот. Записан ответ более позднего запроса —
+        // этот старше, его права уже неактуальны (см. [AccessResponseOrder]).
+        if (!_profileResponses.tryApply(ticket)) return;
         await saveAccessProfile(user.uuid, profile);
+        if (profile.blockCode == null) await clearAccessBlock(user.uuid);
+        // Пока шла запись, мог пройти вход: он сохранит свой профиль позже
+        // этого (на диске победит его) и выставит его в память сам — наш
+        // туда класть уже нельзя.
+        if (!_isLiveSession(token, session)) return;
         accessProfile.value = profile;
+        wrote = true;
       });
+      if (!wrote) return;
       // Доступ поменялся — записи, отклонённые за «нет прав», пробуем
       // отправить заново: администратор мог право и вернуть.
-      if (committed &&
-          before != null &&
-          before.accessVersion != profile.accessVersion) {
+      if (before != null && before.accessVersion != profile.accessVersion) {
         await retryNoRightsRejections();
       }
       final blockCode = profile.blockCode;
       if (blockCode != null) {
-        handleAccessBlocked(NoBusinessAccessException(blockCode), token);
+        handleAccessBlocked(
+            NoBusinessAccessException(blockCode), token, session);
       }
     } catch (e) {
       _syncLog.warning('Failed sync access profile: $e');

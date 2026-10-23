@@ -64,6 +64,8 @@ extension DataProviderOutbox on DataProvider {
       // нему соврут сразу трое: текст подтверждения удаления, счётчик активных
       // ремонтов и удержание свежего ремонта в кэше при фоновой синхронизации.
       var current = draft;
+      // Сессия — до запросов: ответ может прийти уже после нового входа.
+      final session = _accessSession;
       try {
         // Ремонт создаём только если его ещё нет: на повторном проходе
         // (например, когда доехал ремонт, но не доехали снимки) черновик уже
@@ -111,13 +113,14 @@ extension DataProviderOutbox on DataProvider {
         );
         await upsertRepair(finished);
         await deletePendingRepair(current.localId);
-        authExpired.value = false;
+        _authExpiredFlag.set(false, requestSession: session);
         sent++;
       } catch (e) {
         if (e is AuthExpiredException) {
           // Токен протух. Черновик не виноват — оставляем как есть и поднимаем
           // пометку; после повторного входа отправка продолжится сама.
-          authExpired.value = true;
+          // Отказ на запрос прошлой сессии пометку не поднимает.
+          _authExpiredFlag.set(true, requestSession: session);
           continue;
         }
         if (isRetryableRepairError(e)) {
@@ -184,6 +187,7 @@ extension DataProviderOutbox on DataProvider {
         // Файла нет — вычёркиваем: ждать его бессмысленно.
         continue;
       }
+      final session = _accessSession;
       try {
         await api.uploadRepairPhotos(
           repairUuid,
@@ -192,7 +196,9 @@ extension DataProviderOutbox on DataProvider {
         );
         await RepairPhotoFiles.delete(path);
       } catch (e) {
-        if (e is AuthExpiredException) authExpired.value = true;
+        if (e is AuthExpiredException) {
+          _authExpiredFlag.set(true, requestSession: session);
+        }
         failed = true;
         left.add(path);
         _outboxLog.warning(
@@ -218,11 +224,14 @@ extension DataProviderOutbox on DataProvider {
         left.add(uuid);
         continue;
       }
+      final session = _accessSession;
       try {
         await api.deleteRepairPhoto(repairUuid, uuid);
       } catch (e) {
         if (repairErrorMessage(e) == _photoNotFoundMessage) continue;
-        if (e is AuthExpiredException) authExpired.value = true;
+        if (e is AuthExpiredException) {
+          _authExpiredFlag.set(true, requestSession: session);
+        }
         failed = true;
         left.add(uuid);
         _outboxLog.warning('снимок $uuid не удалён из ремонта $repairUuid: $e');
@@ -340,6 +349,7 @@ extension DataProviderOutbox on DataProvider {
       // попасть объект с уже вычеркнутыми снимками и удалениями, а не
       // исходный — иначе следующая попытка проделает ту же работу заново.
       var current = update;
+      final session = _accessSession;
       try {
         // Фотографии — до PATCH, а не после. PATCH может перевести ремонт в
         // «На рассмотрении», и после этого сервер снимки уже не примет.
@@ -370,11 +380,11 @@ extension DataProviderOutbox on DataProvider {
         );
         await upsertRepair(repair);
         await deletePendingRepairUpdate(current.repairUuid);
-        authExpired.value = false;
+        _authExpiredFlag.set(false, requestSession: session);
         sent++;
       } catch (e) {
         if (e is AuthExpiredException) {
-          authExpired.value = true;
+          _authExpiredFlag.set(true, requestSession: session);
           continue;
         }
         if (isRetryableRepairError(e)) continue;
@@ -559,6 +569,7 @@ extension DataProviderOutbox on DataProvider {
       )) {
         continue;
       }
+      final session = _accessSession;
       try {
         // Переносим «сначала положить, потом убрать» — на всех переходах.
         // Наоборот между двумя шагами записи не было бы ни в одном боксе, и
@@ -571,6 +582,8 @@ extension DataProviderOutbox on DataProvider {
         if (await api.updateUsageParameter(usage)) {
           // Принята — только теперь её нет нигде.
           await scanUsagePendingBox.delete(key);
+          // Сервер принял запрос этой сессии — токен живой.
+          _authExpiredFlag.set(false, requestSession: session);
         } else {
           await _returnUsageToQueue(key, usage);
         }
@@ -579,7 +592,7 @@ extension DataProviderOutbox on DataProvider {
           // Токен протух — наработка не виновата. Возвращаем без пометки:
           // после повторного входа уйдёт сама.
           await _returnUsageToQueue(key, usage);
-          authExpired.value = true;
+          _authExpiredFlag.set(true, requestSession: session);
           continue;
         }
         if (isRetryableScanError(e)) {
@@ -692,6 +705,14 @@ extension DataProviderOutbox on DataProvider {
             ) ||
             scanUsagePendingBox.values.any(
               (usage) => usage.equipmentUuid == scan.equipmentUuid,
+            ) ||
+            // Более раннее показание может лежать и в очереди осмотров —
+            // внутри осмотра «только наработка» или другого ТО
+            // ([Scan.usageUpdates]). Его очередь наработки не видит, а уйди
+            // закрытие первым, ТО посчиталось бы от старого счётчика.
+            isUsageOrderBlocked(
+              (equipmentUuid: scan.equipmentUuid, createdAt: scan.createdAt),
+              exceptKey: scan.key(),
             );
         if (hasPendingUsage) {
           continue;
@@ -705,6 +726,7 @@ extension DataProviderOutbox on DataProvider {
       // и проверкой [_waitsForUsage]: удаление не может вклиниться.
       if (!scanBox.containsKey(scan.key())) continue;
       final timestampKey = 'scan_pending_${scan.key()}';
+      final session = _accessSession;
       try {
         // Перемещаем скан в pending перед отправкой
         await _moveScan(scan, from: scanBox, to: scanPendingBox);
@@ -717,6 +739,9 @@ extension DataProviderOutbox on DataProvider {
           // Успешно - удаляем из всех хранилищ
           await scanPendingBox.delete(scan.key());
           await stringBox.delete(timestampKey);
+          // Сервер принял запрос этой сессии — токен живой, пометка «сессия
+          // истекла» (если её успел поднять другой запрос) уже неправда.
+          _authExpiredFlag.set(false, requestSession: session);
           if (scan.taskUuid != null) {
             await stringBox.delete('maintenance_task_${scan.taskUuid}');
           }
@@ -734,7 +759,9 @@ extension DataProviderOutbox on DataProvider {
           // без пометки об отказе — после повторного входа уйдёт сам.
           await _moveScan(scan, from: scanPendingBox, to: scanBox);
           await stringBox.delete(timestampKey);
-          authExpired.value = true;
+          // Ответ на запрос прошлой сессии (выход и новый вход, пока осмотр
+          // был в пути) пометку не поднимает: новый вход живой.
+          _authExpiredFlag.set(true, requestSession: session);
           continue;
         }
         if (isScanAlreadyDelivered(e)) {

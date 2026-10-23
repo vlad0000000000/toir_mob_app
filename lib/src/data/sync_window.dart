@@ -33,6 +33,11 @@ typedef SyncWindow<T> = ({
 /// Курсор отклонён (422, [SyncCursorRejected]) — окно начинается заново от
 /// [since], один раз; повтор безвреден, записи кладутся по ключу.
 ///
+/// Доступ сменился посреди окна (`resync_required` на продолжении,
+/// [SyncAccessChanged]) — тоже заново, один раз. Признак проверяется на
+/// **каждой** странице: на продолжении он приходит с `next_cursor: null`, и
+/// без проверки обрыв выглядел бы как конец окна.
+///
 /// [guard] — предохранитель от бесконечной выборки, получает число
 /// выбранных записей и бросает, если их подозрительно много.
 Future<SyncWindow<T>> loadSyncWindow<T>(
@@ -46,6 +51,13 @@ Future<SyncWindow<T>> loadSyncWindow<T>(
     try {
       return await _loadOnce(fetch, since, fullPass, guard, pageSize);
     } on SyncCursorRejected {
+      if (attempt >= 1) rethrow;
+    } on SyncAccessChanged {
+      // Окно — заново, один раз. Инкрементальный проход на первой же
+      // странице получит `resync_required` и вернёт пустую границу —
+      // вызывающий перейдёт на полный; полный начнётся с нуля уже при
+      // новом доступе. Сменился доступ и во второй раз — отдаём ошибку:
+      // вызывающий ничего не запишет, следующий проход попробует снова.
       if (attempt >= 1) rethrow;
     }
   }
@@ -78,6 +90,9 @@ Future<SyncWindow<T>> _loadOnce<T>(
     var next = first.nextCursor;
     while (next != null) {
       final page = await fetch(limit: pageSize, cursorMode: true, cursor: next);
+      // Доступ сменился посреди окна — дальше страниц не будет, а принять
+      // обрыв за конец окна значило бы записать его часть. См. [SyncAccessChanged].
+      if (page.resyncRequired) throw const SyncAccessChanged();
       items.addAll(page.items);
       deleted.addAll(page.deletedUuids);
       guard(items.length + deleted.length);
@@ -97,6 +112,7 @@ Future<SyncWindow<T>> _loadOnce<T>(
         updatedSince: since,
         syncUntil: first.syncUntil,
       );
+      if (page.resyncRequired) throw const SyncAccessChanged();
       items.addAll(page.items);
       deleted.addAll(page.deletedUuids);
       if (page.items.length < pageSize) break;

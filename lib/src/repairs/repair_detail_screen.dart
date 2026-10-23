@@ -170,6 +170,10 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
     // после нажатия «Отправить» уехала бы незаметно для самого обходчика.
     // Разблокировать можно, отменив отправку, — см. [_cancelSubmit].
     if (_submittedDraft) return false;
+    // Сервер ответил, что ремонт обходчику больше не виден: любая правка
+    // упрётся в тот же отказ. Смотреть, копировать и удалять накопленное
+    // можно — это блок «Не отправлено», он от правки не зависит.
+    if (_outOfScope) return false;
     return repair.isOpen && !repair.isUnassigned && _workBlock == null;
   }
 
@@ -318,9 +322,23 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
     await _send(submitForReview: true);
   }
 
+  /// Карточку всё ещё можно править — проверка **после** ожидания:
+  /// подтверждения, камеры, выбора файла. Пока обходчик был в диалоге,
+  /// [_load] мог получить отказ «нет доступа»: экран под диалогом уже
+  /// заперт, но сам диалог остался, и без этой проверки подтверждённое
+  /// ушло бы на сервер или — без связи — новой правкой в очередь.
+  bool _stillEditable() {
+    if (_editable) return true;
+    if (_outOfScope && mounted) {
+      _showSnack(message: RepairCardStrings.outOfScopeAction, ok: false);
+    }
+    return false;
+  }
+
   Future<void> _send({required bool submitForReview}) async {
     final repair = _repair;
     if (repair == null || _isSaving) return;
+    if (!_stillEditable()) return;
     // Черновик никуда не отправляем: правки ложатся обратно в очередь, а
     // очередь сама решит порядок — создание, фото, потом статус.
     if (_isDraft) {
@@ -574,6 +592,7 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
       imageQuality: 80,
     );
     if (picked == null || !mounted) return;
+    if (!_stillEditable()) return;
 
     setState(() => _isPhotoBusy = true);
     final bytes = await picked.readAsBytes();
@@ -622,6 +641,7 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
   Future<void> _removePhoto(RepairPhoto photo) async {
     final repair = _repair;
     if (repair == null) return;
+    if (!_stillEditable()) return;
     setState(() => _isPhotoBusy = true);
     try {
       await API().deleteRepairPhoto(repair.uuid, photo.uuid);
@@ -1062,6 +1082,9 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
   Widget? _unsentPrimaryAction(
       PendingRepair? draft, PendingRepairUpdate? update, bool rejected) {
     final busy = _isUnsentBusy || _isSaving;
+    // Ремонт больше не виден обходчику — повтор отправки упрётся в тот же
+    // отказ. Остаются копирование и удаление: накопленное можно забрать.
+    if (_outOfScope) return null;
     if (draft != null && rejected) {
       final kind = _conflictKind(draft, null);
       final blocking = _blockingRepair(draft);
@@ -1271,7 +1294,16 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
         ],
         // Ремонт вне статуса «Открыт» правкам не подлежит — говорим об этом
         // сразу, а не оставляем гадать, почему всё серое.
-        if (!_editable && !repair.isUnassigned) ...[
+        // Ремонт больше не виден обходчику, но на карточке его неотправленная
+        // правка — поэтому она и не заменена заглушкой. Говорим прямо, почему
+        // всё заперто, и что с накопленным можно сделать.
+        if (_outOfScope) ...[
+          const _Banner(
+            text: RepairCardStrings.outOfScopeBanner,
+            warning: true,
+          ),
+          const SizedBox(height: AppConstants.spacingMD),
+        ] else if (!_editable && !repair.isUnassigned) ...[
           // Без значка: текст занимает всю ширину, и отступы со всех сторон
           // получаются одинаковыми — плашка выглядит ровно.
           //
@@ -1379,6 +1411,10 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
 
   Widget? _buildBottomBar(Repair? repair) {
     if (repair == null) return null;
+    // Ремонт вне области обходчика: ни «Взять в работу», ни «Сохранить» и
+    // «Отправить» — сервер откажет. Заглушка или блок «Не отправлено» на
+    // экране объясняют почему.
+    if (_outOfScope) return null;
     if (repair.isUnassigned && repair.isOpen) {
       // Взять ремонт не даёт роль — кнопка остаётся (так видно, что ремонт
       // свободный), но с замком и объясняет, почему не нажимается.

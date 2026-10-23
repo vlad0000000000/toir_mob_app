@@ -21,8 +21,9 @@ String scanErrorMessage(Object error) {
   }
   // Отказ по модели доступа — своими словами, а не текстом сервера: по этой
   // строке экран разбора и повтор после смены доступа узнают вид отказа
-  // ([isTakenByOtherReason], [isNoRightsReason]).
+  // ([isClosedByOtherReason], [isTakenByOtherReason], [isNoRightsReason]).
   if (error is AccessDeniedException) {
+    if (error.isClosedByOther) return ScanQueueStrings.errorClosedByOther;
     if (error.isTakenByOther) return ScanQueueStrings.errorTakenByOther;
     if (error.isNoRights) return ScanQueueStrings.errorNoRights;
   }
@@ -59,8 +60,19 @@ String scanStoredReason(String? stored) {
 
 /// Сохранённая причина — «задачу уже выполнил другой исполнитель»: повторять
 /// отправку бессмысленно, остаётся удалить запись.
+bool isClosedByOtherReason(String? stored) =>
+    stored == ScanQueueStrings.errorClosedByOther;
+
+/// Сохранённая причина — «задачу взял в работу другой исполнитель»: задачу
+/// ещё могут переназначить обратно, поэтому повтор доступен.
 bool isTakenByOtherReason(String? stored) =>
     stored == ScanQueueStrings.errorTakenByOther;
+
+/// Сохранённая прошлой версией причина «взял или закрыл другой» — какой из
+/// двух, неизвестно. Не окончательная: повтор доступен, и ответ сервера
+/// заменит её точной ([ScanQueueStrings.errorTakenOrClosedLegacy]).
+bool isTakenOrClosedLegacyReason(String? stored) =>
+    stored == ScanQueueStrings.errorTakenOrClosedLegacy;
 
 /// Сохранённая причина — «нет прав»: запись повторяют, когда доступ меняется
 /// (`DataProvider.retryNoRightsRejections`).

@@ -93,6 +93,9 @@ class _OfflineAwareClient extends http.BaseClient {
       // в очередь именно по нему, отдельная ветка не нужна.
       throw const SocketException('Сервер не отвечает, попытка отложена');
     }
+    // Сессия — на момент отправки, не ответа: ответ может прийти уже после
+    // выхода и нового входа, с тем же токеном.
+    final session = API.accessSession();
     final http.StreamedResponse response;
     try {
       response = await _inner.send(request);
@@ -107,7 +110,7 @@ class _OfflineAwareClient extends http.BaseClient {
     // этом с первого же запроса, а не через минуту фоновой синхронизации.
     final accessVersion = response.headers['x-access-version'];
     if (accessVersion != null && accessVersion.isNotEmpty) {
-      API.onAccessVersion?.call(accessVersion, _requestToken(request));
+      API.onAccessVersion?.call(accessVersion, _requestToken(request), session);
     }
     if (response.statusCode != 403) return response;
     // Закрытый доступ — истёк тариф, роль сняли или отключили — приходит 403
@@ -121,9 +124,10 @@ class _OfflineAwareClient extends http.BaseClient {
       utf8.decode(bytes, allowMalformed: true),
     );
     if (blocked != null) {
-      // Токен — того запроса, на который пришёл ответ, а не текущий: ответ
-      // мог запоздать и прийти уже в сессии другого обходчика.
-      API.onAccessBlocked?.call(blocked, _requestToken(request));
+      // Токен и сессия — того запроса, на который пришёл ответ, а не
+      // текущие: ответ мог запоздать и прийти уже в следующей сессии — того
+      // же обходчика с тем же токеном или другого.
+      API.onAccessBlocked?.call(blocked, _requestToken(request), session);
       throw blocked;
     }
     return http.StreamedResponse(
@@ -191,18 +195,33 @@ class API {
   /// на экран входа. Сам `API` о них знать не должен.
   ///
   /// [requestToken] — токен запроса, получившего отказ (`null` — запрос без
-  /// токена, сам вход): по нему отличают свою сессию от запоздавшего ответа
-  /// прошлой.
+  /// токена, сам вход), [requestSession] — номер сессии входа на момент
+  /// отправки ([accessSession]): по ним отличают свою сессию от запоздавшего
+  /// ответа прошлой. Одного токена мало — у повторного входа он может
+  /// совпасть с прежним.
   static void Function(
     AccessBlockedException blocked,
     String? requestToken,
+    int requestSession,
   )? onAccessBlocked;
 
   /// Сообщает версию доступа (`X-Access-Version`) с ответа на запрос с
-  /// токеном [requestToken]. Ставит `main.dart`; сравнивает с профилем и
-  /// перечитывает доступ `DataProvider.handleAccessVersion`.
-  static void Function(String accessVersion, String? requestToken)?
-      onAccessVersion;
+  /// токеном [requestToken], отправленный в сессии [requestSession]. Ставит
+  /// `main.dart`; сравнивает с профилем и перечитывает доступ
+  /// `DataProvider.handleAccessVersion`.
+  static void Function(
+    String accessVersion,
+    String? requestToken,
+    int requestSession,
+  )? onAccessVersion;
+
+  /// Номер текущей сессии входа (`DataProvider.startAccessSession`).
+  /// Общий клиент запоминает его при отправке запроса и передаёт в
+  /// [onAccessBlocked] и [onAccessVersion]. Ставит `main.dart`; без него —
+  /// всегда 0, и сессии различаются только по токену.
+  static int Function() accessSession = _noAccessSession;
+
+  static int _noAccessSession() => 0;
 
   // Таймауты сетевых запросов
   static const Duration _readTimeout =

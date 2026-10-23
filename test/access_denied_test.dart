@@ -23,12 +23,16 @@ void main() {
       );
 
       expect(denied.isTakenByOther, isTrue);
+      expect(denied.isClosedByOther, isTrue);
       expect(denied.isNoRights, isFalse);
       expect(denied.statusCode, 409);
     });
 
-    test('задачу взял другой исполнитель', () {
-      expect(parse(409, 'already_taken').isTakenByOther, isTrue);
+    test('задачу взял другой исполнитель — ещё не закрыта', () {
+      final denied = parse(409, 'already_taken');
+
+      expect(denied.isTakenByOther, isTrue);
+      expect(denied.isClosedByOther, isFalse);
     });
 
     test('нет права, направления или подразделения', () {
@@ -69,24 +73,49 @@ void main() {
   });
 
   group('очередь осмотров и наработки', () {
-    final taken = parse(409, 'inspection_closed_by_other');
+    final closed = parse(409, 'inspection_closed_by_other');
+    final taken = parse(409, 'already_taken');
     final noRights = parse(403, 'direction_denied');
 
     test('повторять автоматически нельзя — это отказ по существу', () {
+      expect(isRetryableScanError(closed), isFalse);
       expect(isRetryableScanError(taken), isFalse);
       expect(isRetryableScanError(noRights), isFalse);
-      expect(scanErrorStatusCode(taken), 409);
+      expect(scanErrorStatusCode(closed), 409);
     });
 
     test('причина — своими словами, по ним узнаётся вид отказа', () {
+      final closedReason = scanErrorMessage(closed);
       final takenReason = scanErrorMessage(taken);
       final noRightsReason = scanErrorMessage(noRights);
 
+      expect(closedReason, ScanQueueStrings.errorClosedByOther);
       expect(takenReason, ScanQueueStrings.errorTakenByOther);
       expect(noRightsReason, ScanQueueStrings.errorNoRights);
+      expect(isClosedByOtherReason(closedReason), isTrue);
+      expect(isTakenByOtherReason(closedReason), isFalse);
       expect(isTakenByOtherReason(takenReason), isTrue);
+      expect(isClosedByOtherReason(takenReason), isFalse,
+          reason: 'взятую задачу могут вернуть — повтор не прячем');
       expect(isNoRightsReason(noRightsReason), isTrue);
+      expect(isNoRightsReason(closedReason), isFalse);
       expect(isNoRightsReason(takenReason), isFalse);
+    });
+
+    test('запись прошлой версии — не окончательная, повтор уточнит', () {
+      // Раньше оба конфликта сохранялись одной строкой. Какой это был —
+      // неизвестно: закрытой её считать нельзя, иначе переназначенную обратно
+      // задачу не повторить.
+      const legacy = 'Задачу уже выполнил другой исполнитель — ваш '
+          'результат сервер не примет';
+
+      expect(ScanQueueStrings.errorTakenOrClosedLegacy, legacy);
+      expect(isTakenOrClosedLegacyReason(legacy), isTrue);
+      expect(isClosedByOtherReason(legacy), isFalse);
+      expect(isTakenByOtherReason(legacy), isFalse);
+      // Новые отказы прошлой строкой не помечаются.
+      expect(isTakenOrClosedLegacyReason(scanErrorMessage(closed)), isFalse);
+      expect(isTakenOrClosedLegacyReason(scanErrorMessage(taken)), isFalse);
     });
 
     test('сохранённая причина показывается как есть', () {
@@ -105,7 +134,7 @@ void main() {
       expect(
           isScanAlreadyDelivered(Exception('Закрытый осмотр нельзя изменить')),
           isTrue);
-      expect(isScanAlreadyDelivered(taken), isFalse);
+      expect(isScanAlreadyDelivered(closed), isFalse);
     });
   });
 

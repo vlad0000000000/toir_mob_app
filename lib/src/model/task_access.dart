@@ -46,7 +46,25 @@ class TaskAccess {
   /// Общая задача компании — её выполняет любой, у кого есть право.
   bool get isShared => directionScope == scopeAll;
 
+  /// Экземпляр периодической задачи, а не прямой осмотр. Сервер отдаёт
+  /// `direction_scope` только экземплярам (`is_task_instance`), и смысл
+  /// [inspectorUuid] у них разный: у экземпляра — исполнитель, у прямого
+  /// осмотра — автор.
+  bool get isTaskInstance => directionScope != null;
+
   bool can(String action) => allowedActions.contains(action);
+
+  /// Доступ из ответа осмотра — или `null`, если сервер ролей доступа не
+  /// знает (прошлая версия бэкенда: в ответе нет `allowed_actions`).
+  ///
+  /// Отличаем «поля нет» от «поле пустое»: пустой `allowed_actions: []` —
+  /// явный ответ «выполнять нельзя», а отсутствие поля — старый контракт, при
+  /// котором видимость решает прежнее правило по должности. Без этой разницы
+  /// на старом сервере у обходчика пропадали все плановые задачи.
+  static TaskAccess? fromServer(Map<String, dynamic> json) =>
+      json.containsKey('allowed_actions')
+          ? TaskAccess.fromInspectionJson(json)
+          : null;
 
   factory TaskAccess.fromInspectionJson(Map<String, dynamic> json) {
     final inspector = json['inspector'];

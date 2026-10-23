@@ -148,6 +148,65 @@ void main() {
     });
   });
 
+  group('открытая задача в списке', () {
+    bool available({String? responsible, TaskAccess? access}) =>
+        isOpenTaskAvailable(
+            responsibleUuid: responsible, access: access, userUuid: _me);
+
+    test('назначена мне ответственным', () {
+      expect(available(responsible: _me, access: _instance()), isTrue);
+    });
+
+    test('переназначена мне исполнителем — ответственного нет', () {
+      // `reassign` на сервере ставит inspector и переводит задачу в open,
+      // ответственного не трогает. Раньше такая задача не была видна.
+      expect(available(access: _instance(inspector: _me)), isTrue);
+    });
+
+    test('переназначена другому — не моя, даже если я ответственный', () {
+      expect(
+        available(
+          responsible: _me,
+          access: _instance(inspector: 'other', actions: const []),
+        ),
+        isFalse,
+      );
+    });
+
+    test('чужая задача — нет', () {
+      expect(available(responsible: 'other', access: _instance()), isFalse);
+      expect(available(access: _instance(inspector: 'other')), isFalse);
+    });
+
+    test('прямой осмотр, заведённый мной, но назначенный другому — не мой', () {
+      // У прямого осмотра `inspector` — автор, а не исполнитель.
+      expect(
+        available(
+          responsible: 'other',
+          access:
+              const TaskAccess(inspectorUuid: _me, allowedActions: ['edit']),
+        ),
+        isFalse,
+      );
+    });
+
+    test('прямой осмотр, где я ответственный, — мой', () {
+      expect(
+        available(
+          responsible: _me,
+          access: const TaskAccess(
+              inspectorUuid: 'author', allowedActions: ['edit']),
+        ),
+        isTrue,
+      );
+    });
+
+    test('сервер без модели доступа — по ответственному', () {
+      expect(available(responsible: _me), isTrue);
+      expect(available(responsible: 'other'), isFalse);
+    });
+  });
+
   group('кто закрыл задачу (счётчик ППР)', () {
     test('по исполнителю', () {
       expect(isTaskDoneByMe(_instance(inspector: _me), _me), isTrue);
@@ -215,6 +274,23 @@ void main() {
       expect(access.inspectorUuid, isNull);
       expect(access.directionScope, isNull);
       expect(access.allowedActions, isEmpty);
+    });
+
+    test('сервер без модели доступа — доступ неизвестен, а не «ничего нельзя»',
+        () {
+      // Старый бэкенд полей доступа не присылает. Пустой `allowed_actions`
+      // спрятал бы все назначенные задачи — неизвестный их оставляет.
+      expect(TaskAccess.fromServer({'uuid': 't-1', 'inspector': null}), isNull);
+    });
+
+    test('явный пустой список прав — сервер действительно запретил', () {
+      final access = TaskAccess.fromServer({
+        'uuid': 't-1',
+        'allowed_actions': <dynamic>[],
+      });
+
+      expect(access, isNotNull);
+      expect(access!.allowedActions, isEmpty);
     });
 
     test('строка переживает запись и чтение', () {

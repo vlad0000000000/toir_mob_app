@@ -1,7 +1,20 @@
 part of 'api.dart';
 
 extension TaskApi on API {
-  Future<List<Task>> getCurrentOpenTasks({limit = 50, offset = 0}) async {
+  /// Открытые задачи текущего обходчика — одним из двух видов назначения.
+  ///
+  /// [byInspector] `false` — где он **ответственный** (`responsible_user`):
+  /// так назначаются открытые заявки. `true` — где он **исполнитель**
+  /// (`inspector`): так сервер назначает экземпляр задачи при
+  /// переназначении (`POST /fault_inspections/{uuid}/reassign` пишет
+  /// исполнителя и переводит задачу в `open`, ответственного не трогает).
+  /// Раньше второго вида мобилка не запрашивала вовсе, и переназначенная
+  /// задача пропадала у нового исполнителя.
+  Future<List<Task>> getCurrentOpenTasks({
+    limit = 50,
+    offset = 0,
+    bool byInspector = false,
+  }) async {
     _guardOffline();
     if (API.jwtToken == null) {
       throw Exception('Not authenticated');
@@ -24,7 +37,7 @@ extension TaskApi on API {
       'skip': '$offset',
       'status': 'open',
       if (userUuid != null && userUuid.isNotEmpty)
-        'responsible_user_uuids': [userUuid],
+        byInspector ? 'inspector_uuids' : 'responsible_user_uuids': [userUuid],
     });
 
     final response = await _client.get(
@@ -41,7 +54,7 @@ extension TaskApi on API {
       var scheduled = data
           .where((json) {
             return (json['result_status'] as String) == 'open' &&
-                json['responsible_user'] != null;
+                json[byInspector ? 'inspector' : 'responsible_user'] != null;
           })
           .map((json) => Task.fromJson(json))
           .toList();

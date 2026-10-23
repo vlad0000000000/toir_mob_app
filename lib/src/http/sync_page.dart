@@ -62,6 +62,21 @@ class SyncCursorRejected implements Exception {
   String toString() => 'SyncCursorRejected';
 }
 
+/// Доступ обходчика сменился посреди прохода: очередная страница пришла с
+/// `resync_required` (курсор подписан версией доступа, и после её смены
+/// сервер продолжать окно отказывается).
+///
+/// Окно отбрасывается целиком и ничего не записывается: страницы до смены
+/// посчитаны по старой области, после — нет вовсе. Принять обрыв за конец
+/// окна значило бы на полном проходе заменить весь кэш полученной частью.
+/// Прежний кэш остаётся, пока новый проход не пройдёт целиком.
+class SyncAccessChanged implements Exception {
+  const SyncAccessChanged();
+
+  @override
+  String toString() => 'SyncAccessChanged';
+}
+
 /// Метод API, отдающий страницу инкрементального справочника, — им
 /// пользуется `loadSyncWindow`.
 typedef SyncPageFetch<T> = Future<SyncPage<T>> Function({

@@ -50,11 +50,36 @@ bool isScheduledTaskAvailable(
 
 /// Назначенную (`open`) задачу ответственный может довести до конца: у
 /// экземпляра задачи — `execute`, у прямого осмотра — `edit`.
-///
-/// Ответственный проверяется отдельно, у вызывающего: это поле задачи, а не
-/// доступа.
 bool isOpenTaskActionable(TaskAccess access) =>
     access.can(TaskAccess.actionExecute) || access.can(TaskAccess.actionEdit);
+
+/// Открытая задача видна обходчику, если назначена ему — любым из двух
+/// способов — и выполнима.
+///
+/// Назначений два: **ответственный** ([responsibleUuid]) — открытые заявки;
+/// **исполнитель** (`TaskAccess.inspectorUuid`) — экземпляр задачи, который
+/// администратор переназначил (`reassign` пишет исполнителя и переводит
+/// задачу в `open`, ответственного не трогает). Учитывать только первое
+/// значило терять переназначенные задачи.
+///
+/// Исполнитель считается назначением **только у экземпляра задачи**. У
+/// прямого осмотра в `inspector` сервер пишет автора: заявка, которую
+/// обходчик сам завёл и которую назначили другому, иначе попала бы в его
+/// рабочие задачи.
+///
+/// [access] `null` — запись прошлой версии или сервер без ролей: исполнителя
+/// не знаем, решает ответственный, как раньше.
+bool isOpenTaskAvailable({
+  required String? responsibleUuid,
+  required TaskAccess? access,
+  required String userUuid,
+}) {
+  final executor =
+      access != null && access.isTaskInstance ? access.inspectorUuid : null;
+  final assignedToMe = responsibleUuid == userUuid || executor == userUuid;
+  if (!assignedToMe) return false;
+  return access == null || isOpenTaskActionable(access);
+}
 
 /// Задача сделана текущим пользователем — по исполнителю экземпляра.
 /// `null` — исполнитель неизвестен (запись прошлой версии), решать по

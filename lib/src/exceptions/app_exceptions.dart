@@ -283,7 +283,13 @@ class AccessDeniedException extends ServerFailureException {
 
   bool get isNoRights => noRightsCodes.contains(code);
 
+  /// Задача или ремонт у другого исполнителя — взяты или уже закрыты.
   bool get isTakenByOther => takenCodes.contains(code);
+
+  /// Результат уже записан другим исполнителем — окончательно: закрытый
+  /// экземпляр не переназначают. В отличие от [alreadyTaken], где задачу
+  /// только взяли и её ещё могут вернуть.
+  bool get isClosedByOther => code == closedByOther;
 
   /// Разбирает отказ сервера. `null` — у ответа нет известного `code`: это
   /// обычный отказ, его разбирают как раньше.

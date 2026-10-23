@@ -71,15 +71,31 @@ extension DataProviderRemote on DataProvider {
     return all;
   }
 
+  /// Открытые задачи обходчика обоих видов назначения — где он ответственный
+  /// и где исполнитель (см. [TaskApi.getCurrentOpenTasks]). Одна задача может
+  /// попасть в оба списка — склеиваем по uuid.
   Future<List<Task>> loadAllOpenTasks() async {
+    final byUuid = <String, Task>{};
+    for (final byInspector in const [false, true]) {
+      for (final task in await _loadOpenTasks(byInspector: byInspector)) {
+        byUuid[task.uuid] = task;
+      }
+    }
+    return byUuid.values.toList();
+  }
+
+  Future<List<Task>> _loadOpenTasks({required bool byInspector}) async {
     // 100 — верхний предел сервера. По 50 выходило вдвое больше запросов на
     // тот же объём.
     int limit = 100;
     int offset = 0;
     List<Task> all = [];
     while (true) {
-      List<Task> notAll =
-          await api.getCurrentOpenTasks(limit: limit, offset: offset);
+      List<Task> notAll = await api.getCurrentOpenTasks(
+        limit: limit,
+        offset: offset,
+        byInspector: byInspector,
+      );
       for (var task in notAll) {
         all.add(task);
       }
@@ -126,13 +142,20 @@ extension DataProviderRemote on DataProvider {
     bool apiLoginFailed = false;
 
     try {
-      currentUser = await api.login(login, password);
-      final currentUserMe = await api.me(currentUser.JWTToken);
-      currentUser.effectiveRole = currentUserMe.effectiveRole;
-      currentUser.customRoleId = currentUserMe.customRoleId;
-      currentUser.uuid = currentUserMe.uuid;
-      currentUser.companyId = currentUserMe.companyId;
-      currentUser.accessProfile = currentUserMe.accessProfile;
+      // Онлайн-вход состоялся, только когда пришёл и `/user/me`: до него нет
+      // ни uuid, ни профиля доступа. Поэтому ответ логина держим в своей
+      // переменной и в [currentUser] кладём в самом конце. Раньше он попадал
+      // туда сразу, и сбой `/me` (503, обрыв) пускал обходчика с пустым uuid
+      // мимо всех проверок офлайн-входа — сохранённая блокировка роли не
+      // проверялась, а локальная запись затиралась неполной. Теперь сбой
+      // `/me` ведёт в обычный офлайн-вход со всеми проверками.
+      final loggedIn = await api.login(login, password);
+      final currentUserMe = await api.me(loggedIn.JWTToken);
+      loggedIn.effectiveRole = currentUserMe.effectiveRole;
+      loggedIn.customRoleId = currentUserMe.customRoleId;
+      loggedIn.uuid = currentUserMe.uuid;
+      loggedIn.companyId = currentUserMe.companyId;
+      loggedIn.accessProfile = currentUserMe.accessProfile;
       // Роль доступа не назначена или отключена. Сервер пускает на вход и
       // отвечает на `/user/me`, но любой рабочий запрос получит 403 — не
       // пускаем сразу, с понятной причиной, как при истёкшем тарифе. Профиль
@@ -142,12 +165,12 @@ extension DataProviderRemote on DataProvider {
       // записи, и причина «не обходчик» для них точнее.
       final profile = currentUserMe.accessProfile;
       final blockCode = profile?.blockCode;
-      if (profile != null &&
-          blockCode != null &&
-          currentUser.role == 'walker') {
+      if (profile != null && blockCode != null && loggedIn.role == 'walker') {
         await saveAccessProfile(currentUserMe.uuid, profile);
+        await rememberAccessBlock(currentUserMe.uuid, blockCode);
         throw NoBusinessAccessException(blockCode);
       }
+      currentUser = loggedIn;
     } on InvalidCredentialsException {
       // Сервер вернул, что учетные данные неверны - не проверяем локальных пользователей
       rethrow;
@@ -220,7 +243,7 @@ extension DataProviderRemote on DataProvider {
       // Последний ответ сервера — «роль не назначена» или «роль отключена».
       // Как и с тарифом: без связи не проверить, вернули ли роль, а пустить
       // по локальной записи значило бы обойти блокировку, выключив сеть.
-      final blockCode = storedAccessProfile(currentUser.uuid)?.blockCode;
+      final blockCode = storedAccessBlock(currentUser.uuid);
       if (blockCode != null && currentUser.role == 'walker') {
         throw NoBusinessAccessException(blockCode);
       }
@@ -265,10 +288,18 @@ extension DataProviderRemote on DataProvider {
       // бы следующую блокировку без реакции.
       pendingAccessNotice = null;
       _blockedSessionToken = null;
+      // И ответы профиля, запрошенные прежней сессией, — тоже к ней: ни один
+      // не должен лечь поверх профиля, который вход сохранит ниже, даже при
+      // совпавшем токене. Сеттер `GlobalState.authUser` сдвинет номер ещё
+      // раз, но позже — уже после сохранения.
+      startAccessSession();
 
       // Свежий профиль доступа — до смены пользователя: сеттер
       // `GlobalState.authUser` берёт его отсюда. Офлайн-вход профиль не
       // трогает, остаётся последний известный.
+      // Сервер пустил онлайн — запомненная блокировка роли больше не
+      // действует (роль вернули).
+      if (!apiLoginFailed) await clearAccessBlock(currentUser.uuid);
       final freshProfile = currentUser.accessProfile;
       if (!apiLoginFailed && freshProfile != null) {
         final before = storedAccessProfile(currentUser.uuid);

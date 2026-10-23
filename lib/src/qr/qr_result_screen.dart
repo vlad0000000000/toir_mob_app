@@ -541,7 +541,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
 
   /// [maintenanceUsage] — готовое поле `usage_updates` (см.
   /// [usageUpdatesPayload]): уходит вместе с закрытием **каждой** задачи ТО
-  /// в пачке, одной транзакцией. Сервер считает следующее ТО от счётчика, и
+  /// в пачке — плановой или открытой (переназначенной), — одной транзакцией. Сервер считает следующее ТО от счётчика, и
   /// показание должно лечь до закрытия этой самой задачи. Раньше его вёз
   /// только первый ТО: упади его запрос (503), следующий закрылся бы без
   /// нового показания, и сервер посчитал бы ТО от старого счётчика. Повтор
@@ -634,6 +634,19 @@ class _QRResultScreenState extends State<QRResultScreen> {
         hasTasks = true;
       }
       if (task.resultStatus == 'open') {
+        // Открытым бывает и ТО — переназначенное (`reassign` переводит
+        // экземпляр из `scheduled` в `open`). Сервер пересчитывает следующее
+        // ТО по задаче самого осмотра, поэтому наработка едет в том же
+        // запросе, что и у плановой: отдельной очередью она ушла бы позже
+        // закрытия, и ТО посчиталось бы от старого показания.
+        //
+        // Связь с периодической задачей сохраняем, как у плановой: по ней
+        // `addScan` ставит признак ТО, и очередь держит закрытие, пока не
+        // уйдёт показание, внесённое **раньше** (лежит в очереди наработки, а
+        // в этот осмотр нового не вписали). Пустая связь пускала закрытие
+        // вперёд. Прямой осмотр периодической задачи не имеет — у него пусто.
+        final carriesUsage = maintenanceUsage != null &&
+            GlobalState.dataProvider.isMaintenanceTask(task);
         result.add(Scan(
             taskUuid: task.uuid,
             resultStatus: 'closed',
@@ -648,8 +661,9 @@ class _QRResultScreenState extends State<QRResultScreen> {
                 task.uuid == consumptionTask?.uuid ? consumptionsPayload : null,
             consumptionNames:
                 task.uuid == consumptionTask?.uuid ? consumptionNames : null,
-            periodicTaskUuid: '',
-            eventId: Scan.newEventId()));
+            periodicTaskUuid: task.periodicTask?.uuid ?? '',
+            eventId: Scan.newEventId(),
+            usageUpdates: carriesUsage ? maintenanceUsage : null));
         hasTasks = true;
       }
     }
