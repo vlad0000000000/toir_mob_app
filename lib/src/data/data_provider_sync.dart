@@ -668,6 +668,33 @@ extension DataProviderSync on DataProvider {
     }
   }
 
+  /// Помещения подразделений обходчика — для фильтра «Моё / Всё
+  /// оборудование» ([DataProvider.isOwnEquipment]).
+  ///
+  /// Не нужны, когда подразделений нет (сервер без ролей) или роль видит
+  /// все: тогда всё оборудование своё. Один-два лёгких запроса раз в минуту
+  /// вместе со справочниками — подразделения обходчику меняют на лету.
+  Future<void> syncMyLocations() async {
+    final profile = accessProfile.value;
+    if (profile == null || profile.allDivisions) return;
+    try {
+      final generation = cacheGeneration;
+      const limit = 100;
+      final uuids = <String>{};
+      for (var offset = 0;; offset += limit) {
+        final page = await api.getMyLocationUuids(limit: limit, offset: offset);
+        uuids.addAll(page);
+        if (page.length < limit) break;
+        _guardPagingLimit(offset + limit);
+      }
+      await _commit(generation, 'Помещения подразделений', () async {
+        await saveMyLocationUuids(uuids);
+      });
+    } catch (e) {
+      _syncLog.warning('Failed sync my locations: $e');
+    }
+  }
+
   Future<void> syncCompany() async {
     _isLoading = true;
 
@@ -987,6 +1014,7 @@ extension DataProviderSync on DataProvider {
       // Флаги компании — внутри: они приходят в `/user/me`, а у сервера
       // прошлой версии профиль сам дозапросит `/v1/company/me`.
       syncAccessProfile(),
+      syncMyLocations(),
       // Каталог ЗИП вернулся в общий проход — теперь он инкрементальный.
       // Исключали его, когда каждый проход перекачивал десятки тысяч позиций
       // сотнями страниц; сейчас в устоявшемся состоянии это один запрос с

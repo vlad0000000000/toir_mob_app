@@ -7,6 +7,7 @@ import '../../src/model/task.dart';
 import '../../strings.dart';
 import '../design/app_constants.dart';
 import '../design/app_theme.dart';
+import '../widgets/filter_controls.dart';
 import '../widgets/empty_state.dart';
 import 'tasks_filter.dart';
 
@@ -29,6 +30,36 @@ class EquipmentListScreen extends StatefulWidget {
 class _EquipmentListScreenState extends State<EquipmentListScreen> {
   TasksFilterState _filter = TasksFilterState();
 
+  /// Фильтр «Моё подразделение / Все подразделения» переживает уход с
+  /// экрана в пределах запуска — как фильтр справочника ЗИП. По умолчанию —
+  /// своё.
+  static bool _lastShowAll = false;
+  bool _showAll = _lastShowAll;
+
+  static List<InventoryRecord> _scopedEquipment(
+    List<InventoryRecord> equipment, {
+    required bool showAll,
+  }) {
+    if (showAll) return equipment;
+    final provider = GlobalState.dataProvider;
+    return [
+      for (final item in equipment)
+        if (provider.isOwnEquipment(item)) item,
+    ];
+  }
+
+  Future<void> _openScopeFilter() async {
+    final result = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => _EquipmentScopeSheet(initialShowAll: _showAll),
+    );
+    if (result == null || !mounted) return;
+    _lastShowAll = result;
+    setState(() => _showAll = result);
+  }
+
   /// Синхронизация уже идёт — показываем тонкую полоску над списком, но сам
   /// список не прячем.
   bool _isSyncing = false;
@@ -41,6 +72,24 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
     // не перекачаются все справочники — включая каталог ЗИП на десятки тысяч
     // позиций. При этом всё нужное уже лежит в Hive и рисуется мгновенно.
     _syncInBackground();
+    // Фоновая синхронизация меняет и сам справочник, и то, что считать своим
+    // (помещения подразделений, профиль с «все подразделения»). Без
+    // подписки открытый экран держал бы прежний отбор до повторного входа.
+    final provider = GlobalState.dataProvider;
+    provider.inventoryRevision.addListener(_onScopeChanged);
+    provider.accessProfile.addListener(_onScopeChanged);
+  }
+
+  @override
+  void dispose() {
+    final provider = GlobalState.dataProvider;
+    provider.inventoryRevision.removeListener(_onScopeChanged);
+    provider.accessProfile.removeListener(_onScopeChanged);
+    super.dispose();
+  }
+
+  void _onScopeChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _syncInBackground() async {
@@ -65,7 +114,9 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
   /// сортировки, и ещё раз в `itemBuilder`; каждый вызов шёл по всем задачам
   /// и обоим боксам сканов. На двух сотнях единиц оборудования это тысячи
   /// полных проходов на один кадр.
-  /// Оборудование с числом задач и числом из них возвращённых на доработку.
+  ///
+  /// Возвращает оборудование с числом задач и числом из них возвращённых на
+  /// доработку.
   List<(InventoryRecord, int, int)> _equipmentWithTasks() {
     final equipment = GlobalState.dataProvider.inventoryRecords;
 
@@ -74,8 +125,15 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
     // и не показывается (см. `_EquipmentTile`), а отбор по ним всё равно
     // применялся — и обходчик видел вместо справочника случайный огрызок из
     // тех единиц, по которым сейчас висит задача.
+    //
+    // Отбор здесь один — фильтр «Моё подразделение / Все подразделения»:
+    // справочник может прийти по всей компании, и своё в нём отличаем на
+    // телефоне. Влияет только на этот список — не на скан QR.
     if (widget.isProblems) {
-      return [for (final item in equipment) (item, 0, 0)];
+      return [
+        for (final item in _scopedEquipment(equipment, showAll: _showAll))
+          (item, 0, 0),
+      ];
     }
 
     // Сбрасываем кэш очередей на входе: внутри прохода он живёт и экономит
@@ -121,15 +179,25 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
                     const BoxConstraints(minHeight: 128, minWidth: 128),
               ),
             )
-          : EmptyState(
-              icon: isProblems
-                  ? Icons.warehouse_outlined
-                  : Icons.checklist_rounded,
-              title: isProblems ? 'Нет оборудования' : 'Нет активных задач',
-              hint: isProblems
-                  ? 'Список оборудования пуст или ещё не загружен.'
-                  : 'Отсканируйте QR-код оборудования, чтобы начать осмотр или открыть задачи.',
-            );
+          : isProblems &&
+                  !_showAll &&
+                  GlobalState.dataProvider.inventoryRecords.isNotEmpty
+              // Пусто только из-за фильтра «Моё»: оборудование есть, но не в
+              // помещениях подразделений обходчика.
+              ? const EmptyState(
+                  icon: Icons.warehouse_outlined,
+                  title: EquipmentFilterStrings.emptyMineTitle,
+                  hint: EquipmentFilterStrings.emptyMineHint,
+                )
+              : EmptyState(
+                  icon: isProblems
+                      ? Icons.warehouse_outlined
+                      : Icons.checklist_rounded,
+                  title: isProblems ? 'Нет оборудования' : 'Нет активных задач',
+                  hint: isProblems
+                      ? 'Список оборудования пуст или ещё не загружен.'
+                      : 'Отсканируйте QR-код оборудования, чтобы начать осмотр или открыть задачи.',
+                );
     } else {
       body = ListView.separated(
         padding: const EdgeInsets.symmetric(
@@ -191,7 +259,149 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
                 ),
               ),
             ),
+          // Фильтр подразделений — в справочнике оборудования. Активным он
+          // считается на «Всё»: по умолчанию показывается своё.
+          if (isProblems)
+            Padding(
+              // Отступы — как у строки поиска с фильтром в справочнике ЗИП.
+              padding: const EdgeInsets.fromLTRB(
+                AppConstants.spacingMD,
+                AppConstants.spacingMD,
+                AppConstants.spacingMD,
+                0,
+              ),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: SizedBox(
+                  height: FilterButton.standaloneHeight,
+                  child: FilterButton(
+                    activeCount: _showAll ? 1 : 0,
+                    onTap: _openScopeFilter,
+                  ),
+                ),
+              ),
+            ),
           Expanded(child: body),
+        ],
+      ),
+    );
+  }
+}
+
+/// Лист фильтра справочника оборудования: пока один переключатель «Моё
+/// подразделение / Все подразделения» — в стиле фильтров справочника ЗИП.
+/// Возвращает «показывать все подразделения».
+class _EquipmentScopeSheet extends StatefulWidget {
+  final bool initialShowAll;
+
+  const _EquipmentScopeSheet({required this.initialShowAll});
+
+  @override
+  State<_EquipmentScopeSheet> createState() => _EquipmentScopeSheetState();
+}
+
+class _EquipmentScopeSheetState extends State<_EquipmentScopeSheet> {
+  late bool _showAll = widget.initialShowAll;
+
+  /// Сколько единиц покажет список — в поле, а не в `build`: проход по
+  /// справочнику на каждое перестроение листа был бы лишним.
+  late int _count = _countFor(_showAll);
+
+  static int _countFor(bool showAll) =>
+      _EquipmentListScreenState._scopedEquipment(
+        GlobalState.dataProvider.inventoryRecords,
+        showAll: showAll,
+      ).length;
+
+  void _set(bool showAll) => setState(() {
+        _showAll = showAll;
+        _count = _countFor(showAll);
+      });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: AppConstants.spacingMD),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    EquipmentFilterStrings.title,
+                    style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _showAll ? () => _set(false) : null,
+                  child: const Text(EquipmentFilterStrings.reset),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppConstants.spacingMD,
+              AppConstants.spacingSM,
+              AppConstants.spacingMD,
+              AppConstants.spacingMD,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  EquipmentFilterStrings.labelScope.toUpperCase(),
+                  style: tt.labelSmall?.copyWith(
+                    color: cs.onSurfaceVariant,
+                    letterSpacing: 0.6,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppConstants.spacingSM),
+                SegmentedToggle(
+                  labels: const [
+                    EquipmentFilterStrings.mine,
+                    EquipmentFilterStrings.all,
+                  ],
+                  selectedIndex: _showAll ? 1 : 0,
+                  onChanged: (index) => _set(index == 1),
+                ),
+              ],
+            ),
+          ),
+          // Липкая кнопка, как у фильтра ЗИП: обещает ровно то число,
+          // которое обходчик увидит после закрытия листа.
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(
+              AppConstants.spacingMD,
+              AppConstants.spacingSM,
+              AppConstants.spacingMD,
+              AppConstants.spacingMD,
+            ),
+            decoration: BoxDecoration(
+              border: Border(
+                top: BorderSide(color: cs.outlineVariant, width: 0.5),
+              ),
+            ),
+            child: SizedBox(
+              height: AppConstants.buttonHeightLarge,
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(_showAll),
+                child: Text(
+                  _count == 0
+                      ? EquipmentFilterStrings.nothingFound
+                      : EquipmentFilterStrings.showResults(_count),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );

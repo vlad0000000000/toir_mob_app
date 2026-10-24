@@ -199,6 +199,38 @@ extension EquipmentApi on API {
     }
   }
 
+  /// Страница помещений **подразделений пользователя**
+  /// (`/v1/company/locations/brief`): сервер отдаёт их любой клиентской роли
+  /// и сам ограничивает областью — помещениями своих подразделений, а при
+  /// «все подразделения» — всеми. По ним мобилка отличает своё оборудование
+  /// (подразделение оборудования — подразделение его помещения).
+  Future<List<String>> getMyLocationUuids({
+    int limit = 100,
+    int offset = 0,
+  }) async {
+    _guardOffline();
+    if (API.jwtToken == null) {
+      throw Exception('Not authenticated');
+    }
+    final url = Uri.parse('${API.baseUrl}/v1/company/locations/brief').replace(
+      queryParameters: {'limit': '$limit', 'skip': '$offset'},
+    );
+    final response = await _client.get(
+      url,
+      headers: {'Authorization': 'Bearer ${API.jwtToken}'},
+    ).timeout(API._readTimeout);
+    if (response.statusCode != 200) {
+      _throwServerError(response, 'Не удалось загрузить помещения');
+    }
+    const utf8Decoder = Utf8Decoder(allowMalformed: true);
+    final data = jsonDecode(utf8Decoder.convert(response.bodyBytes));
+    return [
+      if (data is List)
+        for (final item in data)
+          if (item is Map && item['uuid'] is String) item['uuid'] as String,
+    ];
+  }
+
   Future<bool> updateEquipmentState(String equipmentUuid, String state) async {
     _guardOffline();
     if (API.jwtToken == null) {

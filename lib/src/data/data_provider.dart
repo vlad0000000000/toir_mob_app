@@ -36,6 +36,7 @@ import '../feature_flags.dart';
 import '../qr/scan_error_messages.dart';
 import '../repairs/repair_error_messages.dart';
 import 'access_session.dart';
+import 'equipment_scope.dart';
 import 'problem_report_photos.dart';
 import 'cache_commit_queue.dart';
 import 'generation_pass.dart';
@@ -530,6 +531,9 @@ class DataProvider {
       'last_sync_date',
       pprCacheKey,
       pprCompletedByMeCacheKey,
+      // Помещения подразделений — того, кто вошёл: чужие сделали бы «своим»
+      // не то оборудование.
+      _myLocationsKey,
     ]);
     // Ключи с переменной частью — отметки закрытых задач и ожидания
     // наработки по ТО. Их имена содержат uuid, списком не перечислить.
@@ -548,6 +552,9 @@ class DataProvider {
     // Состояние в памяти — следом за боксами, иначе экраны продолжат рисовать
     // прошлый аккаунт до первого прохода синхронизации.
     _inventoryRecords = [];
+    _myLocations = null;
+    _myLocationsLoaded = false;
+    inventoryRevision.value++;
     _typicalProblems = [];
     _periodicityRules = [];
     _usageUnits = [];
@@ -802,6 +809,47 @@ class DataProvider {
   /// он запоминает номер при отправке и возвращает его с отказом или
   /// версией доступа.
   int get accessSession => _accessSession;
+
+  static const String _myLocationsKey = 'my_location_uuids';
+
+  /// Помещения подразделений обходчика — по ним отличается своё
+  /// оборудование ([isOwnEquipment]). `null` — ещё не загружены (или роль
+  /// видит все подразделения, и список не нужен). В `stringBox`, чтобы
+  /// фильтр работал без сети; при смене аккаунта стирается.
+  ///
+  /// Разобранный набор держим в памяти: фильтр спрашивает его на каждую
+  /// единицу оборудования, а разбирать JSON тысячи раз за кадр незачем.
+  Set<String>? get myLocationUuids {
+    if (_myLocationsLoaded) return _myLocations;
+    _myLocationsLoaded = true;
+    final raw = stringBox.get(_myLocationsKey);
+    if (raw == null) return _myLocations = null;
+    try {
+      final data = jsonDecode(raw);
+      return _myLocations =
+          data is List ? {for (final item in data) '$item'} : null;
+    } catch (_) {
+      return _myLocations = null;
+    }
+  }
+
+  Set<String>? _myLocations;
+  bool _myLocationsLoaded = false;
+
+  Future<void> saveMyLocationUuids(Iterable<String> uuids) async {
+    _myLocations = uuids.toSet();
+    _myLocationsLoaded = true;
+    await stringBox.put(_myLocationsKey, jsonEncode(uuids.toList()));
+    // Помещения поменяли, что считать своим оборудованием.
+    inventoryRevision.value++;
+  }
+
+  /// Оборудование из подразделений обходчика (см. [isMyEquipment]).
+  bool isOwnEquipment(InventoryRecord equipment) => isMyEquipment(
+        equipment,
+        profile: accessProfile.value,
+        myLocationUuids: myLocationUuids,
+      );
 
   /// Сервер умеет возврат результата на доработку — и, значит, запрос
   /// [loadReturnedTasks]. `null` — ещё не знаем (до первого `/user/me`),
@@ -1366,10 +1414,21 @@ class DataProvider {
         DateTime.now().millisecondsSinceEpoch.toString(),
       );
 
-  bool get isEquipmentFullResyncDue => _isFullResyncDue(_equipmentFullSyncKey);
+  /// Отметка «справочник оборудования уже перечитан с uuid помещений»
+  /// ([InventoryRecord.locationUuid]). Записи прошлой версии поля не несут, а
+  /// дельта перезаписывает только изменённые — без разовой полной сверки
+  /// фильтр «Моё оборудование» до трёх суток считал бы их неизвестными.
+  /// К аккаунту не относится: это формат хранения, а не данные.
+  static const String _equipmentLocationUuidKey = 'equipment_location_uuid_v1';
 
-  Future<void> markEquipmentFullResyncDone() =>
-      _markFullResyncDone(_equipmentFullSyncKey);
+  bool get isEquipmentFullResyncDue =>
+      _isFullResyncDue(_equipmentFullSyncKey) ||
+      stringBox.get(_equipmentLocationUuidKey) == null;
+
+  Future<void> markEquipmentFullResyncDone() async {
+    await _markFullResyncDone(_equipmentFullSyncKey);
+    await stringBox.put(_equipmentLocationUuidKey, '1');
+  }
 
   bool get isTypicalProblemsFullResyncDue =>
       _isFullResyncDue(_typicalProblemsFullSyncKey);
@@ -1582,7 +1641,17 @@ class DataProvider {
 
   void updateInventoryRecords() async {
     _inventoryRecords = inventoryBox.values.toList();
+    inventoryRevision.value++;
   }
+
+  /// Ревизия того, что решает состав списков оборудования: самого
+  /// справочника и помещений своих подразделений ([myLocationUuids]).
+  ///
+  /// Открытый экран без неё не узнал бы о синхронизации: пока помещения не
+  /// загружены, фильтр «Моё подразделение» показывает всё, а пришли они —
+  /// экран продолжал бы держать чужое оборудование до повторного открытия.
+  /// Та же механика, что у [sparePartsRevision] и [repairsRevision].
+  final ValueNotifier<int> inventoryRevision = ValueNotifier<int>(0);
 
   /// Оборудование по локальному `id`. `null` — его нет в справочнике.
   ///

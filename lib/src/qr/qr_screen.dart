@@ -12,6 +12,7 @@ import '../../src/onboarding/scanner_demo_modal.dart';
 import '../../src/utils/go_router_ext.dart';
 
 import '../update_manager.dart';
+import 'foreign_equipment_dialog.dart';
 import 'scanner_button_widgets.dart';
 import 'scanner_error_widget.dart';
 
@@ -41,6 +42,10 @@ class _BarcodeScannerWithControllerState
   /// при включённой настройке «сразу открывать задачи» каждая открывала свою
   /// шторку выбора задач.
   bool _navigating = false;
+
+  /// Сколько сканер молчит после «Отмена» в предупреждении о чужом
+  /// оборудовании: обходчик успевает убрать камеру от того же QR.
+  static const Duration _declinedCooldown = Duration(seconds: 2);
 
   bool get _isOnboardingScanner =>
       Settings.onboardingInProgress && Settings.onboardingStep == 2;
@@ -153,6 +158,22 @@ class _BarcodeScannerWithControllerState
                                 // Роутер берём до `await`: после него
                                 // обращаться к `context` уже нельзя.
                                 final router = GoRouter.of(context);
+                                // Оборудование не из подразделений
+                                // обходчика — предупреждаем, но открыть
+                                // можно: осмотр по нему сервер примет.
+                                if (!dataProvider.isOwnEquipment(machine)) {
+                                  final open = await confirmForeignEquipment(
+                                      context, machine);
+                                  if (!mounted) return;
+                                  if (!open) {
+                                    // Тот же QR всё ещё в объективе — без
+                                    // паузы окно открылось бы снова сразу.
+                                    Future.delayed(_declinedCooldown, () {
+                                      if (mounted) _navigating = false;
+                                    });
+                                    return;
+                                  }
+                                }
                                 // Гасим камеру на время карточки. Смена
                                 // маршрута внутри приложения состояние
                                 // жизненного цикла не меняет, поэтому

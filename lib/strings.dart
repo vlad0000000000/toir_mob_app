@@ -905,9 +905,11 @@ class AccessStrings {
   /// Подпись на месте значения или «Открыть» у запертой плитки.
   static const String locked = 'Нет доступа';
 
-  static String body(String what) =>
-      'У вашей роли нет доступа $what. Если он нужен для работы, обратитесь '
-      'к руководителю.';
+  static String body(String what) => 'У вашей роли нет доступа $what.';
+
+  /// Что делать — в плашке под пояснением, отдельно от самой новости.
+  static const String hint =
+      'Если доступ нужен для работы, обратитесь к руководителю.';
 
   static const String scanner = 'к оборудованию';
   static const String tasks = 'к выполнению задач';
@@ -929,6 +931,52 @@ class TaskScopeStrings {
   /// Задача без направления: её может выполнить любой обходчик компании, и
   /// первым её закроет кто-то один — подпись нужна, чтобы это было понятно.
   static const String shared = 'Общая задача';
+}
+
+/// Предупреждение при скане QR оборудования не из подразделений обходчика.
+class ForeignEquipmentStrings {
+  ForeignEquipmentStrings._();
+
+  static const String title = 'Оборудование другого подразделения';
+
+  static String body(String name, String? location) =>
+      '«$name»${location == null || location.isEmpty ? '' : ' ($location)'} '
+      'не относится к вашим подразделениям. Осмотр по нему всё равно можно '
+      'выполнить и отправить.';
+
+  static const String open = 'Открыть';
+  static const String cancel = 'Отмена';
+}
+
+/// Фильтр списка оборудования «Осмотр оборудования или ТМЦ».
+class EquipmentFilterStrings {
+  EquipmentFilterStrings._();
+
+  static const String title = 'Фильтры';
+  static const String reset = 'Сбросить';
+  static const String labelScope = 'Подразделения';
+  static const String mine = 'Моё подразделение';
+  static const String all = 'Все подразделения';
+
+  static const String nothingFound = 'Ничего не найдено';
+
+  static String showResults(int n) {
+    final mod10 = n % 10;
+    final mod100 = n % 100;
+    final word = mod10 == 1 && mod100 != 11
+        ? 'единицу'
+        : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
+            ? 'единицы'
+            : 'единиц';
+    return 'Показать $n $word';
+  }
+
+  /// Пусто только из-за фильтра «Моё» — подсказываем, куда переключить.
+  static const String emptyMineTitle =
+      'В ваших подразделениях оборудования нет';
+  static const String emptyMineHint =
+      'Переключите фильтр на «Все подразделения», чтобы увидеть оборудование '
+      'всей компании.';
 }
 
 /// Задачи, возвращённые проверяющим на доработку.

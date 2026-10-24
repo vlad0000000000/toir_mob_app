@@ -1,15 +1,35 @@
 import 'package:flutter/material.dart';
 
 import '../../strings.dart';
-import '../utils/dialogs.dart';
+import '../design/app_theme.dart';
+import 'info_dialog.dart';
 
 /// Объяснение по нажатию на запертое по роли — плитку, строку, поле.
 ///
 /// [what] — к чему нет доступа, из [AccessStrings] («к ремонтам»).
-/// Обычный `Dialogs.notify`: здесь одна мысль, отдельный диалог с плашкой,
-/// как у закрытого доступа целиком, был бы тяжелее самой новости.
-Future<void> showNoAccessDialog(BuildContext context, String what) =>
-    Dialogs.notify(context, AccessStrings.title, AccessStrings.body(what));
+/// В общем стиле окон приложения ([InfoDialog]): замок в оранжевом квадрате
+/// — доступа нет, но это поправимо через руководителя; что делать — в
+/// плашке, отдельно от самой новости.
+Future<void> showNoAccessDialog(BuildContext context, String what) {
+  final cs = Theme.of(context).colorScheme;
+  return showDialog<void>(
+    context: context,
+    builder: (context) => InfoDialog(
+      icon: Icons.lock_outline_rounded,
+      accent: cs.warning,
+      accentContainer: cs.warningContainer,
+      title: AccessStrings.title,
+      body: AccessStrings.body(what),
+      note: AccessStrings.hint,
+      actions: [
+        ElevatedButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(Strings.understand, maxLines: 1),
+        ),
+      ],
+    ),
+  );
+}
 
 /// Значок замка у запертого по роли элемента — один на всё приложение,
 /// чтобы плитка, строка и поле читались одинаково.

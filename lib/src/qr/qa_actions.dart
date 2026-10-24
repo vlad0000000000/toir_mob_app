@@ -680,38 +680,50 @@ class _SecondaryActionCard extends StatelessWidget {
                   children: [
                     // Бейдж на иконке — той же формы, что у плитки
                     // уведомлений, чтобы квадратные плитки читались одинаково.
-                    Stack(
-                      clipBehavior: Clip.none,
+                    // Запертая — с замком в правом верхнем углу: плитка
+                    // остаётся чистой, а замок виден с первого взгляда.
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _IconCircle(
-                            icon: icon, assetPath: iconAsset, muted: locked),
-                        if (badgeCount > 0)
-                          Positioned(
-                            right: -4,
-                            top: -4,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
-                              constraints: const BoxConstraints(
-                                  minWidth: 20, minHeight: 20),
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: cs.primary,
-                                borderRadius: BorderRadius.circular(
-                                    AppConstants.radiusFull),
-                                border: Border.all(color: cs.surface, width: 2),
-                              ),
-                              child: Text(
-                                badgeCount > 99 ? '99+' : '$badgeCount',
-                                style: tt.labelSmall?.copyWith(
-                                  color: cs.onPrimary,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 10,
-                                  height: 1.1,
+                        Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            _IconCircle(
+                                icon: icon,
+                                assetPath: iconAsset,
+                                muted: locked),
+                            if (badgeCount > 0)
+                              Positioned(
+                                right: -4,
+                                top: -4,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 2),
+                                  constraints: const BoxConstraints(
+                                      minWidth: 20, minHeight: 20),
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: cs.primary,
+                                    borderRadius: BorderRadius.circular(
+                                        AppConstants.radiusFull),
+                                    border:
+                                        Border.all(color: cs.surface, width: 2),
+                                  ),
+                                  child: Text(
+                                    badgeCount > 99 ? '99+' : '$badgeCount',
+                                    style: tt.labelSmall?.copyWith(
+                                      color: cs.onPrimary,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 10,
+                                      height: 1.1,
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
-                          ),
+                          ],
+                        ),
+                        const Spacer(),
+                        if (locked) const NoAccessIcon(size: 20),
                       ],
                     ),
                     const SizedBox(height: AppConstants.spacingMD),
@@ -722,24 +734,19 @@ class _SecondaryActionCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 2),
-                    if (locked)
-                      Row(
-                        children: [
-                          const NoAccessIcon(size: 14),
-                          const SizedBox(width: 4),
-                          Text(
-                            AccessStrings.locked,
-                            style: tt.bodySmall
-                                ?.copyWith(color: cs.onSurfaceVariant),
-                          ),
-                        ],
-                      )
-                    else
-                      Text(
+                    // У запертой подписи «Открыть» нет, но место под неё
+                    // остаётся: иначе плитка была бы ниже соседней в ряду.
+                    Visibility(
+                      visible: !locked,
+                      maintainSize: true,
+                      maintainAnimation: true,
+                      maintainState: true,
+                      child: Text(
                         'Открыть',
                         style:
                             tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
                       ),
+                    ),
                   ],
                 ),
         ),

@@ -29,6 +29,15 @@ class InventoryRecord {
   /// работает прежняя проверка по кэшу своих ремонтов.
   final bool hasOpenRepair;
 
+  /// Помещение оборудования — uuid; [location] — только его название.
+  ///
+  /// Подразделение оборудования сервер определяет **через помещение**, и
+  /// только по нему мобилка отличает своё оборудование от чужого
+  /// (`isMyEquipment`): при «Осмотре без QR» справочник приходит по всей
+  /// компании. `null` — помещения нет или запись сохранена прошлой версией
+  /// (её поправит ближайшая полная сверка справочника).
+  final String? locationUuid;
+
   String get descriptionText {
     final List<String> parts = [];
     parts.add('**Наименование оборудования**: $name');
@@ -78,6 +87,7 @@ class InventoryRecord {
     this.usageParameters = const [],
     this.state,
     this.hasOpenRepair = false,
+    this.locationUuid,
   });
 
   InventoryRecord copyWith({
@@ -95,6 +105,7 @@ class InventoryRecord {
     List<UsageParameter>? usageParameters,
     String? state,
     bool? hasOpenRepair,
+    String? locationUuid,
   }) {
     return InventoryRecord(
       id: id ?? this.id,
@@ -116,6 +127,7 @@ class InventoryRecord {
       // выглядела рабочей передачей аргумента, а `copyWith` признак открытого
       // ремонта менять не умел, хотя по виду должен.
       hasOpenRepair: hasOpenRepair ?? this.hasOpenRepair,
+      locationUuid: locationUuid ?? this.locationUuid,
     );
   }
 
@@ -168,6 +180,7 @@ class InventoryRecord {
               const [],
           state: json['state'] as String?,
           hasOpenRepair: json['has_open_repair'] as bool? ?? false,
+          locationUuid: json['location']?['uuid'] as String?,
         ),
       _ => throw const FormatException('Failed to load InventoryRecord.'),
     };
@@ -197,7 +210,18 @@ class InventoryAdapter extends TypeAdapter<InventoryRecord> {
       // Новое поле — строго в конец и под try/catch: записи, сохранённые до
       // его появления, его не содержат.
       hasOpenRepair: _readTrailingBool(reader),
+      locationUuid: _readTrailingString(reader),
     );
+  }
+
+  /// Строковое поле в хвосте записи. `null`, если его там нет — запись
+  /// сохранена до его появления.
+  static String? _readTrailingString(BinaryReader reader) {
+    try {
+      return reader.read() as String?;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Читает необязательное поле в хвосте записи. `false`, если его там нет.
@@ -225,6 +249,7 @@ class InventoryAdapter extends TypeAdapter<InventoryRecord> {
     writer.write(obj.usageParameters);
     writer.write(obj.state);
     writer.write(obj.hasOpenRepair);
+    writer.write(obj.locationUuid);
   }
 }
 
