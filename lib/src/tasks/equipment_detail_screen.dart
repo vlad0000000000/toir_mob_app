@@ -337,9 +337,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
           ),
         ],
-        // Причина возврата — прямо в списке: по ней обходчик понимает, что
-        // переделать, ещё до того, как откроет задачу.
-        if (task.isReturnedForRework) ...[
+        // Задача и так в группе «На доработку», а причина — в карточке по
+        // кнопке «i». Строкой она остаётся, только если карточки нет: у
+        // задачи без периодической задачи кнопки «i» не бывает.
+        if (task.isReturnedForRework && task.periodicTask == null) ...[
           const SizedBox(height: 2),
           Text(
             [
@@ -365,6 +366,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
               context,
               task.periodicTask!,
               usage: task.sparePartUsage,
+              rework: task.isReturnedForRework ? task.access : null,
             ),
             tooltip: 'Карточка периодической задачи',
           )

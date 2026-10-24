@@ -26,6 +26,15 @@ class PeriodicTaskRequest {
   /// входит: запись остаётся под тем же ключом бокса.
   final String? serverUuid;
 
+  /// Сервер отказал в создании задачи так, что фоновый повтор ответил бы тем
+  /// же (404: оборудование чужого подразделения, пока сервер пускает к нему
+  /// только сам осмотр). Запись остаётся в очереди с причиной; фоновая
+  /// отправка её пропускает, а «Синхронизировать данные» и смена доступа
+  /// снимают пометку и пробуют снова. `null` — не отклонена.
+  final String? rejectedReason;
+
+  bool get isRejected => rejectedReason != null;
+
   /// Ключ создания задачи. Сервер сверяет с ним и само тело запроса, поэтому
   /// [toJson] обязан давать одно и то же при каждом повторе.
   String get createIdempotencyKey => eventId ?? 'problem-report-${key()}';
@@ -64,6 +73,7 @@ class PeriodicTaskRequest {
     required this.photos,
     this.eventId,
     this.serverUuid,
+    this.rejectedReason,
   });
 
   /// Та же заявка, уже созданная на сервере под [uuid].
@@ -79,6 +89,23 @@ class PeriodicTaskRequest {
         photos: photos,
         eventId: eventId,
         serverUuid: uuid,
+        rejectedReason: rejectedReason,
+      );
+
+  /// Та же заявка с пометкой отказа [reason]; `null` — пометка снята.
+  PeriodicTaskRequest withRejection(String? reason) => PeriodicTaskRequest(
+        equipmentUuid: equipmentUuid,
+        node: node,
+        title: title,
+        description: description,
+        periodicityRule: periodicityRule,
+        customRoleIds: customRoleIds,
+        nextDueAt: nextDueAt,
+        params: params,
+        photos: photos,
+        eventId: eventId,
+        serverUuid: serverUuid,
+        rejectedReason: reason,
       );
 
   // "equipment_uuid": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
@@ -127,6 +154,8 @@ class PeriodicTaskRequestAdapter extends TypeAdapter<PeriodicTaskRequest> {
       // верхнего уровня (свой бокс), поэтому дочитать конец записи безопасно.
       eventId: reader.availableBytes > 0 ? reader.read() as String? : null,
       serverUuid: reader.availableBytes > 0 ? reader.read() as String? : null,
+      rejectedReason:
+          reader.availableBytes > 0 ? reader.read() as String? : null,
     );
   }
 
@@ -143,5 +172,6 @@ class PeriodicTaskRequestAdapter extends TypeAdapter<PeriodicTaskRequest> {
     writer.write(obj.photos);
     writer.write(obj.eventId);
     writer.write(obj.serverUuid);
+    writer.write(obj.rejectedReason);
   }
 }

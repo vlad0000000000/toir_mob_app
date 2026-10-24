@@ -41,7 +41,7 @@ src/
                        ppr_list_screen, periodic_task_card, фильтр (выключен)
   style/               snack_bar.dart; my_transition.dart и palette.dart — МЁРТВЫЕ
   update_manager.dart  ОТКЛЮЧЁН флагом enabled = false
-  utils/               AnyController, Dialogs, go_router_ext, isOfflineError, Dependent
+  utils/               AnyController, go_router_ext, isOfflineError, Dependent
   widgets/             переиспользуемые виджеты (в т.ч. spare_part_consumption)
   login/ splash/ knowledge_base/ onboarding/
 ```
@@ -71,7 +71,7 @@ src/
   не реактивный, пересчитывается из каждого места, где меняется список или
   очередь;
 - `DataProvider.authExpired` — токен протух, очередь встала;
-- `DataProvider.rejectedScansCount` / `rejectedUsageCount` — полосы «сервер
+- `DataProvider.rejectedScansCount` / `rejectedUsageCount` / `rejectedProblemReportsCount` — полосы «сервер
   отказался принять» на главном хабе; изменение счётчика осмотров ещё и
   открывает разбор конфликта, если обходчик сейчас на главной;
 - `AnyController<T>` — значение формы.
@@ -188,7 +188,7 @@ pending через 120 с) и с побочным эффектом (один б�
 | `DataProvider.login` | Различает неверные данные и сетевой сбой (фолбэк на локальных пользователей) |
 | `updateEquipmentState` | Пробрасывает — UI показывает снекбар |
 | Очереди осмотров и ремонтов | Различают отказ / сбой шлюза (`ServerFailureException.isTransient`) / нет связи / протух токен |
-| Экран | `try/catch` + `Dialogs.notify` или снекбар |
+| Экран | `try/catch` + `showInfoDialog` или снекбар |
 
 Детект офлайна — **общий помощник `isOfflineError` в `utils/offline_error.dart`**.
 Своих копий не заводить: раньше их было три, и каждая ошибалась по-своему.
@@ -226,7 +226,7 @@ pending через 120 с) и с побочным эффектом (один б�
 | Экран-форма | `qr/qr_result_screen.dart` + `result_controls.dart` |
 | Сервис с реактивным состоянием | `notifications/notifications_service.dart` |
 | Перевод ошибки сервера в текст | `repairs/repair_error_messages.dart` |
-| Диалог подтверждения | `Dialogs.areYouSure` |
+| Диалог подтверждения | `showConfirmDialog` (`widgets/info_dialog.dart`) |
 | Нижний лист | `showAppModalSheet` |
 
 ## Легаси — не тиражировать

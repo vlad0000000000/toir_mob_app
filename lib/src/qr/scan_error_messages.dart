@@ -79,6 +79,18 @@ bool isTakenOrClosedLegacyReason(String? stored) =>
 bool isNoRightsReason(String? stored) =>
     stored == ScanQueueStrings.errorNoRights;
 
+/// Сохранённая причина — «сервер не нашёл оборудование» (404 на прямом
+/// осмотре). Чаще всего это не удалённое оборудование, а доступ: оно в
+/// чужом подразделении, а флаг компании «Осмотр без QR» выключен. Включение
+/// флага или смена роли меняют версию доступа — тогда запись повторяется
+/// сама, как и «нет прав» (`DataProvider.retryNoRightsRejections`).
+///
+/// Через [scanStoredReason]: записи прошлых версий хранят английский текст
+/// сервера.
+bool isEquipmentNotFoundReason(String? stored) =>
+    stored != null &&
+    scanStoredReason(stored) == ScanQueueStrings.errorEquipmentNotFound;
+
 /// Отказ, который сам рассосётся: связи нет или сервер временно недоступен.
 ///
 /// Всё остальное — отказ по существу: осмотр так и будет отклоняться, пока
@@ -117,6 +129,15 @@ const String _keyInProgress = 'Idempotency-Key is being processed';
 const String _keyResultDeleted =
     'The inspection for this Idempotency-Key no longer exists';
 
+/// 400 сервера на повтор создания по ключу события
+/// (`backend/mappers/fault_inspection.py`): осмотр по оборудованию чужого
+/// подразделения создан, но повтор грузит его без допуска к чужому
+/// оборудованию, и собрать ответ сервер не может. Тот же текст бывает, если
+/// ответ не собрался сразу после создания (там он уходит как 500, и
+/// следующий повтор приходит сюда). В обоих случаях осмотр уже на сервере.
+const String _replayEquipmentHidden =
+    'is not linked to any equipment or periodic task';
+
 /// Точный текст сервера для «осмотр уже закрыт»
 /// (`backend/crud/fault_inspection.update_inspection_by_uuid`).
 const String _inspectionAlreadyClosed = 'Закрытый осмотр нельзя изменить';
@@ -134,10 +155,15 @@ const String _inspectionAlreadyClosed = 'Закрытый осмотр нель�
 /// Сюда же 410 по ключу события: осмотр сервер когда-то принял, а потом его
 /// удалил администратор. Отправлять его заново некуда и незачем — событие
 /// доставлено, его судьбой распорядились на сервере.
+///
+/// И повтор создания осмотра по чужому оборудованию
+/// ([_replayEquipmentHidden]): сервер узнал ключ — осмотр создан, отказ
+/// только в том, что ответ не собрался.
 bool isScanAlreadyDelivered(Object error) {
   final text = error.toString();
   return text.contains(_inspectionAlreadyClosed) ||
-      text.contains(_keyResultDeleted);
+      text.contains(_keyResultDeleted) ||
+      text.contains(_replayEquipmentHidden);
 }
 
 /// Код ответа, если он был приклеен к тексту ошибки методом `sendScan`.
@@ -180,6 +206,10 @@ const Map<String, String> _translations = {
   'Inspection does not belong to user\'s company':
       'Задача относится к другой компании',
   'Fault not found': 'Типовая неисправность не найдена',
+  // Прямой осмотр по оборудованию, которого сервер не видит: удалено или в
+  // чужом подразделении, пока сервер пускает к чужому оборудованию только с
+  // флагом компании «Осмотр без QR» (`backend/crud/fault_inspection.py`).
+  'Equipment not found': ScanQueueStrings.errorEquipmentNotFound,
   'Fault belongs to another equipment':
       'Неисправность относится к другому оборудованию',
   'Failed to update inspection': 'Не удалось сохранить осмотр',

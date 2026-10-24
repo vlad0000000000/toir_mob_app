@@ -1,3 +1,4 @@
+import '../../strings.dart';
 import '../exceptions/app_exceptions.dart';
 import '../utils/offline_error.dart';
 
@@ -30,8 +31,45 @@ bool isRetryableProblemPhotoError(Object error) {
 ///   повтору не меняется, так что второе — запись прошлой версии с ключом,
 ///   выданным до выкладки сервера.
 ///
-/// Прочие отказы по-прежнему повторяются: у очереди заявок пометки отказа
-/// нет, и бросать запись по отказу, который может пройти, нельзя.
+/// 404 сюда не входит — см. [isProblemReportRejected]. Прочие отказы
+/// по-прежнему повторяются фоном: бросать запись по отказу, который может
+/// пройти, нельзя.
 bool isProblemReportSettled(Object error) =>
     error is ServerFailureException &&
     (error.statusCode == 410 || error.statusCode == 409);
+
+/// Создание заявки отклонено по существу: фоновый повтор каждые 120 секунд
+/// ответил бы тем же, но бросать запись нельзя — задачи «Проблема» тогда не
+/// будет вовсе. Это любой отказ 4xx, кроме временных (408, 429) и уже
+/// разобранных в [isProblemReportSettled] (409, 410); 401 сюда не попадает —
+/// это [AuthExpiredException], заявка уйдёт после входа. Чаще всего:
+/// - 404 — оборудования сервер не видит: удалено или в чужом подразделении,
+///   а сервер пускает к чужому только сам осмотр, не отдельную заявку
+///   (`docs/backend-equipment-scope.md`, п. 8.1);
+/// - 403 — у роли нет права на заявку;
+/// - 400, 422 — сервер не принял данные.
+///
+/// Раньше отклонённой становилась только заявка с 404, а 403 и 422 тихо
+/// повторялись вечно — и «Синхронизировать данные» обещал, что они «уйдут
+/// сами». Теперь запись остаётся в очереди с причиной
+/// ([PeriodicTaskRequest.rejectedReason], [problemReportRejectionReason]),
+/// фон её не трогает, а «Синхронизировать данные», смена доступа и лист на
+/// главной пробуют снова.
+bool isProblemReportRejected(Object error) {
+  if (error is! ServerFailureException) return false;
+  final status = error.statusCode;
+  if (status < 400 || status >= 500) return false;
+  return !const {408, 409, 410, 429}.contains(status);
+}
+
+/// Причина отказа заявки — для листа на главной и окна синхронизации.
+/// Осмотр «Другое» во всех случаях уже на сервере: текст говорит, что не
+/// создана только задача для администратора.
+String problemReportRejectionReason(Object error) {
+  final status = error is ServerFailureException ? error.statusCode : null;
+  return switch (status) {
+    404 => ProblemReportStrings.rejectedNotFound,
+    403 => ProblemReportStrings.rejectedNoRights,
+    _ => ProblemReportStrings.rejectedOther,
+  };
+}

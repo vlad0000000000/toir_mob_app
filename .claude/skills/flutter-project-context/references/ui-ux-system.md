@@ -120,11 +120,10 @@ cs.priorityHigh / priorityMedium / priorityLow
 | Компонент | Файл | Когда |
 |---|---|---|
 | `EmptyState` | `widgets/empty_state.dart` | Любой пустой список |
-| `showAppModalSheet<T>` | `widgets/app_bottom_sheet.dart` | Модальный лист на 90% высоты |
+| `showAppModalSheet<T>` | `widgets/app_bottom_sheet.dart` | Модальный лист на 90% высоты. `Modal` отдаёт содержимому `Expanded` **без прокрутки и без боковых отступов** — длинный лист сам оборачивается в `SingleChildScrollView` с отступом `spacingMD` (как `RejectedProblemReportsSheet`, `_RejectedUsageSheet`). Тестировать лист через сам `showAppModalSheet`, а не со своей обёрткой — иначе переполнение не видно |
 | `Modal` | `widgets/modal.dart` | Каркас листа |
-| `Dialogs.notify / notifyMD / areYouSure` | `utils/dialogs.dart` | Информирование и подтверждение |
 | `OfflineBanner` | `widgets/offline_banner.dart` | Полоса «нет связи» над содержимым |
-| `InfoDialog` | `widgets/info_dialog.dart` | Информационное окно в стиле приложения: значок 64 в цветном квадрате, заголовок и пояснение по центру, необязательная плашка, кнопки во всю ширину друг под другом. Содержимое прокручивается, кнопки закреплены внизу — на маленьком экране они не уходят за край. Для новых окон-сообщений — вместо `AlertDialog` и `Dialogs.notify` |
+| `InfoDialog`, `showInfoDialog`, `showConfirmDialog` | `widgets/info_dialog.dart` | **Единственный вид окна в приложении** — все сообщения и подтверждения. Значок 64 в цветном квадрате (цвет — `DialogTone`: `primary` вопрос, `info` справка, `success` получилось, `warning` поправимо, `error` ошибка или необратимое), заголовок и пояснение по центру, необязательное своё содержимое (`content`: текст с выделением, сводка, поле ввода), плашка (`note`; серая или цветом окна — `noteTinted`), кнопки во всю ширину друг под другом: главная `DialogPrimaryButton` сверху (красная при `destructive`), вторая `DialogSecondaryButton` — серая заливка, не обводка. Подписи кнопок — действием («Отправить / Отмена», «Выйти»), не «Да / Нет». Содержимое прокручивается, кнопки закреплены внизу. `showConfirmDialog` отдаёт `bool`: закрытие мимо окна — `false`. `AlertDialog` и AwesomeDialog не использовать; прежний `utils/dialogs.dart` удалён. Вне общего вида — только лайтбоксы фото, окно онбординга сканера и отключённый `UpdateManager` |
 | `showNoAccessDialog`, `NoAccessIcon` | `widgets/no_access.dart` | Раздел или действие заперты ролью: замок `lock_outline_rounded` вместо стрелки, подпись «Нет доступа», серые значок и заголовок, нажатие объясняет причину — `InfoDialog` с замком в оранжевом квадрате, «что делать» в плашке. Что запирать — `SectionAccess` |
 | `SparePartRow` | `widgets/spare_part_row.dart` | Строка позиции ЗИП |
 | `SparePartConsumptionSection` | `widgets/spare_part_consumption.dart` | Блок «Фактический расход ЗИП» — счётчик количества, план по норме, предупреждения о нехватке. Общий для карточки ремонта, экрана результата скана и обоих экранов разрешения конфликта. Виджет только рисует и зовёт колбэки; чем заполнен список и что считать нормой — дело экрана |
@@ -181,14 +180,14 @@ cs.priorityHigh / priorityMedium / priorityLow
 | Фоновое обновление | `LinearProgressIndicator(minHeight: 2)` над списком — список остаётся рабочим |
 | Пусто | `EmptyState`. Внутри `RefreshIndicator` оборачивай в `ListView` с `AlwaysScrollableScrollPhysics` |
 | Ошибка экрана | Круг 96×96 `errorContainer` + иконка 48 `error` + заголовок + кнопка восстановления |
-| Ошибка действия | `Dialogs.notify` или снекбар |
+| Ошибка действия | `showInfoDialog` или снекбар |
 | Ошибка поля | Флаг подсветки в `State` → `errorText` |
 | Успех | Снекбар `cs.success` + `check_circle_rounded` |
 | Нет связи | `OfflineBanner` над содержимым; кэш остаётся рабочим |
 | Не отправлено | Пилюля «Не отправлено», у черновика — пунктирная обводка |
 | Отправка отклонена | Причина по-русски на карточке, автоповтора нет |
 | Нет права по роли | Элемент на месте, но серый, с замком и «Нет доступа»; нажатие — окно с объяснением. Не прятать: обходчик должен понять, почему у коллеги раздел есть. Квадратная плитка главного хаба — только замок в правом верхнем углу, без подписи «Нет доступа» (место под «Открыть» сохраняется, чтобы плитки ряда были одной высоты) |
-| Очередь получила отказ | Полоса на **главном хабе** (`_RejectedScansBanner`) первой строкой, до всех плиток: отклонённый осмотр больше никто не отправит сам. Отдельные полосы для осмотров и наработки — разбор у них разный |
+| Очередь получила отказ | Полоса на **главном хабе** (`_RejectedScansBanner`) первой строкой, до всех плиток: отклонённый осмотр больше никто не отправит сам. Отдельные полосы для осмотров, наработки и заявок «Проблема» — разбор у них разный: у заявок лист `RejectedProblemReportsSheet` (`qr/rejected_problem_reports_sheet.dart`) с причиной, «Повторить» и «Удалить»; счётчик обновляется при запуске и сразу после фонового отказа 404 |
 
 **Правило первичной загрузки:** заводи флаг «хоть раз загрузили»
 (`hasLoadedOnce`) и показывай спиннер, а не `EmptyState`, пока он `false` —
@@ -220,7 +219,7 @@ Material Icons, вариант `_rounded` (доминирует) или `_outlin
 
 **Анимации переходов между экранами нет** — все маршруты отдают
 `NoTransitionPage`. Из анимаций осталось раскрытие секции «Сервис»
-(`AnimatedSize` 200 мс), диалоги `awesome_dialog` и единственный свой
+(`AnimatedSize` 200 мс) и единственный свой
 `AnimationController` — `_SpinningIcon` в `qr/qa_actions.dart`: крутит иконку
 «Синхронизировать данные», пока идёт ручная синхронизация
 (`DataProvider.manualSyncRunning`; повторные нажатия игнорируются, в заголовке
@@ -263,8 +262,8 @@ Material Icons, вариант `_rounded` (доминирует) или `_outlin
 | Карточка с режимами «сервер / черновик / правка» | `repairs/repair_detail_screen.dart` |
 | Экран-форма с липким CTA | `qr/qr_result_screen.dart` + `result_controls.dart` |
 | Ввод числа крупными кнопками | `_QuantityStepper` в `repairs/repair_detail_screen.dart` |
-| Диалог необратимого действия | `_SubmitConfirmDialog` там же |
-| Информационный диалог-причина (значок, пояснение, плашка, одна кнопка) | `login/access_blocked_dialog.dart` |
+| Диалог необратимого действия | `confirmRepairDelete` (`repairs/repair_delete_dialog.dart`); со сводкой — `_SubmitConfirmDialog` в `repair_detail_screen.dart` (`InfoDialog` + `content`) |
+| Информационный диалог-причина (значок, пояснение, плашка, одна кнопка) | `login/access_blocked_dialog.dart` (`showInfoDialog`) |
 | Модальный тупик / разрешение конфликта | `repairs/repair_conflict_screen.dart`, `qr/scan_conflict_screen.dart` |
 | Блок расхода ЗИП | `widgets/spare_part_consumption.dart` |
 | Сворачиваемые группы | `tasks/ppr_list_screen.dart`, `tasks/equipment_detail_screen.dart` |

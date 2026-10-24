@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_scan_industry/src/update_manager.dart';
@@ -9,7 +10,7 @@ import '../../src/design/app_theme.dart';
 import '../../src/app_bar/app_bar.dart';
 import '../../src/notifications/notifications_service.dart';
 import '../../src/notifications/push/push_notifications_controller.dart';
-import '../../src/utils/dialogs.dart';
+import '../../src/widgets/info_dialog.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../strings.dart';
 import '../../settings.dart';
@@ -17,6 +18,7 @@ import '../widgets/app_bottom_sheet.dart';
 import '../widgets/no_access.dart';
 import '../model/usage_update.dart';
 import '../repairs/repair_delete_dialog.dart';
+import 'rejected_problem_reports_sheet.dart';
 import 'scan_conflict_screen.dart';
 
 /// Главный hub-экран: hero-карточка «Сканировать», ряд вторичных действий,
@@ -128,31 +130,70 @@ class _QRActionsState extends State<QRActions> {
     // Синхронизация уже идёт — нажатие молча игнорируем: иконка и так
     // крутится, а окно с результатом покажет тот вызов, что её запустил.
     if (GlobalState.dataProvider.manualSyncRunning.value) return;
-    final result = await GlobalState.dataProvider.syncDataAndScans();
+    final report = await GlobalState.dataProvider.syncDataAndScans();
     if (!mounted) return;
-    switch (result) {
-      case SyncResult.noConnection:
-        Dialogs.notify(context, 'Отсутствует соединение с сервером', '');
-      case SyncResult.allSynced:
-        Dialogs.notify(context, 'Все данные успешно синхронизированы', '');
-      case SyncResult.scansSynced:
-        Dialogs.notify(
-            context, 'Все данные и осмотры успешно синхронизированы', '');
-      case SyncResult.scansFailed:
-        // Сюда попадает и наработка: ручная синхронизация отправляет обе
-        // очереди и считает остаток по обеим.
-        Dialogs.notify(
-          context,
-          'Не получилось синхронизировать осмотры',
-          'Часть осмотров или показаний наработки ещё не отправлена.',
-        );
-      case SyncResult.repairsFailed:
-        Dialogs.notify(
-          context,
-          'Не все ремонты отправлены',
-          'Откройте раздел «Ремонты» — там видно, что помешало.',
-        );
+    if (report.noConnection) {
+      showInfoDialog(
+        context,
+        icon: Icons.cloud_off_rounded,
+        tone: DialogTone.warning,
+        title: DialogStrings.syncNoConnection,
+      );
+      return;
     }
+    final troubles = report.troubles;
+    if (troubles.isEmpty) {
+      showInfoDialog(
+        context,
+        icon: Icons.cloud_done_rounded,
+        tone: DialogTone.success,
+        title: report.scansWereQueued
+            ? DialogStrings.syncScansDone
+            : DialogStrings.syncAllDone,
+      );
+      return;
+    }
+    // Отказ сервера — красным: само не уйдёт. Временный сбой — оранжевым.
+    final rejected = troubles.any((trouble) => trouble.rejected);
+    if (troubles.length == 1) {
+      final trouble = troubles.single;
+      showInfoDialog(
+        context,
+        icon: rejected
+            ? Icons.report_gmailerrorred_rounded
+            : Icons.sync_problem_rounded,
+        tone: rejected ? DialogTone.error : DialogTone.warning,
+        title: trouble.title,
+        body: trouble.body,
+      );
+      return;
+    }
+    // Не ушло сразу несколько видов данных — перечисляем все, а не первое
+    // по порядку: раньше при застрявших осмотрах и заявках окно называло
+    // только осмотры.
+    final tt = Theme.of(context).textTheme;
+    showInfoDialog(
+      context,
+      icon: rejected
+          ? Icons.report_gmailerrorred_rounded
+          : Icons.sync_problem_rounded,
+      tone: rejected ? DialogTone.error : DialogTone.warning,
+      title: DialogStrings.syncSeveralFailedTitle,
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final (index, trouble) in troubles.indexed) ...[
+            if (index > 0) const SizedBox(height: AppConstants.spacingMD),
+            Text(
+              trouble.title,
+              style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 2),
+            Text(trouble.body, style: tt.bodyMedium),
+          ],
+        ],
+      ),
+    );
   }
 
   Future<void> _onResetScans() async {
@@ -163,7 +204,12 @@ class _QRActionsState extends State<QRActions> {
     // кэша они остались бы скрытыми до первого захода в «Задачи».
     GlobalState.dataProvider.invalidateScanTaskCache();
     if (!mounted) return;
-    Dialogs.notify(context, 'Осмотры успешно сброшены', '');
+    showInfoDialog(
+      context,
+      icon: Icons.check_circle_outline_rounded,
+      tone: DialogTone.success,
+      title: DialogStrings.scansReset,
+    );
   }
 
   /// Разбор отклонённого осмотра по тапу на полосе. Показывает даже то, что
@@ -189,6 +235,15 @@ class _QRActionsState extends State<QRActions> {
     );
     if (!mounted) return;
     setState(() {});
+  }
+
+  Future<void> _onRejectedProblemReports() async {
+    await showAppModalSheet<void>(
+      context,
+      isDismissible: true,
+      enableDrag: true,
+      child: const RejectedProblemReportsSheet(),
+    );
   }
 
   void _onRejectedCountChanged() => _openConflict();
@@ -240,7 +295,18 @@ class _QRActionsState extends State<QRActions> {
   Future<void> _onInfo() async {
     final info = await GlobalState.buildInfo();
     if (!mounted) return;
-    Dialogs.notifyMD(context, 'Информация', '', info);
+    // Сводка — markdown-список «параметр: значение»; читается слева
+    // направо, поэтому не по центру, как остальной текст окна.
+    showInfoDialog(
+      context,
+      icon: Icons.info_outline_rounded,
+      tone: DialogTone.info,
+      title: DialogStrings.infoTitle,
+      content: Align(
+        alignment: Alignment.centerLeft,
+        child: MarkdownBody(data: info),
+      ),
+    );
   }
 
   void _onSettings() {
@@ -305,6 +371,26 @@ class _QRActionsState extends State<QRActions> {
                       count: count,
                       countLabel: UsageQueueStrings.rejectedCount,
                       onTap: _onRejectedUsage,
+                    ),
+                  ),
+          ),
+          // Третья — отклонённые заявки «Проблема»: фон их не повторяет, и
+          // без полосы обходчик не узнал бы, что задача для администратора
+          // не создалась. Счётчик обновляется при запуске и сразу после
+          // фонового отказа.
+          ValueListenableBuilder<int>(
+            valueListenable:
+                GlobalState.dataProvider.rejectedProblemReportsCount,
+            builder: (context, count, _) => count == 0
+                ? const SizedBox.shrink()
+                : Padding(
+                    padding:
+                        const EdgeInsets.only(bottom: AppConstants.spacingMD),
+                    child: _RejectedScansBanner(
+                      title: ProblemReportStrings.rejectedTitle,
+                      count: count,
+                      countLabel: ProblemReportStrings.rejectedCount,
+                      onTap: _onRejectedProblemReports,
                     ),
                   ),
           ),
@@ -1388,84 +1474,94 @@ class _RejectedUsageSheetState extends State<_RejectedUsageSheet> {
     final tt = Theme.of(context).textTheme;
     final items = GlobalState.dataProvider.rejectedUsage;
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          UsageQueueStrings.sheetTitle,
-          textAlign: TextAlign.center,
-          style: tt.titleLarge,
-        ),
-        const SizedBox(height: AppConstants.spacingSM),
-        Text(
-          UsageQueueStrings.sheetHint,
-          style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-        ),
-        const SizedBox(height: AppConstants.spacingMD),
-        // Записей единицы: список строится целиком, без itemBuilder.
-        for (final usage in items) ...[
-          Container(
-            margin: const EdgeInsets.only(bottom: AppConstants.spacingSM),
-            padding: const EdgeInsets.all(AppConstants.spacingMD),
-            decoration: BoxDecoration(
-              color: cs.surfaceContainerLowest,
-              borderRadius: BorderRadius.circular(AppConstants.radiusMD),
-              border: Border.all(color: cs.outlineVariant, width: 0.5),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _equipmentName(usage.equipmentUuid),
-                  style: tt.titleSmall,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  UsageQueueStrings.value(
-                    '${usage.usageParameterValue ?? ''}',
+    // Прокрутка и отступы — здесь: `Modal` отдаёт листу `Expanded` без них,
+    // и на маленьком экране нижние записи и кнопки уходили за край.
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(
+        AppConstants.spacingMD,
+        0,
+        AppConstants.spacingMD,
+        AppConstants.spacingMD,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            UsageQueueStrings.sheetTitle,
+            textAlign: TextAlign.center,
+            style: tt.titleLarge,
+          ),
+          const SizedBox(height: AppConstants.spacingSM),
+          Text(
+            UsageQueueStrings.sheetHint,
+            style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+          ),
+          const SizedBox(height: AppConstants.spacingMD),
+          // Записей единицы: список строится целиком, без itemBuilder.
+          for (final usage in items) ...[
+            Container(
+              margin: const EdgeInsets.only(bottom: AppConstants.spacingSM),
+              padding: const EdgeInsets.all(AppConstants.spacingMD),
+              decoration: BoxDecoration(
+                color: cs.surfaceContainerLowest,
+                borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+                border: Border.all(color: cs.outlineVariant, width: 0.5),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _equipmentName(usage.equipmentUuid),
+                    style: tt.titleSmall,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                ),
-                const SizedBox(height: AppConstants.spacingSM),
-                Text(
-                  usage.lastError ?? '',
-                  style: tt.bodySmall?.copyWith(color: cs.error),
-                ),
-                const SizedBox(height: AppConstants.spacingSM),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => _retry(usage.key()),
-                        child: const Text(UsageQueueStrings.retry),
-                      ),
+                  const SizedBox(height: 2),
+                  Text(
+                    UsageQueueStrings.value(
+                      '${usage.usageParameterValue ?? ''}',
                     ),
-                    const SizedBox(width: AppConstants.spacingSM),
-                    Expanded(
-                      child: TextButton(
-                        onPressed: () => _delete(usage),
-                        style: TextButton.styleFrom(
-                          foregroundColor: cs.error,
+                    style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: AppConstants.spacingSM),
+                  Text(
+                    usage.lastError ?? '',
+                    style: tt.bodySmall?.copyWith(color: cs.error),
+                  ),
+                  const SizedBox(height: AppConstants.spacingSM),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => _retry(usage.key()),
+                          child: const Text(UsageQueueStrings.retry),
                         ),
-                        child: const Text(UsageQueueStrings.delete),
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                      const SizedBox(width: AppConstants.spacingSM),
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () => _delete(usage),
+                          style: TextButton.styleFrom(
+                            foregroundColor: cs.error,
+                          ),
+                          child: const Text(UsageQueueStrings.delete),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
+          ],
+          const SizedBox(height: AppConstants.spacingSM),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text(UsageQueueStrings.close),
           ),
         ],
-        const SizedBox(height: AppConstants.spacingSM),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text(UsageQueueStrings.close),
-        ),
-      ],
+      ),
     );
   }
 }

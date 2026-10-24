@@ -663,6 +663,12 @@ class ScanQueueStrings {
       'Задачу вернули на доработку ещё раз — удалите этот осмотр и выполните '
       'задачу заново, с учётом новой причины';
 
+  /// Сервер не видит оборудование осмотра: его удалили, или оно в чужом
+  /// подразделении, а осмотр чужого оборудования компании не разрешён.
+  static const String errorEquipmentNotFound =
+      'Сервер не нашёл это оборудование: его удалили или оно в другом '
+      'подразделении, куда у вас нет доступа. Обратитесь к администратору.';
+
   /// Перевод `InsufficientStockError.detail` — сервер отдаёт его по-английски
   /// намеренно и локализацию оставляет клиенту.
   static const String errorInsufficientStock =
@@ -934,6 +940,129 @@ class TaskScopeStrings {
 }
 
 /// Предупреждение при скане QR оборудования не из подразделений обходчика.
+/// Очередь заявок «Проблема» (выбор «Другое» в осмотре).
+class ProblemReportStrings {
+  ProblemReportStrings._();
+
+  /// Сервер не видит оборудование заявки (404). Осмотр уже принят — задачи
+  /// для администратора нет.
+  static const String rejectedNotFound =
+      'Сервер не нашёл оборудование — возможно, оно в другом подразделении. '
+      'Осмотр отправлен, но задача по проблеме не создана. Повторите '
+      '«Синхронизировать данные» позже или сообщите администратору.';
+
+  /// 403: у роли нет права на заявку. Уйдёт сама после смены доступа.
+  static const String rejectedNoRights =
+      'У вашей роли нет права создавать задачу по проблеме. Осмотр отправлен, '
+      'но задача не создана. Обратитесь к руководителю — после смены доступа '
+      'заявка уйдёт сама.';
+
+  /// Прочие отказы 4xx (400, 422 и т. п.): сервер не принял данные заявки.
+  static const String rejectedOther =
+      'Сервер не принял заявку. Осмотр отправлен, но задача по проблеме не '
+      'создана. Повторите позже или сообщите администратору.';
+
+  /// Полоса на главной.
+  static const String rejectedTitle = 'Заявка о проблеме не создана';
+
+  static String rejectedCount(int count) {
+    final mod10 = count % 10;
+    final mod100 = count % 100;
+    if (mod10 == 1 && mod100 != 11) return '$count заявка отклонена сервером';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
+      return '$count заявки отклонено сервером';
+    }
+    return '$count заявок отклонено сервером';
+  }
+
+  static const String sheetTitle = 'Отклонённые заявки о проблеме';
+
+  /// Главное, что должен понять обходчик: осмотр ушёл, не создана только
+  /// задача для администратора.
+  static const String sheetHint =
+      'Осмотры «Другое» по этому оборудованию отправлены, но задача по '
+      'проблеме для администратора не создана. Повторите отправку позже или '
+      'удалите заявку — комментарий и фото останутся в осмотре.';
+
+  static const String unknownEquipment = 'Оборудование не указано';
+  static const String noComment = 'Без комментария';
+  static const String retry = 'Повторить';
+  static const String delete = 'Удалить';
+  static const String deleteTitle = 'Удалить заявку?';
+
+  static String deleteBody(String equipment) =>
+      'Задача по проблеме на «$equipment» не будет создана. Осмотр с '
+      'комментарием и фото уже на сервере.';
+
+  static const String close = 'Закрыть';
+}
+
+/// Общие подписи и тексты окон (`widgets/info_dialog.dart`).
+class DialogStrings {
+  DialogStrings._();
+
+  static const String understand = 'Понятно';
+  static const String cancel = 'Отмена';
+  static const String close = 'Закрыть';
+
+  /// Подтверждение отправки осмотра без особых обстоятельств.
+  static const String sendInspectionTitle = 'Отправить осмотр?';
+  static const String send = 'Отправить';
+
+  static const String logoutTitle = 'Выйти из аккаунта?';
+  static const String logout = 'Выйти';
+
+  /// Задачу и проблему одновременно выбрать нельзя — что оставить.
+  static const String taskOrProblemTitle = 'Задача или проблема';
+  static const String taskOrProblemBody =
+      'Нельзя одновременно выбрать задачу и проблему. Что оставить?';
+  static const String keepTask = 'Оставить задачу';
+  static const String keepProblem = 'Оставить проблему';
+
+  static const String nothingToSendTitle = 'Не отправлено';
+  static const String nothingToSendBody =
+      'Укажите данные обхода: комментарий, проблему, задачу или наработку.';
+
+  static const String toRepairs = 'К ремонтам';
+  static const String openRepair = 'Открыть ремонт';
+  static const String repairInProgressTitle = 'Оборудование в ремонте';
+  static const String repairInProgressNote =
+      'Состояние вернётся автоматически, когда администратор закроет ремонт.';
+
+  static const String syncNoConnection = 'Отсутствует соединение с сервером';
+  static const String syncAllDone = 'Все данные успешно синхронизированы';
+  static const String syncScansDone =
+      'Все данные и осмотры успешно синхронизированы';
+  static const String syncScansFailedTitle =
+      'Не получилось синхронизировать осмотры';
+  static const String syncScansFailedBody =
+      'Часть осмотров или показаний наработки ещё не отправлена.';
+  static const String syncProblemReportsFailedTitle =
+      'Не все заявки о проблеме отправлены';
+  /// Только временные сбои (связь, ошибка сервера, ждут повтора): отказы по
+  /// существу стали отклонёнными и идут отдельным пунктом с причиной.
+  static const String syncProblemReportsFailedBody =
+      'Связь с сервером прервалась или он временно не ответил — заявки '
+      'уйдут сами при следующей отправке.';
+
+  /// Не ушло сразу несколько видов данных — окно перечисляет все.
+  static const String syncSeveralFailedTitle = 'Не всё отправлено';
+  static const String syncProblemReportsRejectedTitle =
+      'Заявка о проблеме не создана';
+  static const String syncRepairsFailedTitle = 'Не все ремонты отправлены';
+  static const String syncRepairsFailedBody =
+      'Откройте раздел «Ремонты» — там видно, что помешало.';
+  static const String scansReset = 'Осмотры успешно сброшены';
+  static const String infoTitle = 'Информация';
+
+  static const String maxFutureDaysTitle = 'Горизонт показа задач';
+  static const String maxFutureDaysHint =
+      'Например, 30 (пусто = без ограничения)';
+  static const String maxFutureDaysInvalid =
+      'Введите целое число дней от 0 до 3650 или оставьте поле пустым';
+  static const String save = 'Сохранить';
+}
+
 class ForeignEquipmentStrings {
   ForeignEquipmentStrings._();
 
@@ -986,20 +1115,14 @@ class ReworkStrings {
   /// Группа на экране задач оборудования — первой, выше ППР и периодичностей.
   static const String group = 'На доработку';
 
-  /// Пометка у задачи и у оборудования в «Задачах».
+  /// Пометка у задачи без карточки на экране задач оборудования.
   static const String badge = 'На доработку';
 
-  static String equipmentCount(int n) {
-    final mod10 = n % 10;
-    final mod100 = n % 100;
-    if (mod10 == 1 && mod100 != 11) return '$n задача на доработку';
-    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
-      return '$n задачи на доработку';
-    }
-    return '$n задач на доработку';
-  }
-
   static String reason(String comment) => 'Причина: $comment';
+
+  /// Причина возврата в карточке задачи (кнопка «i»).
+  static const String reasonLabel = 'Причина возврата';
+  static const String reasonEmpty = 'Проверяющий не указал причину';
 
   static String returnedBy(String name) => 'Вернул: $name';
 

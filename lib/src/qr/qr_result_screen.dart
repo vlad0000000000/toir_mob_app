@@ -14,7 +14,7 @@ import '../../src/model/inventory_record.dart';
 import '../../src/model/priority.dart';
 import '../../src/model/scan.dart';
 import '../../src/tasks/tasks.dart';
-import '../../src/utils/dialogs.dart';
+import '../widgets/info_dialog.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../src/widgets/controller_listener_mixin.dart';
 import '../../src/widgets/select_image_button.dart';
@@ -96,121 +96,63 @@ class _QRResultScreenState extends State<QRResultScreen> {
   /// Оборудование уже в ремонте — вместо сырого отказа объясняем ситуацию и
   /// даём перейти в существующий ремонт (п. 4.4.5 плана).
   ///
-  /// По макету: круглый значок сверху,
-  /// заголовок, строка «Ремонт №N — «статус»» с цветом этого статуса,
+  /// Заголовок, строка «Ремонт №N — «статус»» с цветом этого статуса,
   /// пояснение плашкой и две кнопки в столбик.
   void _showAlreadyInRepair(Repair repair) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    // Цвет статуса тот же, что у пилюли в списке: открытый — красный,
-    // на рассмотрении — оранжевый, закрытый — зелёный.
-    final statusColor = repair.isClosed
-        ? cs.success
+    // Вся гамма окна — по статусу ремонта, как у пилюли в списке: открыт
+    // красным, на рассмотрении оранжевым, закрыт зелёным. Обходчик должен
+    // различать «ремонт ещё идёт» и «работа сдана, ждём администратора» с
+    // одного взгляда, не вчитываясь в подпись.
+    final tone = repair.isClosed
+        ? DialogTone.success
         : repair.isOpen
-            ? cs.error
-            : cs.warning;
+            ? DialogTone.error
+            : DialogTone.warning;
+    final statusColor = InfoDialog.colorsOf(cs, tone).accent;
 
     showDialog<void>(
       context: context,
-      builder: (ctx) => Dialog(
-        backgroundColor: cs.surfaceContainerLowest,
-        insetPadding: const EdgeInsets.all(AppConstants.spacingMD),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppConstants.radiusXL),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(AppConstants.spacingLG),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+      builder: (ctx) => InfoDialog(
+        icon: Icons.handyman_rounded,
+        tone: tone,
+        title: DialogStrings.repairInProgressTitle,
+        content: Text.rich(
+          TextSpan(
+            style: tt.bodyLarge,
             children: [
-              // Вся гамма окна — по статусу ремонта: открыт красным, на
-              // рассмотрении оранжевым. Обходчик должен различать «ремонт ещё
-              // идёт» и «работа сдана, ждём администратора» с одного взгляда,
-              // не вчитываясь в подпись.
-              Container(
-                width: 64,
-                height: 64,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.12),
-                  shape: BoxShape.circle,
-                ),
-                child:
-                    Icon(Icons.handyman_rounded, size: 32, color: statusColor),
-              ),
-              const SizedBox(height: AppConstants.spacingMD),
-              Text(
-                'Оборудование в ремонте',
-                style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: AppConstants.spacingXS),
-              Text.rich(
-                TextSpan(
-                  style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
-                  children: [
-                    TextSpan(text: 'Ремонт №${repair.id} — '),
-                    TextSpan(
-                      text: '«${RepairStatuses.displayName(repair.status)}»',
-                      style: TextStyle(
-                        color: statusColor,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: AppConstants.spacingMD),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(AppConstants.spacingMD),
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(AppConstants.radiusMD),
-                ),
-                child: Text(
-                  'Состояние вернётся автоматически, когда администратор '
-                  'закроет ремонт.',
-                  style: tt.bodySmall?.copyWith(color: statusColor),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-              const SizedBox(height: AppConstants.spacingMD),
-              SizedBox(
-                width: double.infinity,
-                height: AppConstants.buttonHeightLarge,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.of(ctx).pop();
-                    // Ремонт уже найден в кэше — отдаём его карточке, чтобы
-                    // та не ждала ответа сервера.
-                    GoRouter.of(context)
-                        .push('/repairs/${repair.uuid}', extra: repair);
-                  },
-                  icon: const Icon(Icons.open_in_new_rounded, size: 20),
-                  label: const Text('Открыть ремонт'),
-                ),
-              ),
-              const SizedBox(height: AppConstants.spacingSM),
-              SizedBox(
-                width: double.infinity,
-                height: AppConstants.buttonHeightLarge,
-                child: ElevatedButton(
-                  // Вторичная кнопка серой заливкой, а не обводкой — как в
-                  // окне завершения ремонта: обе кнопки одной «плотности».
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: cs.surfaceContainer,
-                    foregroundColor: cs.onSurface,
-                    elevation: 0,
-                  ),
-                  onPressed: () => Navigator.of(ctx).pop(),
-                  child: const Text('Закрыть'),
+              TextSpan(text: 'Ремонт №${repair.id} — '),
+              TextSpan(
+                text: '«${RepairStatuses.displayName(repair.status)}»',
+                style: TextStyle(
+                  color: statusColor,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
           ),
+          textAlign: TextAlign.center,
         ),
+        note: DialogStrings.repairInProgressNote,
+        noteTinted: true,
+        actions: [
+          DialogPrimaryButton(
+            label: DialogStrings.openRepair,
+            icon: Icons.open_in_new_rounded,
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              // Ремонт уже найден в кэше — отдаём его карточке, чтобы та не
+              // ждала ответа сервера.
+              GoRouter.of(context)
+                  .push('/repairs/${repair.uuid}', extra: repair);
+            },
+          ),
+          DialogSecondaryButton(
+            label: DialogStrings.close,
+            onPressed: () => Navigator.of(ctx).pop(),
+          ),
+        ],
       ),
     );
   }
@@ -218,48 +160,28 @@ class _QRResultScreenState extends State<QRResultScreen> {
   /// Ремонт по этому оборудованию уже заведён без связи и ждёт отправки.
   /// Кнопка ведёт в список ремонтов — там черновик виден с пометкой
   /// «Не отправлено» и его можно отправить вручную или удалить.
+  ///
+  /// Красным, как у открытого ремонта: черновик и есть будущий «Открыт», и
+  /// оборудование он занимает так же.
   void _showDraftAlreadyQueued() {
-    final cs = Theme.of(context).colorScheme;
     showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text(RepairStrings.draftAlreadyQueuedTitle),
-        content: Container(
-          padding: const EdgeInsets.all(AppConstants.spacingMD),
-          // Красным, как у открытого ремонта: черновик и есть будущий
-          // «Открыт», и оборудование он занимает так же.
-          decoration: BoxDecoration(
-            color: cs.error.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(AppConstants.radiusMD),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.cloud_upload_outlined, size: 18, color: cs.error),
-              const SizedBox(width: AppConstants.spacingSM),
-              Expanded(
-                child: Text(
-                  RepairStrings.draftAlreadyQueuedBody,
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyMedium
-                      ?.copyWith(color: cs.error),
-                ),
-              ),
-            ],
-          ),
-        ),
+      builder: (ctx) => InfoDialog(
+        icon: Icons.cloud_upload_outlined,
+        tone: DialogTone.error,
+        title: RepairStrings.draftAlreadyQueuedTitle,
+        body: RepairStrings.draftAlreadyQueuedBody,
         actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Закрыть'),
-          ),
-          ElevatedButton(
+          DialogPrimaryButton(
+            label: DialogStrings.toRepairs,
             onPressed: () {
               Navigator.of(ctx).pop();
               GoRouter.of(context).push('/repairs');
             },
-            child: const Text('К ремонтам'),
+          ),
+          DialogSecondaryButton(
+            label: DialogStrings.close,
+            onPressed: () => Navigator.of(ctx).pop(),
           ),
         ],
       ),
@@ -432,32 +354,13 @@ class _QRResultScreenState extends State<QRResultScreen> {
 
   /// Оборудование занято ремонтом другого сотрудника.
   void _showBusyByOtherRepair() {
-    final cs = Theme.of(context).colorScheme;
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text(RepairStrings.busyByOtherTitle),
-        content: Container(
-          padding: const EdgeInsets.all(AppConstants.spacingMD),
-          decoration: BoxDecoration(
-            color: cs.error.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(AppConstants.radiusMD),
-          ),
-          child: Text(
-            RepairStrings.busyByOtherBody,
-            style: Theme.of(context)
-                .textTheme
-                .bodyMedium
-                ?.copyWith(color: cs.error),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text(RepairStrings.understand),
-          ),
-        ],
-      ),
+    showInfoDialog(
+      context,
+      icon: Icons.handyman_rounded,
+      tone: DialogTone.error,
+      title: RepairStrings.busyByOtherTitle,
+      body: RepairStrings.busyByOtherBody,
+      buttonLabel: RepairStrings.understand,
     );
   }
 
@@ -885,7 +788,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
     );
   }
 
-  void _submit(DataProvider dataProvider) {
+  Future<void> _submit(DataProvider dataProvider) async {
     final isDemoMode = widget.machine.uuid == DemoEquipment.demoUuid;
     if (isDemoMode) {
       Settings.onboardingStep = 4;
@@ -912,8 +815,13 @@ class _QRResultScreenState extends State<QRResultScreen> {
         ? const <UsageUpdate>[]
         : usageScans;
     if (scans.length + usageScans.length == 0) {
-      Dialogs.notify(context, 'Не отправлено',
-          'Укажите данные обхода (комментарий, проблему, задачу или наработку)');
+      showInfoDialog(
+        context,
+        icon: Icons.edit_note_rounded,
+        tone: DialogTone.warning,
+        title: DialogStrings.nothingToSendTitle,
+        body: DialogStrings.nothingToSendBody,
+      );
       return;
     }
     // Задача с настроенным расходом закрывается без единой позиции — значит
@@ -962,42 +870,52 @@ class _QRResultScreenState extends State<QRResultScreen> {
                 shortage.sparePartName, shortage.availableLabel),
     ].join(', ');
 
-    Dialogs.areYouSure(context, onOk: () async {
-      await addScans(scans, separateUsage);
-      dataProvider.mainSync();
-      for (var usageScan in usageScans) {
-        if (usageScan.usageParameterValue == null) continue;
-        for (var usageParam in widget.machine.usageParameters) {
-          if (usageScan.usageParameterUuid == usageParam.uuid) {
-            usageParam.currentValue = usageScan.usageParameterValue!;
-          }
+    // Без особых обстоятельств — простое «Отправить осмотр?». Расход не
+    // записан или на складе меньше — оранжевое окно со своим заголовком и
+    // пояснением.
+    final warnsConsumption = skipsWriteOff || shortages.isNotEmpty;
+    final confirmed = await showConfirmDialog(
+      context,
+      icon: warnsConsumption ? Icons.inventory_2_outlined : Icons.send_rounded,
+      tone: warnsConsumption ? DialogTone.warning : DialogTone.primary,
+      title: skipsWriteOff
+          ? (multipleTasks
+              ? InspectionConsumptionStrings.confirmMultiTaskTitle
+              : InspectionConsumptionStrings.confirmEmptyTitle)
+          : (shortages.isEmpty
+              ? DialogStrings.sendInspectionTitle
+              : InspectionConsumptionStrings.confirmShortageTitle),
+      body: skipsWriteOff
+          ? (multipleTasks
+              ? InspectionConsumptionStrings.confirmMultiTaskBody
+              : InspectionConsumptionStrings.confirmEmptyBody)
+          : (shortages.isEmpty
+              ? null
+              : InspectionConsumptionStrings.confirmShortageBody(
+                  shortageList)),
+      confirmLabel: DialogStrings.send,
+      confirmIcon: Icons.send_rounded,
+    );
+    if (!confirmed || !mounted) return;
+    await addScans(scans, separateUsage);
+    dataProvider.mainSync();
+    for (var usageScan in usageScans) {
+      if (usageScan.usageParameterValue == null) continue;
+      for (var usageParam in widget.machine.usageParameters) {
+        if (usageScan.usageParameterUuid == usageParam.uuid) {
+          usageParam.currentValue = usageScan.usageParameterValue!;
         }
       }
-      if (!mounted) return;
-      // Осмотр отправлен — закрываем карточку и возвращаемся туда, откуда её
-      // открыли: к камере или в список осмотров. Запасной адрес нужен, если
-      // карточку открыли с пустым стеком.
-      GoRouter.of(context).backOr(
-        GoRouter.of(context).location == '/qr_result_problems'
-            ? '/problems'
-            : '/qr_scanner',
-      );
-    },
-        rewriteMessage: skipsWriteOff
-            ? (multipleTasks
-                ? InspectionConsumptionStrings.confirmMultiTaskTitle
-                : InspectionConsumptionStrings.confirmEmptyTitle)
-            : (shortages.isEmpty
-                ? null
-                : InspectionConsumptionStrings.confirmShortageTitle),
-        desc: skipsWriteOff
-            ? (multipleTasks
-                ? InspectionConsumptionStrings.confirmMultiTaskBody
-                : InspectionConsumptionStrings.confirmEmptyBody)
-            : (shortages.isEmpty
-                ? null
-                : InspectionConsumptionStrings.confirmShortageBody(
-                    shortageList)));
+    }
+    if (!mounted) return;
+    // Осмотр отправлен — закрываем карточку и возвращаемся туда, откуда её
+    // открыли: к камере или в список осмотров. Запасной адрес нужен, если
+    // карточку открыли с пустым стеком.
+    GoRouter.of(context).backOr(
+      GoRouter.of(context).location == '/qr_result_problems'
+          ? '/problems'
+          : '/qr_scanner',
+    );
   }
 
   void _clearValidationHighlights() {
@@ -1020,26 +938,9 @@ class _QRResultScreenState extends State<QRResultScreen> {
       if (equipmentController.selectedTasks.isNotEmpty) {
         if (!mounted) return;
 
-        final cancelTask = await showDialog<bool>(
-          context: context,
-          barrierDismissible: false,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Задача и проблема'),
-            content: const Text(
-              'Нельзя одновременно выбрать задачу и проблему.\n\nОтменить задачу?',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Нет'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Да'),
-              ),
-            ],
-          ),
-        );
+        // Только что выбрали проблему — главная кнопка оставляет её и
+        // снимает задачу; отказ возвращает прежний выбор.
+        final cancelTask = await _askTaskOrProblem(keepTaskFirst: false);
 
         if (!mounted) return;
 
@@ -1068,26 +969,9 @@ class _QRResultScreenState extends State<QRResultScreen> {
       if (problemController.value != null) {
         if (!mounted) return;
 
-        final cancelProblem = await showDialog<bool>(
-          context: context,
-          barrierDismissible: false,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Задача и проблема'),
-            content: const Text(
-              'Нельзя одновременно выбрать задачу и проблему.\n\nОтменить проблему?',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Нет'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Да'),
-              ),
-            ],
-          ),
-        );
+        // Только что выбрали задачу — главная кнопка оставляет её и снимает
+        // проблему; отказ возвращает прежний выбор.
+        final cancelProblem = await _askTaskOrProblem(keepTaskFirst: true);
 
         if (!mounted) return;
 
@@ -1102,6 +986,26 @@ class _QRResultScreenState extends State<QRResultScreen> {
         }
       }
     }
+  }
+
+  /// Задачу и проблему одновременно выбрать нельзя — что оставить.
+  ///
+  /// Главная кнопка — только что выбранное ([keepTaskFirst] — задача), вторая
+  /// — прежнее. `true` — оставить только что выбранное. Мимо окна не
+  /// закрыть: без ответа непонятно, что снимать; «назад» — как вторая кнопка.
+  Future<bool> _askTaskOrProblem({required bool keepTaskFirst}) {
+    return showConfirmDialog(
+      context,
+      icon: Icons.rule_rounded,
+      tone: DialogTone.warning,
+      title: DialogStrings.taskOrProblemTitle,
+      body: DialogStrings.taskOrProblemBody,
+      confirmLabel:
+          keepTaskFirst ? DialogStrings.keepTask : DialogStrings.keepProblem,
+      cancelLabel:
+          keepTaskFirst ? DialogStrings.keepProblem : DialogStrings.keepTask,
+      barrierDismissible: false,
+    );
   }
 
   @override

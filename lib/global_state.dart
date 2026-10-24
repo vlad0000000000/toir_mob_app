@@ -104,6 +104,15 @@ class GlobalState {
     String pendingRepairs = dataProvider.pendingRepairBox.length.toString();
     String pendingRepairEdits =
         dataProvider.pendingRepairUpdateBox.length.toString();
+    // Заявки «Проблема»: ждущие отправки (вместе с «в полёте») и отклонённые
+    // отдельно — отклонённые сами не уйдут, и по этой строке видно, что
+    // застряло именно у сервера.
+    final rejectedReports = dataProvider.rejectedProblemReports.length;
+    String pendingProblemReports = (dataProvider.periodicTaskBox.length -
+            rejectedReports +
+            dataProvider.periodicTaskPendingBox.length)
+        .toString();
+    String rejectedProblemReports = rejectedReports.toString();
     String authState = dataProvider.authExpired.value
         ? "сессия истекла, нужно войти заново"
         : "в порядке";
@@ -116,6 +125,8 @@ class GlobalState {
 - **Наработок не отправлено**: ${pendingUsageUpdates}
 - **Ремонтов не отправлено**: ${pendingRepairs}
 - **Правок ремонтов не отправлено**: ${pendingRepairEdits}
+- **Заявок о проблеме не отправлено**: $pendingProblemReports
+- **Заявок о проблеме отклонено сервером**: $rejectedProblemReports
 - **Авторизация**: ${authState}
 - **ТМЦ/Оборудование**: ${inventory}
 - **Пользователь**: ${loggedUser}

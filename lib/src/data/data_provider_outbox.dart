@@ -305,8 +305,10 @@ extension DataProviderOutbox on DataProvider {
   }
 
   /// Снимает пометку «нет прав» со всех отклонённых записей очередей —
-  /// осмотров, наработки, черновиков и правок ремонтов. Возвращает, сколько
-  /// записей вернулось в отправку.
+  /// осмотров, наработки, черновиков и правок ремонтов, — а у осмотров ещё и
+  /// «оборудование не найдено», у заявок «Проблема» — любой отказ
+  /// ([retryRejectedProblemReports]). Возвращает, сколько записей вернулось
+  /// в отправку.
   ///
   /// Зовётся, когда у обходчика поменялся доступ (другая версия профиля):
   /// администратор мог вернуть право, и записи должны уйти сами, без похода
@@ -318,7 +320,12 @@ extension DataProviderOutbox on DataProvider {
     var cleared = 0;
     for (final entry in scanBox.toMap().entries) {
       final scan = entry.value;
-      if (!isNoRightsReason(scan.lastError)) continue;
+      // «Оборудование не найдено» — тоже про доступ: чужое подразделение
+      // без флага «Осмотр без QR». Флаг и роль меняют версию доступа.
+      if (!isNoRightsReason(scan.lastError) &&
+          !isEquipmentNotFoundReason(scan.lastError)) {
+        continue;
+      }
       scan.lastError = null;
       scan.lastShortages = null;
       await scanBox.put(entry.key, scan);
@@ -342,6 +349,9 @@ extension DataProviderOutbox on DataProvider {
           update.repairUuid, update.clearRejection());
       cleared++;
     }
+    // Отказ заявки — не «нет прав», а «оборудование не видно», но от смены
+    // доступа он тоже может уйти: роль с другими подразделениями.
+    cleared += await retryRejectedProblemReports();
     if (cleared > 0) {
       refreshRejectedScansCount();
       refreshRejectedUsageCount();
@@ -350,6 +360,23 @@ extension DataProviderOutbox on DataProvider {
       _outboxLog.warning(
           'доступ изменился — в отправку возвращено записей: $cleared');
     }
+    return cleared;
+  }
+
+  /// Снимает пометку отказа со всех отклонённых заявок «Проблема» — их
+  /// возьмёт следующий проход очереди. Возвращает, сколько снято.
+  ///
+  /// Зовётся из «Синхронизировать данные» и при смене доступа: отказ 404
+  /// уйдёт сам, когда сервер начнёт пускать к оборудованию чужого
+  /// подразделения или администратор поменяет роль.
+  Future<int> retryRejectedProblemReports() async {
+    var cleared = 0;
+    for (final entry in periodicTaskBox.toMap().entries) {
+      if (!entry.value.isRejected) continue;
+      await periodicTaskBox.put(entry.key, entry.value.withRejection(null));
+      cleared++;
+    }
+    if (cleared > 0) refreshRejectedProblemReportsCount();
     return cleared;
   }
 
@@ -1003,6 +1030,15 @@ extension DataProviderOutbox on DataProvider {
   Future<void> syncPeriodicTasks() => _periodicTaskSync.run(
       DataProvider._outboxPassGeneration, _syncPeriodicTasksImpl);
 
+  /// Проход, начавшийся не раньше вызова, — для «Синхронизировать данные».
+  /// Кнопка снимает отметку отказа ([retryRejectedProblemReports]) перед
+  /// проходом, а идущий фоновый снял список раньше и такие заявки пропустил
+  /// бы как отклонённые: присоединившись к нему, кнопка ответила бы «не всё
+  /// отправлено» по тому, что даже не пробовала. Проход по-прежнему один —
+  /// идущий дожидаемся.
+  Future<void> syncPeriodicTasksFresh() => _periodicTaskSync.runFresh(
+      DataProvider._outboxPassGeneration, _syncPeriodicTasksImpl);
+
   Future<void> _syncPeriodicTasksImpl() async {
     // Проверяем pending задачи — возвращаем в periodicTaskBox те, что прождали 120 секунд
     final pendingTasks = periodicTaskPendingBox.values.toList();
@@ -1029,6 +1065,10 @@ extension DataProviderOutbox on DataProvider {
     for (final task in tasks) {
       // Снимок мог устареть, пока шёл проход, — как у осмотров.
       if (!periodicTaskBox.containsKey(task.key())) continue;
+      // Отклонённую фон не повторяет: ответ был бы тем же. Пометку снимают
+      // «Синхронизировать данные» и смена доступа
+      // ([retryRejectedProblemReports]).
+      if (task.isRejected) continue;
       // Копится по ходу: после создания здесь уже лежит uuid задачи. Снаружи
       // try — именно этот объект должен вернуться в очередь, иначе повтор
       // создал бы задачу заново вместо того, чтобы догрузить снимки.
@@ -1079,6 +1119,21 @@ extension DataProviderOutbox on DataProvider {
               ? 'снимки заявки ${current.serverUuid} не приняты сервером, '
                   'заявка доставлена без них: $e'
               : 'заявка ${task.key()} не создана, повтор бесполезен: $e');
+          continue;
+        }
+        // Отказ по существу (оборудования не видно, нет права, данные не
+        // приняты) — повтор фоном бесполезен, а бросать нельзя: задачи
+        // «Проблема» тогда не будет вовсе. Возвращаем в основной бокс с
+        // причиной — до ручного повтора или смены доступа.
+        if (!created && isProblemReportRejected(e)) {
+          await periodicTaskPendingBox.delete(task.key());
+          await stringBox.delete(timestampKey);
+          await periodicTaskBox.put(task.key(),
+              current.withRejection(problemReportRejectionReason(e)));
+          // Полоса на главной — сразу, а не после ручной синхронизации.
+          refreshRejectedProblemReportsCount();
+          _outboxLog.warning(
+              'заявка ${task.key()} отклонена, ждёт ручного повтора: $e');
           continue;
         }
         // Остальное — повторим: оставляем в pending с timestamp, вместе с

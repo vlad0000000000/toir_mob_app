@@ -6,6 +6,7 @@ import 'package:hive_ce/hive.dart';
 import 'package:qr_scan_industry/src/data/problem_report_photos.dart';
 import 'package:qr_scan_industry/src/exceptions/app_exceptions.dart';
 import 'package:qr_scan_industry/src/model/periodic_task_request.dart';
+import 'package:qr_scan_industry/strings.dart';
 
 /// Адаптер заявки до ключа события и uuid созданной задачи — формат, что
 /// лежит в очередях на устройствах с прошлой версией.
@@ -27,6 +28,16 @@ class _LegacyRequestAdapter extends TypeAdapter<PeriodicTaskRequest> {
     writer.write(obj.nextDueAt);
     writer.write(obj.params);
     writer.write(obj.photos);
+  }
+}
+
+/// Адаптер версии с ключом события и uuid, но ещё без причины отказа.
+class _KeyedRequestAdapter extends _LegacyRequestAdapter {
+  @override
+  void write(BinaryWriter writer, PeriodicTaskRequest obj) {
+    super.write(writer, obj);
+    writer.write(obj.eventId);
+    writer.write(obj.serverUuid);
   }
 }
 
@@ -68,6 +79,19 @@ void main() {
       // Сервер сверяет ключ с телом: тело повтора обязано совпадать.
       expect(jsonEncode(created.toJson()), jsonEncode(request.toJson()));
       expect(created.serverUuid, 'task-1');
+    });
+
+    test('отказ и его снятие не меняют ни ключ бокса, ни тело', () {
+      final request = _request(eventId: 'ev-1');
+      final rejected = request.withRejection('нет оборудования');
+
+      expect(rejected.isRejected, isTrue);
+      expect(rejected.key(), request.key());
+      expect(jsonEncode(rejected.toJson()), jsonEncode(request.toJson()));
+      expect(rejected.withRejection(null).isRejected, isFalse);
+      // Пометка переживает запоминание uuid созданной задачи.
+      expect(
+          rejected.withServerUuid('task-1').rejectedReason, 'нет оборудования');
     });
   });
 
@@ -114,6 +138,35 @@ void main() {
       expect(request.eventId, isNull);
       expect(request.serverUuid, isNull);
     });
+
+    test('причина отказа переживает запись и чтение', () async {
+      Hive.registerAdapter(PeriodicTaskRequestAdapter());
+      final box = await Hive.openBox<PeriodicTaskRequest>('ptask');
+      await box.put('k', _request(eventId: 'ev-1').withRejection('причина'));
+      await box.close();
+
+      final reopened = await Hive.openBox<PeriodicTaskRequest>('ptask');
+      final request = reopened.get('k')!;
+
+      expect(request.rejectedReason, 'причина');
+      expect(request.eventId, 'ev-1');
+    });
+
+    test('запись с ключом и uuid, но без причины, читается — не отклонена',
+        () async {
+      Hive.registerAdapter(_KeyedRequestAdapter());
+      final legacy = await Hive.openBox<PeriodicTaskRequest>('ptask');
+      await legacy.put('k', _request(eventId: 'ev-1', serverUuid: 'task-1'));
+      await legacy.close();
+      Hive.resetAdapters();
+
+      Hive.registerAdapter(PeriodicTaskRequestAdapter());
+      final reopened = await Hive.openBox<PeriodicTaskRequest>('ptask');
+      final request = reopened.get('k')!;
+
+      expect(request.serverUuid, 'task-1');
+      expect(request.isRejected, isFalse);
+    });
   });
 
   group('снимки заявки не загрузились', () {
@@ -140,6 +193,59 @@ void main() {
     test('задачу по ключу удалили или такая уже есть — повтор бесполезен', () {
       expect(isProblemReportSettled(ServerFailureException(410, 'x')), isTrue);
       expect(isProblemReportSettled(ServerFailureException(409, 'x')), isTrue);
+    });
+
+    test('оборудование заявки сервер не видит — отклонена, но не брошена', () {
+      // Чужое подразделение: сервер пускает к нему только сам осмотр, а не
+      // отдельную заявку. Осмотр принят, а задачи «Проблема» нет — запись
+      // ждёт ручного повтора, а не удаляется.
+      final notFound = ServerFailureException(404, 'Equipment was not found');
+      expect(isProblemReportSettled(notFound), isFalse);
+      expect(isProblemReportRejected(notFound), isTrue);
+    });
+
+    test('временный сбой — не отказ: повторяет фон', () {
+      expect(
+          isProblemReportRejected(ServerFailureException(503, 'x')), isFalse);
+      expect(
+          isProblemReportRejected(const SocketException('нет сети')), isFalse);
+      // Таймаут и «слишком часто» лечатся временем.
+      expect(
+          isProblemReportRejected(ServerFailureException(408, 'x')), isFalse);
+      expect(
+          isProblemReportRejected(ServerFailureException(429, 'x')), isFalse);
+      // Протухший токен — уйдёт после входа.
+      expect(isProblemReportRejected(AuthExpiredException()), isFalse);
+    });
+
+    test('нет права или данные не приняты — тоже отклонена, а не вечный повтор',
+        () {
+      // Раньше 403 и 422 тихо повторялись каждые 120 секунд, а ручная
+      // синхронизация обещала, что заявки «уйдут сами».
+      expect(
+          isProblemReportRejected(
+              AccessDeniedException(403, 'permission_denied', 'x')),
+          isTrue);
+      expect(isProblemReportRejected(ServerFailureException(422, 'x')), isTrue);
+      expect(isProblemReportRejected(ServerFailureException(400, 'x')), isTrue);
+    });
+
+    test('409 и 410 разбирает isProblemReportSettled, а не отказ', () {
+      expect(
+          isProblemReportRejected(ServerFailureException(409, 'x')), isFalse);
+      expect(
+          isProblemReportRejected(ServerFailureException(410, 'x')), isFalse);
+    });
+
+    test('причина — по коду ответа', () {
+      expect(problemReportRejectionReason(ServerFailureException(404, 'x')),
+          ProblemReportStrings.rejectedNotFound);
+      expect(
+          problemReportRejectionReason(
+              AccessDeniedException(403, 'permission_denied', 'x')),
+          ProblemReportStrings.rejectedNoRights);
+      expect(problemReportRejectionReason(ServerFailureException(422, 'x')),
+          ProblemReportStrings.rejectedOther);
     });
 
     test('прочие отказы создания — повторяем', () {

@@ -28,11 +28,23 @@ class HelpLink extends StatelessWidget {
               colorFilter: ColorFilter.mode(cs.primary, BlendMode.srcIn),
             ),
             const SizedBox(width: 6),
-            Text(
-              'Помощь',
-              style: tt.labelLarge?.copyWith(
-                color: cs.primary,
-                fontWeight: FontWeight.w600,
+            // В шапке главной под ссылку отведена фиксированная ширина
+            // (`leadingWidth`), а подпись растёт с системным шрифтом: при
+            // 150% она вылезала за край на несколько пикселей. Не хватает
+            // места — подпись чуть ужимается; хватает — остаётся как есть.
+            // На экране входа ширина не ограничена (`Positioned` без правого
+            // края) — там `Flexible` ничего не ужимает.
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  'Помощь',
+                  maxLines: 1,
+                  style: tt.labelLarge?.copyWith(
+                    color: cs.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ),
           ],

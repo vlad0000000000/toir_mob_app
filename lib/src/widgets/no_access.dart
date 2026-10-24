@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../strings.dart';
-import '../design/app_theme.dart';
 import 'info_dialog.dart';
 
 /// Объяснение по нажатию на запертое по роли — плитку, строку, поле.
@@ -11,23 +10,13 @@ import 'info_dialog.dart';
 /// — доступа нет, но это поправимо через руководителя; что делать — в
 /// плашке, отдельно от самой новости.
 Future<void> showNoAccessDialog(BuildContext context, String what) {
-  final cs = Theme.of(context).colorScheme;
-  return showDialog<void>(
-    context: context,
-    builder: (context) => InfoDialog(
-      icon: Icons.lock_outline_rounded,
-      accent: cs.warning,
-      accentContainer: cs.warningContainer,
-      title: AccessStrings.title,
-      body: AccessStrings.body(what),
-      note: AccessStrings.hint,
-      actions: [
-        ElevatedButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(Strings.understand, maxLines: 1),
-        ),
-      ],
-    ),
+  return showInfoDialog(
+    context,
+    icon: Icons.lock_outline_rounded,
+    tone: DialogTone.warning,
+    title: AccessStrings.title,
+    body: AccessStrings.body(what),
+    note: AccessStrings.hint,
   );
 }
 

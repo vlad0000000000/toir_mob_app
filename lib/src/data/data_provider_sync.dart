@@ -10,17 +10,6 @@ part of 'data_provider.dart';
 /// туда не доедет.
 final _syncLog = Logger('DataProviderSync');
 
-/// Результат ручной синхронизации (кнопка «Синхронизировать данные»).
-enum SyncResult {
-  noConnection,
-  allSynced,
-  scansSynced,
-  scansFailed,
-
-  /// Справочники обновились, но часть черновиков ремонтов сервер не принял.
-  repairsFailed,
-}
-
 /// Фоновая синхронизация справочников/задач с сервером.
 extension DataProviderSync on DataProvider {
   /// Справочник оборудования — инкрементально, как каталог ЗИП.
@@ -1116,17 +1105,17 @@ extension DataProviderSync on DataProvider {
   /// Присоединяемся только к проходу своего аккаунта, как и в [mainSync]: при
   /// входе другого обходчика `clearCachedData` забывает идущий проход и гасит
   /// индикатор, и его кнопка сразу запускает собственную синхронизацию.
-  Future<SyncResult> syncDataAndScans() =>
+  Future<SyncReport> syncDataAndScans() =>
       _manualSync.run(cacheGeneration, _syncDataAndScansImpl);
 
-  Future<SyncResult> _syncDataAndScansImpl() async {
+  Future<SyncReport> _syncDataAndScansImpl() async {
     // Кнопку нажали руками — отметку недоступности забываем и идём в сеть
     // честно: обходчик мог только что дойти до места, где связь есть.
     API.retryConnectionNow();
     // Второй вход в очереди, помимо вечного цикла, — и та же причина
     // проверять авторизацию: без токена отправка не отказ, а бессмыслица.
     if (!GlobalState.isAuthorized || !await GlobalState.hasConnectionToServer) {
-      return SyncResult.noConnection;
+      return SyncReport.offline;
     }
     // Черновики ремонтов отправляем до справочников, а не после: иначе
     // syncMyRepairs перекачал бы список ещё без только что созданного ремонта,
@@ -1140,6 +1129,8 @@ extension DataProviderSync on DataProvider {
         scanPendingBox.length +
         scanUsageBox.length +
         scanUsagePendingBox.length;
+    // Отклонённые заявки фон не повторяет — кнопка и есть ручной повтор.
+    await retryRejectedProblemReports();
     await Future.wait([
       mainSync(),
       // Каталог ЗИП есть и внутри `mainSync`, но тот мог уже идти — тогда
@@ -1160,14 +1151,8 @@ extension DataProviderSync on DataProvider {
       // что уехало бы следующим циклом.
       if (queueWas > 0) _flushUsageAndScans(),
       if (periodicTaskBox.isNotEmpty || periodicTaskPendingBox.isNotEmpty)
-        syncPeriodicTasks(),
+        syncPeriodicTasksFresh(),
     ]);
-    if (pendingRepairBox.isNotEmpty || pendingRepairUpdateBox.isNotEmpty) {
-      return SyncResult.repairsFailed;
-    }
-    if (queueWas == 0) {
-      return SyncResult.allSynced;
-    }
     // Остаток считаем по обеим очередям и вместе с «в полёте»: раньше
     // смотрели только на основной бокс осмотров, и осмотр, ушедший после
     // временного сбоя в pending, или застрявшая наработка давали «успешно».
@@ -1175,7 +1160,21 @@ extension DataProviderSync on DataProvider {
         scanPendingBox.length +
         scanUsageBox.length +
         scanUsagePendingBox.length;
-    return left == 0 ? SyncResult.scansSynced : SyncResult.scansFailed;
+    // Заявки «Проблема» — тоже данные обходчика: раньше их остаток не
+    // считался, и при 503 на создании задачи кнопка отвечала «успешно».
+    // Отклонённые — отдельно, с причинами: сами они не уйдут.
+    final rejected = rejectedProblemReports;
+    return SyncReport(
+      scansWereQueued: queueWas > 0,
+      scansLeft: queueWas > 0 && left > 0,
+      repairsLeft:
+          pendingRepairBox.isNotEmpty || pendingRepairUpdateBox.isNotEmpty,
+      problemReportsLeft: periodicTaskBox.length - rejected.length > 0 ||
+          periodicTaskPendingBox.isNotEmpty,
+      problemReportReasons: [
+        ...{for (final task in rejected) task.rejectedReason!},
+      ],
+    );
   }
 
   /// Наработка и осмотры — раундами, до трёх, пока есть продвижение.

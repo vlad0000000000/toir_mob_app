@@ -6,7 +6,6 @@ import '../../src/model/inventory_record.dart';
 import '../../src/model/task.dart';
 import '../../strings.dart';
 import '../design/app_constants.dart';
-import '../design/app_theme.dart';
 import '../widgets/filter_controls.dart';
 import '../widgets/empty_state.dart';
 import 'tasks_filter.dart';
@@ -117,7 +116,7 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
   ///
   /// Возвращает оборудование с числом задач и числом из них возвращённых на
   /// доработку.
-  List<(InventoryRecord, int, int)> _equipmentWithTasks() {
+  List<(InventoryRecord, int)> _equipmentWithTasks() {
     final equipment = GlobalState.dataProvider.inventoryRecords;
 
     // «Осмотр оборудования или ТМЦ» — это выбор объекта для осмотра, а не
@@ -132,20 +131,20 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
     if (widget.isProblems) {
       return [
         for (final item in _scopedEquipment(equipment, showAll: _showAll))
-          (item, 0, 0),
+          (item, 0),
       ];
     }
 
     // Сбрасываем кэш очередей на входе: внутри прохода он живёт и экономит
     // сотни обходов, но между кадрами очередь могла измениться.
     GlobalState.dataProvider.invalidateScanTaskCache();
-    final withRework = <(InventoryRecord, int, int)>[];
-    final rest = <(InventoryRecord, int, int)>[];
+    final withRework = <(InventoryRecord, int)>[];
+    final rest = <(InventoryRecord, int)>[];
     for (final item in equipment) {
       final tasks = _filteredTasksFor(item);
       if (tasks.isEmpty) continue;
-      final rework = tasks.where((task) => task.isReturnedForRework).length;
-      (rework > 0 ? withRework : rest).add((item, tasks.length, rework));
+      final hasRework = tasks.any((task) => task.isReturnedForRework);
+      (hasRework ? withRework : rest).add((item, tasks.length));
     }
     // Оборудование с задачами на доработку — первым: проверяющий ждёт
     // исправления, и в общем списке такую задачу легко пропустить. В
@@ -208,11 +207,10 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
         separatorBuilder: (_, __) =>
             const SizedBox(height: AppConstants.spacingSM),
         itemBuilder: (context, index) {
-          final (equipment, taskCount, reworkCount) = items[index];
+          final (equipment, taskCount) = items[index];
           return _EquipmentTile(
             equipment: equipment,
             taskCount: taskCount,
-            reworkCount: reworkCount,
             isProblems: isProblems,
             onTap: () {
               // push: список остаётся под карточкой, «назад» возвращает в него
@@ -319,6 +317,31 @@ class _EquipmentScopeSheetState extends State<_EquipmentScopeSheet> {
       });
 
   @override
+  void initState() {
+    super.initState();
+    // Пока лист открыт, фоновая синхронизация может добавить оборудование
+    // или поменять «своё» (помещения подразделений, профиль) — та же
+    // подписка, что у самого списка. Без неё кнопка обещала бы прежнее
+    // число, а после закрытия список показывал бы другое.
+    final provider = GlobalState.dataProvider;
+    provider.inventoryRevision.addListener(_recount);
+    provider.accessProfile.addListener(_recount);
+  }
+
+  @override
+  void dispose() {
+    final provider = GlobalState.dataProvider;
+    provider.inventoryRevision.removeListener(_recount);
+    provider.accessProfile.removeListener(_recount);
+    super.dispose();
+  }
+
+  void _recount() {
+    if (!mounted) return;
+    setState(() => _count = _countFor(_showAll));
+  }
+
+  @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
@@ -412,18 +435,18 @@ class _EquipmentScopeSheetState extends State<_EquipmentScopeSheet> {
 /// счётчиком задач, badge справа (или chevron в режиме «problems»).
 class _EquipmentTile extends StatelessWidget {
   final InventoryRecord equipment;
+  /// Все задачи оборудования, включая возвращённые на доработку: отдельной
+  /// строки «N задач на доработку» у плитки нет — иначе одна и та же задача
+  /// считалась бы дважды, и активной, и на доработку. Что среди них есть
+  /// доработка, видно на экране задач оборудования (группа «На доработку»),
+  /// а само такое оборудование стоит в списке первым.
   final int taskCount;
-
-  /// Сколько из задач вернули на доработку — отдельной строкой под
-  /// счётчиком.
-  final int reworkCount;
   final bool isProblems;
   final VoidCallback onTap;
 
   const _EquipmentTile({
     required this.equipment,
     required this.taskCount,
-    this.reworkCount = 0,
     required this.isProblems,
     required this.onTap,
   });
@@ -490,16 +513,6 @@ class _EquipmentTile extends StatelessWidget {
                         subtitle,
                         style: tt.bodySmall?.copyWith(
                           color: hasTasks ? cs.primary : cs.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                    if (!isProblems && reworkCount > 0) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        ReworkStrings.equipmentCount(reworkCount),
-                        style: tt.bodySmall?.copyWith(
-                          color: cs.warning,
-                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],

@@ -11,7 +11,7 @@ import '../model/consumption_norm.dart';
 import '../model/inventory_record.dart';
 import '../model/pending_repair.dart';
 import '../model/repair.dart';
-import '../utils/dialogs.dart';
+import '../widgets/info_dialog.dart';
 import '../utils/go_router_ext.dart';
 import '../widgets/date_range_sheet.dart';
 import '../widgets/no_access.dart';
@@ -126,10 +126,12 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
     final queued = GlobalState.dataProvider.pendingRepairs
         .any((item) => item.equipmentUuid == widget.equipment.uuid);
     if (queued) {
-      Dialogs.notify(
+      showInfoDialog(
         context,
-        RepairStrings.draftAlreadyQueuedTitle,
-        RepairStrings.draftAlreadyQueuedBody,
+        icon: Icons.cloud_upload_outlined,
+        tone: DialogTone.error,
+        title: RepairStrings.draftAlreadyQueuedTitle,
+        body: RepairStrings.draftAlreadyQueuedBody,
       );
       return;
     }

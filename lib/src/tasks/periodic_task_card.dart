@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../src/model/periodic_task_models.dart';
 import '../../src/model/spare_part_usage.dart';
+import '../../src/model/task_access.dart';
+import '../../strings.dart';
 import '../design/app_constants.dart';
+import '../design/app_theme.dart';
 import '../widgets/app_bottom_sheet.dart';
 import '../widgets/spare_part_consumption.dart';
 
@@ -13,10 +16,16 @@ import '../widgets/spare_part_consumption.dart';
 /// `Task`. Берём его оттуда, а не тащим норму в [PeriodicTask], — иначе
 /// пришлось бы менять её Hive-адаптер и хранить одно и то же дважды.
 /// `null` или пустой план — раздела нормы в карточке нет.
+///
+/// [rework] — доступ задачи, возвращённой на доработку (`TaskAccess.returned`):
+/// причина возврата и кто вернул показываются блоком сразу под заголовком.
+/// В списке задач их больше нет — там задача и так в группе «На доработку»,
+/// а длинная причина раздувала строку.
 void showPeriodicTaskCard(
   BuildContext context,
   PeriodicTask pt, {
   SparePartUsage? usage,
+  TaskAccess? rework,
 }) {
   final tt = Theme.of(context).textTheme;
   showModalBottomSheet(
@@ -43,6 +52,10 @@ void showPeriodicTaskCard(
               pt.title,
               style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
+            if (rework != null && rework.returned) ...[
+              const SizedBox(height: AppConstants.spacingMD),
+              _ReworkBlock(access: rework),
+            ],
             if (pt.node != null && pt.node!.isNotEmpty) ...[
               const SizedBox(height: 8),
               _buildDetailRow(context, 'Узел:', pt.node!),
@@ -142,6 +155,76 @@ void showPeriodicTaskCard(
       ),
     ),
   );
+}
+
+/// Блок «Возвращено на доработку»: причина и кто вернул. Оранжевый, как
+/// группа «На доработку» в списке, — чтобы с первого взгляда было видно, что
+/// это не описание задачи, а замечание проверяющего.
+class _ReworkBlock extends StatelessWidget {
+  final TaskAccess access;
+
+  const _ReworkBlock({required this.access});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final comment = access.returnComment?.trim() ?? '';
+    final returnedBy = access.returnedBy?.trim() ?? '';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppConstants.spacingMD),
+      decoration: BoxDecoration(
+        color: cs.warning.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.replay_rounded, size: 18, color: cs.warning),
+              const SizedBox(width: AppConstants.spacingXS),
+              // Expanded — чтобы при крупном шрифте на узком экране
+              // заголовок переносился, а не вылезал за край блока.
+              Expanded(
+                child: Text(
+                  ReworkStrings.sectionTitle,
+                  style: tt.labelLarge?.copyWith(
+                    color: cs.warning,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppConstants.spacingSM),
+          Text(
+            ReworkStrings.reasonLabel.toUpperCase(),
+            style: tt.labelSmall?.copyWith(
+              color: cs.onSurfaceVariant,
+              letterSpacing: 0.4,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            comment.isEmpty ? ReworkStrings.reasonEmpty : comment,
+            style: tt.bodyMedium?.copyWith(
+              color: comment.isEmpty ? cs.onSurfaceVariant : cs.onSurface,
+            ),
+          ),
+          if (returnedBy.isNotEmpty) ...[
+            const SizedBox(height: AppConstants.spacingSM),
+            Text(
+              ReworkStrings.returnedBy(returnedBy),
+              style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 /// Подпись раздела карточки — «НОРМА РАСХОДА ЗИП», «ФОТО».

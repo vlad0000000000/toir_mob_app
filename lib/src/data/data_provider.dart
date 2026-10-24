@@ -42,6 +42,7 @@ import 'cache_commit_queue.dart';
 import 'generation_pass.dart';
 import 'repair_photo_files.dart';
 import 'section_access.dart';
+import 'sync_report.dart';
 import 'sync_schedule.dart';
 import 'subscription_blocks.dart';
 import 'sync_window.dart';
@@ -146,6 +147,7 @@ class DataProvider {
     _refreshActiveRepairsCount();
     refreshRejectedScansCount();
     refreshRejectedUsageCount();
+    refreshRejectedProblemReportsCount();
     _users = userBox.values.toList();
     _inventoryRecords = inventoryBox.values.toList();
     _typicalProblems = typicalProblemBox.values.toList();
@@ -974,8 +976,8 @@ class DataProvider {
   /// Идущая ручная синхронизация — см. [DataProviderSync.syncDataAndScans].
   /// Флаг [manualSyncRunning] ведёт она сама: поднимает на старте, опускает
   /// по окончании — только своего, текущего прохода.
-  late final GenerationPass<SyncResult> _manualSync =
-      GenerationPass<SyncResult>(
+  late final GenerationPass<SyncReport> _manualSync =
+      GenerationPass<SyncReport>(
     onRunningChanged: (running) => manualSyncRunning.value = running,
   );
 
@@ -1007,6 +1009,39 @@ class DataProvider {
 
   void refreshRejectedUsageCount() {
     rejectedUsageCount.value = rejectedUsage.length;
+  }
+
+  /// Сколько заявок «Проблема» сервер отклонил
+  /// ([PeriodicTaskRequest.rejectedReason]). Фон их не повторяет — без полосы
+  /// на главной обходчик не узнал бы, что задача для администратора не
+  /// создалась.
+  final ValueNotifier<int> rejectedProblemReportsCount = ValueNotifier<int>(0);
+
+  /// Отклонённые заявки — для полосы на главной и листа с причинами.
+  List<PeriodicTaskRequest> get rejectedProblemReports =>
+      periodicTaskBox.values.where((task) => task.isRejected).toList();
+
+  void refreshRejectedProblemReportsCount() {
+    rejectedProblemReportsCount.value = rejectedProblemReports.length;
+  }
+
+  /// Повторить одну отклонённую заявку — с листа разбора. Снимает пометку,
+  /// заявку берёт следующий проход очереди; откажет сервер снова — пометка
+  /// вернётся.
+  Future<void> retryRejectedProblemReport(String key) async {
+    final task = periodicTaskBox.get(key);
+    if (task == null || !task.isRejected) return;
+    await periodicTaskBox.put(key, task.withRejection(null));
+    refreshRejectedProblemReportsCount();
+  }
+
+  /// Выбрасывает отклонённую заявку. Осмотр «Другое» с тем же комментарием
+  /// и фото уже на сервере — пропадает только отдельная задача «Проблема».
+  Future<void> deleteRejectedProblemReport(String key) async {
+    await periodicTaskBox.delete(key);
+    await periodicTaskPendingBox.delete(key);
+    await stringBox.delete('periodic_task_pending_$key');
+    refreshRejectedProblemReportsCount();
   }
 
   /// Снимает пометку об отказе — обходчик решил повторить отправку.

@@ -22,6 +22,7 @@ import '../model/repair.dart';
 import '../model/repair_conflict.dart';
 import '../utils/go_router_ext.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/info_dialog.dart';
 import '../widgets/no_access.dart';
 import '../widgets/spare_part_consumption.dart';
 import 'repair_access.dart';
@@ -2023,155 +2024,91 @@ class _SubmitConfirmDialog extends StatelessWidget {
     // другом: значок выбирает офлайн, а плашку снизу — пустой расход.
     final noConsumption = positions == 0;
 
-    return Dialog(
-      backgroundColor: cs.surfaceContainerLowest,
-      insetPadding: const EdgeInsets.all(AppConstants.spacingMD),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppConstants.radiusXL),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppConstants.spacingLG),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Значок сверху по центру: зелёная «галочка в круге» либо
-            // оранжевая «i», когда расход не заполнен.
-            Container(
-              width: 64,
-              height: 64,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: offline || noConsumption
-                    ? cs.warningContainer
-                    : cs.primaryContainer,
-                borderRadius: BorderRadius.circular(AppConstants.radiusLG),
-              ),
-              child: Icon(
-                offline
-                    ? Icons.cloud_off_rounded
-                    : noConsumption
-                        ? Icons.info_outline_rounded
-                        : Icons.check_circle_outline_rounded,
-                size: 36,
-                color: offline || noConsumption ? cs.warning : cs.primary,
-              ),
-            ),
-            const SizedBox(height: AppConstants.spacingMD),
-            Text(
-              RepairCardStrings.finishTitle(repairId),
-              style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: AppConstants.spacingSM),
-            // Название нового статуса — цветом этого статуса, как в макете.
-            Text.rich(
-              TextSpan(
-                style: tt.bodyLarge,
-                children: [
-                  const TextSpan(text: RepairCardStrings.finishBodyPrefix),
-                  TextSpan(
-                    text: RepairCardStrings.finishStatusUnderReview,
-                    style: TextStyle(
-                      color: cs.warning,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-              textAlign: TextAlign.center,
-            ),
-            if (!noConsumption) ...[
-              const SizedBox(height: AppConstants.spacingMD),
-              Text(
-                RepairCardStrings.finishBodySuffix,
-                style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                textAlign: TextAlign.center,
-              ),
-            ],
-            const SizedBox(height: AppConstants.spacingMD),
-            if (offline) ...[
-              // Без значка и по центру: в диалоге уже отцентрованы заголовок,
-              // пояснение и плитки сводки, и полоса со значком слева ломала
-              // бы этот ряд.
-              _Banner(
-                text: RepairCardStrings.finishOffline,
-                warning: true,
-              ),
-              const SizedBox(height: AppConstants.spacingSM),
-            ],
-            if (noConsumption)
-              _Banner(
-                text: RepairCardStrings.finishNoConsumption,
-                warning: true,
-              )
-            else
-              Row(
-                children: [
-                  Expanded(
-                    child: _SummaryTile(
-                      value: '$positions',
-                      caption: RepairCardStrings.finishCaptionPositions,
-                    ),
-                  ),
-                  const SizedBox(width: AppConstants.spacingSM),
-                  Expanded(
-                    child: _SummaryTile(
-                      value: '$overNorm',
-                      caption: RepairCardStrings.finishCaptionOverNorm,
-                      warning: overNorm > 0,
-                    ),
-                  ),
-                ],
-              ),
-            const SizedBox(height: AppConstants.spacingLG),
-            Column(
-              mainAxisSize: MainAxisSize.min,
+    return InfoDialog(
+      // Зелёная «галочка в круге» либо оранжевая «i», когда расход не
+      // заполнен, и облако — без связи.
+      icon: offline
+          ? Icons.cloud_off_rounded
+          : noConsumption
+              ? Icons.info_outline_rounded
+              : Icons.check_circle_outline_rounded,
+      tone: offline || noConsumption ? DialogTone.warning : DialogTone.primary,
+      title: RepairCardStrings.finishTitle(repairId),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Название нового статуса — цветом этого статуса, как в макете.
+          Text.rich(
+            TextSpan(
+              style: tt.bodyLarge,
               children: [
-                // Кнопки друг под другом, а не в ряд. В ряду каждой доставалась
-                // половина ширины, и «Завершить и сохранить» со значком туда не
-                // помещалось: подпись переносилась на вторую строку, а высота
-                // кнопки фиксированная — вторую строку срезало. На всю ширину
-                // помещается любая подпись, в том числе при увеличенном
-                // системном шрифте. Так же выглядят подтверждения на других
-                // экранах: главное действие широкой кнопкой, отказ под ним.
-                SizedBox(
-                  width: double.infinity,
-                  height: AppConstants.buttonHeightLarge,
-                  child: ElevatedButton.icon(
-                    onPressed: () => Navigator.of(context).pop(true),
-                    icon: Icon(
-                      offline ? Icons.save_outlined : Icons.send_rounded,
-                      size: 20,
-                    ),
-                    label: Text(
-                      offline
-                          ? RepairCardStrings.finishAndSave
-                          : RepairCardStrings.submit,
-                      maxLines: 1,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppConstants.spacingSM),
-                SizedBox(
-                  width: double.infinity,
-                  height: AppConstants.buttonHeightLarge,
-                  child: ElevatedButton(
-                    // Вторичная кнопка в макете — заливка серым, а не
-                    // обводка: обе кнопки одинаковой «плотности».
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: cs.surfaceContainer,
-                      foregroundColor: cs.onSurface,
-                      elevation: 0,
-                    ),
-                    onPressed: () => Navigator.of(context).pop(false),
-                    child: const Text(RepairStrings.cancel, maxLines: 1),
+                const TextSpan(text: RepairCardStrings.finishBodyPrefix),
+                TextSpan(
+                  text: RepairCardStrings.finishStatusUnderReview,
+                  style: TextStyle(
+                    color: cs.warning,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
             ),
+            textAlign: TextAlign.center,
+          ),
+          if (!noConsumption) ...[
+            const SizedBox(height: AppConstants.spacingMD),
+            Text(
+              RepairCardStrings.finishBodySuffix,
+              style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+              textAlign: TextAlign.center,
+            ),
           ],
-        ),
+          const SizedBox(height: AppConstants.spacingMD),
+          if (offline) ...[
+            _Banner(
+              text: RepairCardStrings.finishOffline,
+              warning: true,
+            ),
+            const SizedBox(height: AppConstants.spacingSM),
+          ],
+          if (noConsumption)
+            _Banner(
+              text: RepairCardStrings.finishNoConsumption,
+              warning: true,
+            )
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: _SummaryTile(
+                    value: '$positions',
+                    caption: RepairCardStrings.finishCaptionPositions,
+                  ),
+                ),
+                const SizedBox(width: AppConstants.spacingSM),
+                Expanded(
+                  child: _SummaryTile(
+                    value: '$overNorm',
+                    caption: RepairCardStrings.finishCaptionOverNorm,
+                    warning: overNorm > 0,
+                  ),
+                ),
+              ],
+            ),
+        ],
       ),
+      actions: [
+        DialogPrimaryButton(
+          label: offline
+              ? RepairCardStrings.finishAndSave
+              : RepairCardStrings.submit,
+          icon: offline ? Icons.save_outlined : Icons.send_rounded,
+          onPressed: () => Navigator.of(context).pop(true),
+        ),
+        DialogSecondaryButton(
+          label: RepairStrings.cancel,
+          onPressed: () => Navigator.of(context).pop(false),
+        ),
+      ],
     );
   }
 }

@@ -5,10 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../settings.dart';
+import '../../strings.dart';
 import '../design/app_constants.dart';
 import '../design/app_theme.dart';
 import '../model/notification.dart';
 import '../model/notification_settings.dart';
+import '../widgets/info_dialog.dart';
+import 'max_future_days.dart';
 import 'notifications_service.dart';
 import 'push/push_notifications_controller.dart';
 
@@ -486,40 +489,54 @@ class _NotificationsSettingsScreenState
   Future<void> _editMaxFutureDays(NotificationSettings s) async {
     final controller =
         TextEditingController(text: s.maxFutureDays?.toString() ?? '');
+    // Сохранили именно кнопкой — пустое поле тоже отдаёт null.
+    var saved = false;
+    // Неверный ввод — подсветка в поле, окно не закрывается
+    // ([parseMaxFutureDays]).
+    var invalid = false;
     final result = await showDialog<int?>(
       context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: const Text('Горизонт показа задач'),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => InfoDialog(
+          icon: Icons.date_range_rounded,
+          tone: DialogTone.primary,
+          title: DialogStrings.maxFutureDaysTitle,
           content: TextField(
             controller: controller,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              hintText: 'Например, 30 (пусто = без ограничения)',
+            onChanged: (_) {
+              if (invalid) setDialogState(() => invalid = false);
+            },
+            decoration: InputDecoration(
+              hintText: DialogStrings.maxFutureDaysHint,
+              errorText: invalid ? DialogStrings.maxFutureDaysInvalid : null,
+              errorMaxLines: 3,
             ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(-1),
-              child: const Text('Отмена'),
-            ),
-            TextButton(
+            DialogPrimaryButton(
+              label: DialogStrings.save,
               onPressed: () {
-                final v = controller.text.trim();
-                if (v.isEmpty) {
-                  Navigator.of(ctx).pop(null);
-                } else {
-                  final parsed = int.tryParse(v);
-                  Navigator.of(ctx).pop(parsed);
+                final parsed = parseMaxFutureDays(controller.text);
+                if (!parsed.valid) {
+                  setDialogState(() => invalid = true);
+                  return;
                 }
+                saved = true;
+                Navigator.of(ctx).pop(parsed.value);
               },
-              child: const Text('Сохранить'),
+            ),
+            DialogSecondaryButton(
+              label: DialogStrings.cancel,
+              onPressed: () => Navigator.of(ctx).pop(-1),
             ),
           ],
-        );
-      },
+        ),
+      ),
     );
-    if (result == -1) return;
+    // Закрытие мимо окна или «назад» отдаёт null — это не «без ограничения»,
+    // а отказ, как «Отмена». Раньше такое закрытие сбрасывало горизонт.
+    if (result == -1 || !saved) return;
     await _patch({'max_future_days': result});
   }
 }

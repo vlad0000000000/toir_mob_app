@@ -18,27 +18,14 @@ import '../widgets/info_dialog.dart';
 Future<bool> confirmForeignEquipment(
   BuildContext context,
   InventoryRecord machine,
-) async {
-  final cs = Theme.of(context).colorScheme;
-  final open = await showDialog<bool>(
-    context: context,
-    builder: (context) => InfoDialog(
-      icon: Icons.domain_rounded,
-      accent: cs.primary,
-      accentContainer: cs.primaryContainer,
-      title: ForeignEquipmentStrings.title,
-      body: ForeignEquipmentStrings.body(machine.name, machine.location),
-      actions: [
-        ElevatedButton(
-          onPressed: () => Navigator.of(context).pop(true),
-          child: const Text(ForeignEquipmentStrings.open, maxLines: 1),
-        ),
-        OutlinedButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: const Text(ForeignEquipmentStrings.cancel, maxLines: 1),
-        ),
-      ],
-    ),
+) {
+  return showConfirmDialog(
+    context,
+    icon: Icons.domain_rounded,
+    tone: DialogTone.primary,
+    title: ForeignEquipmentStrings.title,
+    body: ForeignEquipmentStrings.body(machine.name, machine.location),
+    confirmLabel: ForeignEquipmentStrings.open,
+    cancelLabel: ForeignEquipmentStrings.cancel,
   );
-  return open ?? false;
 }

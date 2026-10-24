@@ -8,7 +8,7 @@ import '../../src/http/api.dart';
 import '../../src/widgets/help_link.dart';
 import '../../src/notifications/notifications_service.dart';
 import '../../src/notifications/push/push_notifications_controller.dart';
-import '../../src/utils/dialogs.dart';
+import '../../src/widgets/info_dialog.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../settings.dart';
 import '../../strings.dart';
@@ -64,6 +64,16 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _showAccessBlocked(AccessBlockedException blocked) {
     showAccessBlockedDialog(context, blocked);
+  }
+
+  void _showLoginFailed() {
+    showInfoDialog(
+      context,
+      icon: Icons.error_outline_rounded,
+      tone: DialogTone.error,
+      title: Strings.loginFailTitle,
+      body: Strings.loginFailDesc,
+    );
   }
 
   @override
@@ -124,29 +134,41 @@ class _LoginScreenState extends State<LoginScreen> {
           return;
         }
         if (!mounted) return;
-        Dialogs.notify(context, Strings.loginFailTitle, Strings.loginFailDesc);
+        _showLoginFailed();
       } on WalkerOnlyException {
         if (mounted) {
-          Dialogs.notify(
-              context, Strings.walkerOnlyTitle, Strings.walkerOnlyDesc);
+          showInfoDialog(
+            context,
+            icon: Icons.badge_outlined,
+            tone: DialogTone.warning,
+            title: Strings.walkerOnlyTitle,
+            body: Strings.walkerOnlyDesc,
+          );
         }
       } on NoConnectionException {
         if (mounted) {
-          Dialogs.notify(
-              context, Strings.noConnectionTitle, Strings.noConnectionDesc);
+          showInfoDialog(
+            context,
+            icon: Icons.cloud_off_rounded,
+            tone: DialogTone.warning,
+            title: Strings.noConnectionTitle,
+            body: Strings.noConnectionDesc,
+          );
         }
       } on InvalidCredentialsException {
         if (mounted) {
-          Dialogs.notify(context, Strings.invalidCredentialsTitle,
-              Strings.invalidCredentialsDesc);
+          showInfoDialog(
+            context,
+            icon: Icons.key_off_rounded,
+            tone: DialogTone.error,
+            title: Strings.invalidCredentialsTitle,
+            body: Strings.invalidCredentialsDesc,
+          );
         }
       } on AccessBlockedException catch (blocked) {
         if (mounted) _showAccessBlocked(blocked);
       } catch (e) {
-        if (mounted) {
-          Dialogs.notify(
-              context, Strings.loginFailTitle, Strings.loginFailDesc);
-        }
+        if (mounted) _showLoginFailed();
       } finally {
         if (mounted) setState(() => _busy = false);
       }

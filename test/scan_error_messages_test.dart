@@ -127,6 +127,23 @@ void main() {
     });
   });
 
+  group('isEquipmentNotFoundReason', () {
+    test('«оборудование не найдено» — повтор при смене доступа', () {
+      // Причина обычно в доступе (чужое подразделение без флага «Осмотр без
+      // QR»), а флаг и роль меняют версию доступа.
+      expect(isEquipmentNotFoundReason(ScanQueueStrings.errorEquipmentNotFound),
+          isTrue);
+      // Записи прошлых версий хранят английский текст сервера.
+      expect(isEquipmentNotFoundReason('Equipment not found'), isTrue);
+    });
+
+    test('прочие причины и пусто — нет', () {
+      expect(
+          isEquipmentNotFoundReason(ScanQueueStrings.errorNoRights), isFalse);
+      expect(isEquipmentNotFoundReason(null), isFalse);
+    });
+  });
+
   group('isScanAlreadyDelivered', () {
     test('«осмотр уже закрыт» — это успех, а не отказ', () {
       // Ответ на успешный PATCH мог потеряться: повтор приходит на уже
@@ -152,6 +169,34 @@ void main() {
             '[HTTP 410]')),
         isTrue,
       );
+    });
+
+    test('повтор по ключу не собрал ответ по чужому оборудованию — доставлено',
+        () {
+      // Осмотр создан, а повтор с тем же ключом грузит его без допуска к
+      // оборудованию чужого подразделения — сервер отвечает 400.
+      expect(
+        isScanAlreadyDelivered(Exception(
+            'Inspection 0b6f2c1e-0000-4000-8000-000000000000 is not linked '
+            'to any equipment or periodic task. [HTTP 400]')),
+        isTrue,
+      );
+    });
+  });
+
+  group('оборудование не найдено', () {
+    test('прямой осмотр по невидимому оборудованию — по-русски', () {
+      expect(
+        scanErrorMessage(Exception('Equipment not found [HTTP 404]')),
+        ScanQueueStrings.errorEquipmentNotFound,
+      );
+      expect(scanStoredReason('Equipment not found'),
+          ScanQueueStrings.errorEquipmentNotFound);
+    });
+
+    test('такой отказ не повторяется сам', () {
+      expect(isRetryableScanError(Exception('Equipment not found [HTTP 404]')),
+          isFalse);
     });
   });
 

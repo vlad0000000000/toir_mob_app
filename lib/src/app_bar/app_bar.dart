@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../global_state.dart';
 import '../../src/knowledge_base/knowledge_base_utils.dart';
-import '../../src/utils/dialogs.dart';
+import '../../src/widgets/info_dialog.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../src/widgets/help_link.dart';
 import '../../strings.dart';
@@ -20,11 +20,18 @@ class MyAppBar {
     Widget _logout({required Color textColor}) => TextButton(
           style: transparentStyle,
           onPressed: () async {
-            Dialogs.areYouSure(context, onOk: () async {
-              await signOut();
-              if (!context.mounted) return;
-              GoRouter.of(context).clearStackAndNavigate('/login');
-            });
+            final confirmed = await showConfirmDialog(
+              context,
+              icon: Icons.logout_rounded,
+              tone: DialogTone.primary,
+              title: DialogStrings.logoutTitle,
+              confirmLabel: DialogStrings.logout,
+              confirmIcon: Icons.logout_rounded,
+            );
+            if (!confirmed) return;
+            await signOut();
+            if (!context.mounted) return;
+            GoRouter.of(context).clearStackAndNavigate('/login');
           },
           child: Text(
             Strings.logout,
