@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../global_state.dart';
 import '../../strings.dart';
+import '../data/problem_report_photos.dart';
 import '../design/app_constants.dart';
 import '../model/periodic_task_request.dart';
 import '../repairs/repair_delete_dialog.dart';
@@ -116,7 +117,7 @@ class RejectedProblemReportsSheet extends StatelessWidget {
                       ),
                       const SizedBox(height: AppConstants.spacingSM),
                       Text(
-                        task.rejectedReason ?? '',
+                        problemReportStoredReason(task.rejectedReason),
                         style: tt.bodySmall?.copyWith(color: cs.error),
                       ),
                       const SizedBox(height: AppConstants.spacingSM),

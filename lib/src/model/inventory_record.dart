@@ -31,12 +31,27 @@ class InventoryRecord {
 
   /// Помещение оборудования — uuid; [location] — только его название.
   ///
-  /// Подразделение оборудования сервер определяет **через помещение**, и
-  /// только по нему мобилка отличает своё оборудование от чужого
-  /// (`isMyEquipment`): при «Осмотре без QR» справочник приходит по всей
-  /// компании. `null` — помещения нет или запись сохранена прошлой версией
-  /// (её поправит ближайшая полная сверка справочника).
+  /// Подразделение оборудования сервер определяет **через помещение**. С
+  /// сервером прошлой версии, где [divisionUuid] не приходит, мобилка по
+  /// нему отличает своё оборудование от чужого (`isMyEquipment`). `null` —
+  /// помещения нет или запись сохранена прошлой версией (её поправит
+  /// ближайшая полная сверка справочника).
   final String? locationUuid;
+
+  /// Подразделение оборудования — uuid из `division` элемента справочника
+  /// (бэкенд `06b145f`). Сервер отдаёт его прямо, и «своё» мобилка теперь
+  /// определяет по нему, а не через помещения (`isMyEquipment`).
+  ///
+  /// Три состояния, потому что сервер прошлой версии поля не присылает:
+  /// - `null` — поля не было (старый сервер или запись прошлой версии):
+  ///   своё определяем по-старому, через [locationUuid];
+  /// - `''` — сервер прислал `division: null`: подразделения нет, оборудование
+  ///   ни к одному не относится;
+  /// - uuid подразделения.
+  final String? divisionUuid;
+
+  /// Сервер прислал поле `division` ([divisionUuid] не `null`).
+  bool get hasDivisionField => divisionUuid != null;
 
   String get descriptionText {
     final List<String> parts = [];
@@ -88,6 +103,7 @@ class InventoryRecord {
     this.state,
     this.hasOpenRepair = false,
     this.locationUuid,
+    this.divisionUuid,
   });
 
   InventoryRecord copyWith({
@@ -106,6 +122,7 @@ class InventoryRecord {
     String? state,
     bool? hasOpenRepair,
     String? locationUuid,
+    String? divisionUuid,
   }) {
     return InventoryRecord(
       id: id ?? this.id,
@@ -128,6 +145,7 @@ class InventoryRecord {
       // ремонта менять не умел, хотя по виду должен.
       hasOpenRepair: hasOpenRepair ?? this.hasOpenRepair,
       locationUuid: locationUuid ?? this.locationUuid,
+      divisionUuid: divisionUuid ?? this.divisionUuid,
     );
   }
 
@@ -181,6 +199,11 @@ class InventoryRecord {
           state: json['state'] as String?,
           hasOpenRepair: json['has_open_repair'] as bool? ?? false,
           locationUuid: json['location']?['uuid'] as String?,
+          // Ключа нет — сервер прошлой версии (`null`); есть, но `null` —
+          // подразделения нет (`''`). См. [divisionUuid].
+          divisionUuid: json.containsKey('division')
+              ? (json['division']?['uuid'] as String? ?? '')
+              : null,
         ),
       _ => throw const FormatException('Failed to load InventoryRecord.'),
     };
@@ -211,6 +234,7 @@ class InventoryAdapter extends TypeAdapter<InventoryRecord> {
       // его появления, его не содержат.
       hasOpenRepair: _readTrailingBool(reader),
       locationUuid: _readTrailingString(reader),
+      divisionUuid: _readTrailingString(reader),
     );
   }
 
@@ -250,6 +274,7 @@ class InventoryAdapter extends TypeAdapter<InventoryRecord> {
     writer.write(obj.state);
     writer.write(obj.hasOpenRepair);
     writer.write(obj.locationUuid);
+    writer.write(obj.divisionUuid);
   }
 }
 

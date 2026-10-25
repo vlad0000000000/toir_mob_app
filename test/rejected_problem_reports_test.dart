@@ -5,27 +5,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:qr_scan_industry/global_state.dart';
 import 'package:qr_scan_industry/src/data/data_provider.dart';
-import 'package:qr_scan_industry/src/http/api.dart';
-import 'package:qr_scan_industry/src/model/company.dart';
-import 'package:qr_scan_industry/src/model/consumption_norm.dart';
-import 'package:qr_scan_industry/src/model/equipment_state.dart';
-import 'package:qr_scan_industry/src/model/inventory_record.dart';
-import 'package:qr_scan_industry/src/model/pending_repair.dart';
-import 'package:qr_scan_industry/src/model/pending_repair_update.dart';
+import 'package:qr_scan_industry/src/data/problem_report_photos.dart';
 import 'package:qr_scan_industry/src/model/periodic_task_request.dart';
-import 'package:qr_scan_industry/src/model/periodicity_rule.dart';
-import 'package:qr_scan_industry/src/model/repair.dart';
-import 'package:qr_scan_industry/src/model/scan.dart';
-import 'package:qr_scan_industry/src/model/session.dart';
-import 'package:qr_scan_industry/src/model/spare_part.dart';
-import 'package:qr_scan_industry/src/model/task.dart';
-import 'package:qr_scan_industry/src/model/typical_problem.dart';
-import 'package:qr_scan_industry/src/model/usage_unit.dart';
-import 'package:qr_scan_industry/src/model/usage_update.dart';
-import 'package:qr_scan_industry/src/model/user.dart';
 import 'package:qr_scan_industry/src/qr/rejected_problem_reports_sheet.dart';
 import 'package:qr_scan_industry/src/widgets/app_bottom_sheet.dart';
 import 'package:qr_scan_industry/strings.dart';
+
+import 'support/test_data_provider.dart';
 
 PeriodicTaskRequest _request(String description) => PeriodicTaskRequest(
       equipmentUuid: 'eq-1',
@@ -37,38 +23,6 @@ PeriodicTaskRequest _request(String description) => PeriodicTaskRequest(
       photos: const [],
       eventId: 'ev-$description',
     );
-
-/// `DataProvider` на пустых боксах во временном каталоге: адаптер нужен
-/// только заявкам — остальные боксы пусты и ничего не читают.
-Future<DataProvider> _provider() async {
-  Future<Box<T>> open<T>(String name) => Hive.openBox<T>(name);
-  return DataProvider(
-    api: API(),
-    userBox: await open<User>('users'),
-    inventoryBox: await open<InventoryRecord>('inventory'),
-    scanBox: await open<Scan>('scans'),
-    scanUsageBox: await open<UsageUpdate>('usage_scans'),
-    scanPendingBox: await open<Scan>('pending_scans'),
-    scanUsagePendingBox: await open<UsageUpdate>('pending_usage_scans'),
-    sessionBox: await open<Session>('sessions'),
-    usageUnitBox: await open<UsageUnit>('usage_units'),
-    typicalProblemBox: await open<TypicalProblem>('typical_problems'),
-    stringBox: await open<String>('strings'),
-    periodicityRuleBox: await open<PeriodicityRule>('periodicity_rules'),
-    taskBox: await open<Task>('tasks'),
-    companyBox: await open<Company>('company'),
-    equipmentStateBox: await open<EquipmentState>('equipment_states'),
-    sparePartBox: await open<SparePart>('spare_parts'),
-    repairBox: await open<Repair>('repairs'),
-    pendingRepairBox: await open<PendingRepair>('pending_repairs'),
-    pendingRepairUpdateBox:
-        await open<PendingRepairUpdate>('pending_repair_updates'),
-    consumptionNormBox: await open<ConsumptionNorm>('consumption_norms'),
-    periodicTaskBox: await open<PeriodicTaskRequest>('periodic_tasks'),
-    periodicTaskPendingBox:
-        await open<PeriodicTaskRequest>('pending_periodic_tasks'),
-  );
-}
 
 /// Кладёт заявки в бокс до создания провайдера — как после перезапуска.
 Future<void> _seed(List<PeriodicTaskRequest> requests) async {
@@ -100,7 +54,7 @@ void main() {
       _request('течь').withRejection('нет оборудования'),
       _request('шум'),
     ]);
-    final provider = await _provider();
+    final provider = await testDataProvider();
 
     expect(provider.rejectedProblemReportsCount.value, 1);
     expect(provider.rejectedProblemReports.single.description, 'течь');
@@ -109,7 +63,7 @@ void main() {
   test('повтор снимает пометку и счётчик, запись остаётся в очереди', () async {
     final rejected = _request('течь').withRejection('нет оборудования');
     await _seed([rejected]);
-    final provider = await _provider();
+    final provider = await testDataProvider();
 
     await provider.retryRejectedProblemReport(rejected.key());
 
@@ -122,7 +76,7 @@ void main() {
       _request('течь').withRejection('нет оборудования'),
       _request('шум').withRejection('нет оборудования'),
     ]);
-    final provider = await _provider();
+    final provider = await testDataProvider();
 
     expect(await provider.retryRejectedProblemReports(), 2);
     expect(provider.rejectedProblemReportsCount.value, 0);
@@ -131,7 +85,7 @@ void main() {
   test('удаление убирает заявку и пометку', () async {
     final rejected = _request('течь').withRejection('нет оборудования');
     await _seed([rejected]);
-    final provider = await _provider();
+    final provider = await testDataProvider();
 
     await provider.deleteRejectedProblemReport(rejected.key());
 
@@ -147,7 +101,7 @@ void main() {
   ) async {
     final provider = await tester.runAsync(() async {
       await _seed(requests);
-      return _provider();
+      return testDataProvider();
     });
     GlobalState.dataProvider = provider!;
 
@@ -193,6 +147,31 @@ void main() {
 
     expect(find.byType(RejectedProblemReportsSheet), findsNothing);
     expect(provider.rejectedProblemReportsCount.value, 0);
+  });
+
+  testWidgets('прежний текст причины — нынешними словами, без повтора пункта',
+      (tester) async {
+    // Заявка, отклонённая прошлой версией, несёт прежние слова; рядом —
+    // такая же, отклонённая уже нынешней. Причина одна — и показывается она
+    // одна, нынешним текстом.
+    const legacy =
+        'Сервер не нашёл оборудование — возможно, оно в другом подразделении. '
+        'Осмотр отправлен, но задача по проблеме не создана. Повторите '
+        '«Синхронизировать данные» позже или сообщите администратору.';
+    final old = _request('старая').withRejection(legacy);
+    final fresh =
+        _request('новая').withRejection(ProblemReportStrings.rejectedNotFound);
+    final provider = await openSheet(tester, [old, fresh]);
+
+    expect(find.text(legacy), findsNothing);
+    expect(find.text(ProblemReportStrings.rejectedNotFound), findsNWidgets(2));
+    expect(
+      {
+        for (final task in provider.rejectedProblemReports)
+          problemReportStoredReason(task.rejectedReason),
+      },
+      {ProblemReportStrings.rejectedNotFound},
+    );
   });
 
   /// Лист прокручивается: `Modal` даёт ему высоту 90% экрана без прокрутки,

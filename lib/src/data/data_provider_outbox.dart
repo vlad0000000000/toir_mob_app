@@ -320,8 +320,9 @@ extension DataProviderOutbox on DataProvider {
     var cleared = 0;
     for (final entry in scanBox.toMap().entries) {
       final scan = entry.value;
-      // «Оборудование не найдено» — тоже про доступ: чужое подразделение
-      // без флага «Осмотр без QR». Флаг и роль меняют версию доступа.
+      // «Оборудование не найдено» — тоже про доступ (на сервере до `06b145f`
+      // — чужое подразделение без флага «Осмотр без QR»). Флаг, роль и
+      // выкладка `06b145f` меняют версию доступа.
       if (!isNoRightsReason(scan.lastError) &&
           !isEquipmentNotFoundReason(scan.lastError)) {
         continue;

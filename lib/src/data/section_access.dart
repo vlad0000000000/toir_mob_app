@@ -10,7 +10,9 @@ import '../model/access_profile.dart';
 /// Права проверяет сервер на каждом запросе — здесь только подсказка
 /// интерфейсу, чтобы не вести обходчика в заведомый отказ. Коды и их смысл —
 /// каталог бэкенда (`backend/security/permissions.py`), какие ручки чего
-/// требуют — `docs/backend-mobile-access-fixes.md` в корне workspace.
+/// требуют по оборудованию вне подразделений — `docs/mobile_access_contract.md`
+/// в бэкенде, история правок — `docs/backend-equipment-scope.md` в корне
+/// workspace.
 ///
 /// Профиль неизвестен ([profile] `null`: вошли прошлой версией и с тех пор
 /// без сети) — открыто всё, как было до ролей: запирать по незнанию нельзя,
@@ -18,10 +20,7 @@ import '../model/access_profile.dart';
 class SectionAccess {
   final AccessProfile? profile;
 
-  /// У компании включён осмотр без QR (`Company.allowRequestsWithoutQr`).
-  final bool qrFreeEnabled;
-
-  const SectionAccess({required this.profile, required this.qrFreeEnabled});
+  const SectionAccess({required this.profile});
 
   bool can(String permission) => profile?.can(permission) ?? true;
 
@@ -34,13 +33,17 @@ class SectionAccess {
 
   /// Сканер: есть что найти и есть что сделать.
   ///
-  /// Найти — справочник оборудования (`equipment.view`) или осмотр без QR:
-  /// при нём сервер отдаёт оборудование всей компании и без этого права.
+  /// Найти — справочник оборудования (`equipment.view`) или право осмотра:
+  /// обходчику с `inspection.create` сервер отдаёт оборудование всей компании
+  /// и без `equipment.view` (бэкенд `06b145f`, `walker_company_equipment`).
+  /// Флаг компании «Осмотр без QR» на сканер больше не влияет — он только
+  /// показывает плитку «Осмотр оборудования» на главной. Сервер прошлой
+  /// версии без флага отдал бы такому обходчику пустой справочник, и QR не
+  /// нашёлся бы — решение продукта: следовать новому серверу.
   /// Сделать — выполнить задачу или записать осмотр; без обоих сканировать
   /// бессмысленно, экран результата был бы пустой формой.
   bool get scanner {
-    final canFind = can(Perm.equipmentView) ||
-        (qrFreeEnabled && can(Perm.inspectionCreate));
+    final canFind = can(Perm.equipmentView) || inspection;
     return canFind && (tasks || inspection);
   }
 
@@ -85,8 +88,16 @@ class SectionAccess {
   /// поле `state`, а остальное сервер требует уже по `equipment.edit`.
   /// Полное право тоже подходит — и у ролей, настроенных до появления узкого,
   /// и у сервера, который узкого ещё не знает.
+  ///
+  /// И `equipment.view` обязательно: сервер на любой PATCH оборудования
+  /// сначала требует его (`update_equipment_endpoint`; контракт бэкенда —
+  /// «PATCH только state: `equipment.view` и `equipment.change_state`»).
+  /// Раньше без просмотра обычно не открывался и сканер, а с `06b145f` он
+  /// открывается по `inspection.create` — и обходчик выбирал бы состояние,
+  /// чтобы получить 403. Так же, как у [usage].
   bool get changeState =>
-      can(Perm.equipmentChangeState) || can(Perm.equipmentEdit);
+      can(Perm.equipmentView) &&
+      (can(Perm.equipmentChangeState) || can(Perm.equipmentEdit));
 
   /// Ввод показаний наработки — и отдельно, и в составе осмотра. Без права
   /// сервер отклонит весь осмотр, вместе с закрытием задачи.

@@ -620,8 +620,9 @@ extension DataProviderSync on DataProvider {
         // могут прийти наоборот. Записан ответ более позднего запроса —
         // этот старше, его права уже неактуальны (см. [AccessResponseOrder]).
         if (!_profileResponses.tryApply(ticket)) return;
-        // До профиля: экраны перерисовываются по [accessProfile], и
-        // [sectionAccess] должен увидеть уже свежие флаги (осмотр без QR).
+        // До профиля: экраны перерисовываются по [accessProfile], и главная
+        // должна увидеть уже свежие флаги (плитка «Осмотр оборудования» —
+        // по флагу «Осмотр без QR»).
         if (flags != null) {
           final company = flags.applyTo(
             _company,
@@ -1172,7 +1173,10 @@ extension DataProviderSync on DataProvider {
       problemReportsLeft: periodicTaskBox.length - rejected.length > 0 ||
           periodicTaskPendingBox.isNotEmpty,
       problemReportReasons: [
-        ...{for (final task in rejected) task.rejectedReason!},
+        ...{
+          for (final task in rejected)
+            problemReportStoredReason(task.rejectedReason),
+        },
       ],
     );
   }

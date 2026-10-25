@@ -710,11 +710,9 @@ class DataProvider {
 
   /// Что доступно по роли текущего обходчика — для замков на экранах.
   /// Правило — [SectionAccess]. Объект дешёвый, собирается на каждый вызов:
-  /// так он не отстаёт ни от профиля, ни от настройки компании.
-  SectionAccess get sectionAccess => SectionAccess(
-        profile: accessProfile.value,
-        qrFreeEnabled: company?.allowRequestsWithoutQr ?? false,
-      );
+  /// так он не отстаёт от профиля.
+  SectionAccess get sectionAccess =>
+      SectionAccess(profile: accessProfile.value);
 
   /// Профиль доступа пользователя [userUuid] из `stringBox`.
   ///
@@ -1449,20 +1447,26 @@ class DataProvider {
         DateTime.now().millisecondsSinceEpoch.toString(),
       );
 
-  /// Отметка «справочник оборудования уже перечитан с uuid помещений»
-  /// ([InventoryRecord.locationUuid]). Записи прошлой версии поля не несут, а
-  /// дельта перезаписывает только изменённые — без разовой полной сверки
-  /// фильтр «Моё оборудование» до трёх суток считал бы их неизвестными.
+  /// Отметка «справочник оборудования уже перечитан в нынешнем формате» —
+  /// с uuid помещения ([InventoryRecord.locationUuid]) и подразделения
+  /// ([InventoryRecord.divisionUuid]). Записи прошлой версии этих полей не
+  /// несут, а дельта перезаписывает только изменённые — без разовой полной
+  /// сверки фильтр «Моё оборудование» до трёх суток считал бы их по-старому.
+  /// Сервер `06b145f` и сам просит полную сверку (`resync_required` после
+  /// смены версии каталога доступа), но только если приложение обновили
+  /// раньше сервера. Ключ сменили вместе с форматом (был
+  /// `equipment_location_uuid_v1`) — поэтому справочник перечитается один
+  /// раз и у тех, кто уже прошёл прошлую сверку.
   /// К аккаунту не относится: это формат хранения, а не данные.
-  static const String _equipmentLocationUuidKey = 'equipment_location_uuid_v1';
+  static const String _equipmentFormatKey = 'equipment_division_uuid_v1';
 
   bool get isEquipmentFullResyncDue =>
       _isFullResyncDue(_equipmentFullSyncKey) ||
-      stringBox.get(_equipmentLocationUuidKey) == null;
+      stringBox.get(_equipmentFormatKey) == null;
 
   Future<void> markEquipmentFullResyncDone() async {
     await _markFullResyncDone(_equipmentFullSyncKey);
-    await stringBox.put(_equipmentLocationUuidKey, '1');
+    await stringBox.put(_equipmentFormatKey, '1');
   }
 
   bool get isTypicalProblemsFullResyncDue =>

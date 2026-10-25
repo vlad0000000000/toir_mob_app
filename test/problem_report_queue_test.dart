@@ -248,6 +248,21 @@ void main() {
           ProblemReportStrings.rejectedOther);
     });
 
+    test('причина прошлой версии показывается нынешними словами', () {
+      // Так её сохранила версия 8e742ed. Копия намеренная: тест должен
+      // падать, если перевод перестанет её узнавать.
+      const legacy =
+          'Сервер не нашёл оборудование — возможно, оно в другом подразделении. '
+          'Осмотр отправлен, но задача по проблеме не создана. Повторите '
+          '«Синхронизировать данные» позже или сообщите администратору.';
+      expect(problemReportStoredReason(legacy),
+          ProblemReportStrings.rejectedNotFound);
+      expect(problemReportStoredReason(ProblemReportStrings.rejectedNoRights),
+          ProblemReportStrings.rejectedNoRights);
+      expect(
+          problemReportStoredReason(null), ProblemReportStrings.rejectedOther);
+    });
+
     test('прочие отказы создания — повторяем', () {
       expect(isProblemReportSettled(ServerFailureException(503, 'x')), isFalse);
       expect(isProblemReportSettled(ServerFailureException(403, 'x')), isFalse);

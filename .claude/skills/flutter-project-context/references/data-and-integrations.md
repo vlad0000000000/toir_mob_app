@@ -222,13 +222,15 @@ PATCH по остальным) сняты.
 по ключу (`scan_error_messages.dart`): 409 «Idempotency-Key is being
 processed» — повторить; 410 «…no longer exists» — доставлено (осмотр удалили
 на сервере); 400 «…is not linked to any equipment or periodic task» —
-доставлено (повтор создания по чужому оборудованию: сервер до правки п. 8.2
-`docs/backend-equipment-scope.md` не пускает повтор к чужому оборудованию);
+доставлено (повтор создания по чужому оборудованию на сервере до `06b145f`:
+там повтор не видел чужое оборудование — п. 8.2
+`docs/backend-equipment-scope.md`; новый сервер отвечает 200);
 409 «…with a different request» — отказ. 404 «Equipment not found» на прямом
-осмотре — оборудование удалено или вне подразделений (флаг «Осмотр без QR»
-выключен): переводится; сам не повторяется, но снимается при смене доступа
-(`isEquipmentNotFoundReason` в `retryNoRightsRejections`) — флаг и роль меняют
-версию доступа.
+осмотре — оборудование удалено (на сервере до `06b145f` — ещё и чужое
+подразделение при выключенном «Осмотре без QR»): переводится; сам не
+повторяется, но снимается при смене доступа (`isEquipmentNotFoundReason` в
+`retryNoRightsRejections`) — флаг, роль и выкладка `06b145f` меняют версию
+доступа.
 
 **Наработка в составе осмотра** — поле формы `usage_updates`, строка JSON
 `[{"usage_parameter_uuid", "current_value": "1250.00"}]` (`Scan.usageUpdates`,

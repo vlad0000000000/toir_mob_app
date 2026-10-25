@@ -10,8 +10,8 @@ AccessProfile _profile(Set<String> permissions, {bool roleActive = true}) =>
       companyId: '1',
     );
 
-SectionAccess _access(Set<String> permissions, {bool qrFree = false}) =>
-    SectionAccess(profile: _profile(permissions), qrFreeEnabled: qrFree);
+SectionAccess _access(Set<String> permissions) =>
+    SectionAccess(profile: _profile(permissions));
 
 /// Набор мигрированного обходчика (`WALKER_PROFILE_CODES` в миграции
 /// бэкенда, без экспорта) — у него не должно быть ни одного замка.
@@ -55,7 +55,7 @@ void main() {
   });
 
   test('профиль неизвестен — ничего не запираем', () {
-    const access = SectionAccess(profile: null, qrFreeEnabled: false);
+    const access = SectionAccess(profile: null);
 
     expect(access.scanner, isTrue);
     expect(access.repairs, isTrue);
@@ -65,7 +65,6 @@ void main() {
   test('отключённая роль — заперто всё', () {
     final access = SectionAccess(
       profile: _profile(_migratedWalker, roleActive: false),
-      qrFreeEnabled: true,
     );
 
     expect(access.scanner, isFalse);
@@ -88,11 +87,12 @@ void main() {
       );
     });
 
-    test('без справочника оборудования — через осмотр без QR', () {
-      const codes = {'inspection.view', 'inspection.create'};
-
-      expect(_access(codes).scanner, isFalse);
-      expect(_access(codes, qrFree: true).scanner, isTrue);
+    test('без справочника оборудования — по праву осмотра, без флага QR', () {
+      // Обходчику с inspection.create сервер отдаёт оборудование всей
+      // компании и без equipment.view; флаг «Осмотр без QR» на сканер
+      // больше не влияет (бэкенд 06b145f).
+      expect(_access({'inspection.view', 'inspection.create'}).scanner, isTrue);
+      expect(_access({'inspection.view'}).scanner, isFalse);
     });
   });
 
@@ -119,6 +119,13 @@ void main() {
       isTrue,
     );
     expect(_access({'equipment.view'}).changeState, isFalse);
+    // Без просмотра оборудования сервер отклонит любой PATCH — даже с правом
+    // смены состояния. Сканер теперь открывается и без equipment.view.
+    expect(
+      _access({'equipment.change_state', 'inspection.create'}).changeState,
+      isFalse,
+    );
+    expect(_access({'equipment.edit'}).changeState, isFalse);
   });
 
   test('смена состояния и создание ремонта — независимо друг от друга', () {

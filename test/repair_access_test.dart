@@ -165,7 +165,6 @@ void main() {
             roleActive: true,
             companyId: '1',
           ),
-          qrFreeEnabled: false,
         );
 
     test('с правом на ЗИП — уходит, даже пустой', () {

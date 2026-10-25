@@ -117,12 +117,26 @@ dart format lib/src/путь/к/файлу.dart      # только файлы, 
 
 ### Тесты
 
-`flutter test` **зелёный, 414 тестов в 43 файлах** — и должен таким оставаться.
+`flutter test` **зелёный, 425 тестов в 44 файлах** — и должен таким оставаться.
 Пустой шаблон `test/widget_test.dart` (закомментированный, без `main()`, из-за
 которого падал весь прогон) удалён.
 
-Тесты только unit и только на чистую логику — ни widget-тестов, ни моков, ни
-фикстур, ни integration. Покрыто то, где ошибка тихая и дорогая:
+Основа — unit-тесты на чистую логику; моков и integration нет. Есть и
+widget-тесты окон и листов на маленьком экране с крупным шрифтом
+(`info_dialog_test`, `rework_card_test`, `help_link_test`,
+`rejected_problem_reports_test` — лист открывается через настоящий
+`showAppModalSheet`). Методы `DataProvider` проверяются на настоящем объекте
+поверх Hive во временном каталоге — помощник `test/support/test_data_provider.dart`
+(`testDataProvider()`; адаптеры регистрирует сам тест, только для боксов, в
+которые пишет): `rejected_problem_reports_test`, `retry_on_access_change_test`.
+Причина отказа хранится в очереди **текстом** и по нему узнаётся
+(`isNoRightsReason`, `isEquipmentNotFoundReason`): меняя формулировку в
+`strings.dart`, прежнюю добавляйте в словарь `scan_error_messages.dart`, иначе
+записи, сохранённые прошлой версией, перестанут узнаваться
+(`_legacyEquipmentNotFound`, тест — `retry_on_access_change_test`). То же у
+заявок «Проблема»: `problemReportStoredReason` переводит прежний текст
+`_legacyRejectedNotFound` при показе (на повтор текст заявок не влияет).
+Покрыто то, где ошибка тихая и дорогая:
 
 - **симметричность Hive-адаптеров** — `repair_adapter_test`,
   `pending_repair_adapter_test`, `scan_adapter_test` (самое ценное для этого
