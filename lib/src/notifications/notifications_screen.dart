@@ -187,9 +187,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _onTap(AppNotification n) async {
-    if (!n.isRead) {
-      await _service.markRead(n.uuid);
-    }
+    // Без await: карточка становится прочитанной сразу, а сервер получает
+    // отметку в фоне (не дошла — служба повторит). Раньше переход ждал
+    // ответа — до 8 секунд при плохой связи, — а неудача терялась молча.
+    if (!n.isRead) unawaited(_service.markRead(n.uuid));
     if (!mounted) return;
     // Уведомление про ремонт ведёт прямо в карточку ремонта: показывать
     // вместо неё сводку было бы лишним шагом — обходчику нужно доработать

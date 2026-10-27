@@ -1,7 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:go_router/go_router.dart';
+
+import '../notifications_service.dart';
+import 'notifications_task_handler.dart';
 
 /// Маршрутизация тапа по push-уведомлению.
 ///
@@ -39,6 +44,34 @@ class PushNotificationRouter {
     _pendingRepairUuid = null;
   }
 
+  /// Уведомление, по пушу которого тапнули, пока приложение ещё не было
+  /// готово (холодный старт): отметим прочитанным после входа —
+  /// [markPendingRead].
+  static String? _pendingReadUuid;
+
+  /// Отмечает прочитанным уведомление, открытое тапом по пушу.
+  ///
+  /// Раньше тап по пушу открывал экран уведомлений или карточку ремонта и
+  /// ничего не отмечал: уведомление оставалось «Новым», хотя обходчик его
+  /// открыл, — а из карточки ремонта он в список и не заходит.
+  static void _markRead(String? notificationUuid, {required bool appReady}) {
+    if (notificationUuid == null) return;
+    if (!appReady) {
+      _pendingReadUuid = notificationUuid;
+      return;
+    }
+    unawaited(NotificationsService.instance.markRead(notificationUuid));
+  }
+
+  /// Досылает отметку, отложенную на холодном старте. Зовётся из redirect
+  /// роутера, когда вход уже выполнен.
+  static void markPendingRead() {
+    final uuid = _pendingReadUuid;
+    if (uuid == null) return;
+    _pendingReadUuid = null;
+    unawaited(NotificationsService.instance.markRead(uuid));
+  }
+
   static Future<void> init() async {
     const initSettings = InitializationSettings(
       android: AndroidInitializationSettings('@mipmap/ic_launcher'),
@@ -46,13 +79,19 @@ class PushNotificationRouter {
     try {
       await _plugin.initialize(
         initSettings,
-        onDidReceiveNotificationResponse: (NotificationResponse _) {
-          openNotifications();
+        onDidReceiveNotificationResponse: (NotificationResponse response) {
+          openNotifications(
+            notificationUuid: pushNotificationUuidOf(response.payload),
+          );
         },
       );
       final launchDetails = await _plugin.getNotificationAppLaunchDetails();
       if (launchDetails?.didNotificationLaunchApp ?? false) {
         _pendingOpen = true;
+        _markRead(
+          pushNotificationUuidOf(launchDetails?.notificationResponse?.payload),
+          appReady: false,
+        );
       }
       // Cold-start через launchApp() из background-изолята: contentIntent
       // самого пуша может не сработать (свернули → нажали уведомление), но
@@ -69,6 +108,15 @@ class PushNotificationRouter {
             _pendingRepairUuid = repairUuid;
           }
           await FlutterForegroundTask.removeData(key: 'push_tap_repair');
+        }
+        // Отдельно от флага: фоновый изолят сохраняет uuid и тогда, когда
+        // основной жив и переход сделал сам, — снимаем в любом случае, чтобы
+        // он не всплыл на следующем запуске.
+        final notificationUuid = await FlutterForegroundTask.getData<String>(
+            key: pushTapNotificationKey);
+        if (notificationUuid != null && notificationUuid.isNotEmpty) {
+          if (pending == true) _markRead(notificationUuid, appReady: false);
+          await FlutterForegroundTask.removeData(key: pushTapNotificationKey);
         }
       } catch (_) {}
     } catch (e) {
@@ -89,9 +137,14 @@ class PushNotificationRouter {
   static void _onTaskData(Object data) {
     if (data is Map && data['type'] == 'push_tap') {
       final repairUuid = data['repair_uuid'];
+      final notificationUuid = data['notification_uuid'];
       openNotifications(
         repairUuid:
             repairUuid is String && repairUuid.isNotEmpty ? repairUuid : null,
+        notificationUuid:
+            notificationUuid is String && notificationUuid.isNotEmpty
+                ? notificationUuid
+                : null,
       );
     }
   }
@@ -100,8 +153,28 @@ class PushNotificationRouter {
   /// при наличии живого Navigator. Если Navigator ещё не готов —
   /// откладываем переход через [_pendingOpen], его подхватит redirect
   /// в GoRouter.
-  static void openNotifications({String? repairUuid}) {
+  /// Снимает метки тапа, сохранённые фоновым изолятом для холодного старта.
+  ///
+  /// Фоновый изолят ставит их на каждый тап, а снимал их только холодный
+  /// старт. Если приложение было открыто и переход сделало само, метки
+  /// оставались, и следующий обычный запуск прыгал на экран уведомлений или
+  /// в давно открытую карточку ремонта.
+  static Future<void> _clearStoredTap() async {
+    try {
+      await FlutterForegroundTask.removeData(key: 'push_tap_pending');
+      await FlutterForegroundTask.removeData(key: 'push_tap_repair');
+      await FlutterForegroundTask.removeData(key: pushTapNotificationKey);
+    } catch (_) {}
+  }
+
+  static void openNotifications({
+    String? repairUuid,
+    String? notificationUuid,
+  }) {
     final ctx = navigatorKey.currentContext;
+    // Живой Navigator — приложение запущено и данные открыты: отмечаем
+    // сразу. Иначе — после входа, из redirect роутера.
+    _markRead(notificationUuid, appReady: ctx != null);
     if (ctx == null) {
       _pendingOpen = true;
       _pendingRepairUuid = repairUuid;
@@ -113,6 +186,9 @@ class PushNotificationRouter {
       GoRouter.of(ctx).go(
         repairUuid == null ? '/notifications' : '/repairs/$repairUuid',
       );
+      // Переход сделан — метки холодного старта, которые фоновый изолят
+      // сохранил на этот же тап, больше не нужны.
+      unawaited(_clearStoredTap());
     } catch (e) {
       debugPrint('[PushRouter] navigate failed: $e');
       _pendingOpen = true;

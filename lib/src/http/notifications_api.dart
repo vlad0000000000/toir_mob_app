@@ -131,10 +131,11 @@ extension NotificationsApi on API {
       final decodedBytes = utf8Decoder.convert(response.bodyBytes);
       final Map<String, dynamic> data = jsonDecode(decodedBytes);
       return (data['unread_count'] ?? 0) as int;
-    } else {
-      throw Exception(
-          'Failed to mark notification read: ${response.statusCode}');
     }
+    // С кодом ответа: по нему служба уведомлений решает, повторить
+    // отметку (сбой сервера, протухший токен) или нет (уведомления больше
+    // нет — 404).
+    _throwServerError(response, 'Не удалось отметить уведомление прочитанным');
   }
 
   Future<StreamedResponseHandle> openNotificationStream() async {

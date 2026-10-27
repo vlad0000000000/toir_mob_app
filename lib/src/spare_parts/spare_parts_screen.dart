@@ -10,8 +10,10 @@ import '../app_bar/app_bar.dart';
 import '../data/data_provider.dart';
 import '../design/app_constants.dart';
 import '../model/spare_part.dart';
+import '../utils/search_text.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/filter_controls.dart';
+import '../widgets/filter_sheet.dart';
 import '../widgets/spare_part_row.dart';
 import 'spare_part_detail_screen.dart';
 
@@ -22,6 +24,11 @@ import 'spare_part_detail_screen.dart';
 /// серверные всё равно недоступны, а обходчику раздел нужен именно в цеху.
 class SparePartsScreen extends StatefulWidget {
   const SparePartsScreen({super.key});
+
+  /// Забывает запомненный фильтр — при выходе из аккаунта: склады и группы
+  /// прошлого пользователя следующему ни к чему.
+  static void forgetFilter() =>
+      _SparePartsScreenState._lastFilter = const _SparePartsFilter();
 
   @override
   State<SparePartsScreen> createState() => _SparePartsScreenState();
@@ -113,8 +120,9 @@ class _SparePartsScreenState extends State<SparePartsScreen> {
   }
 
   void _onSearchChanged(String value) {
-    // Сам текст обновляем сразу — от него зависит крестик очистки.
-    setState(() => _search = value);
+    // Без setState: крестик очистки следит за полем сам
+    // (`SearchFilterBar`), а список пересчитается после паузы.
+    _search = value;
     _searchDebounce?.cancel();
     _searchDebounce = Timer(_searchDelay, _recompute);
   }
@@ -189,38 +197,13 @@ class _SparePartsScreenState extends State<SparePartsScreen> {
               AppConstants.spacingMD,
               AppConstants.spacingSM,
             ),
-            // IntrinsicHeight + stretch: кнопка фильтра принимает ровно ту же
-            // высоту, что и поле поиска. Задавать ей высоту числом нельзя —
-            // фактическая высота TextField зависит от темы и кегля.
-            child: IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _searchController,
-                      onChanged: _onSearchChanged,
-                      textInputAction: TextInputAction.search,
-                      decoration: InputDecoration(
-                        hintText: SparePartStrings.searchHint,
-                        prefixIcon: const Icon(Icons.search_rounded),
-                        suffixIcon: _search.isEmpty
-                            ? null
-                            : IconButton(
-                                icon: const Icon(Icons.close_rounded),
-                                tooltip: SparePartStrings.clearSearch,
-                                onPressed: _clearSearch,
-                              ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: AppConstants.spacingSM),
-                  FilterButton(
-                    activeCount: _activeFilterCount,
-                    onTap: _openFilter,
-                  ),
-                ],
-              ),
+            child: SearchFilterBar(
+              controller: _searchController,
+              hint: SparePartStrings.searchHint,
+              onChanged: _onSearchChanged,
+              onClear: _clearSearch,
+              activeCount: _activeFilterCount,
+              onFilter: _openFilter,
             ),
           ),
           if (asOf != null)
@@ -370,14 +353,14 @@ List<SparePart> _applySparePartFilter(
 }
 
 /// Склонение для кнопки: «1 позицию», «2 позиции», «5 позиций».
-String _pluralizePositions(int n) {
-  final mod10 = n % 10;
-  final mod100 = n % 100;
-  if (mod10 == 1 && mod100 != 11) return '$n позицию';
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
-    return '$n позиции';
-  }
-  return '$n позиций';
+String _pluralizePositions(int n) =>
+    '$n ${pluralRu(n, 'позицию', 'позиции', 'позиций')}';
+
+/// Варианты раздела по подписи: выбранные чип-группа поднимает сама.
+Map<String, String> _sortedByLabel(Map<String, String> options) {
+  final entries = options.entries.toList()
+    ..sort((a, b) => a.value.compareTo(b.value));
+  return {for (final entry in entries) entry.key: entry.value};
 }
 
 class _SparePartsFilterSheet extends StatefulWidget {
@@ -394,12 +377,7 @@ class _SparePartsFilterSheet extends StatefulWidget {
 }
 
 class _SparePartsFilterSheetState extends State<_SparePartsFilterSheet> {
-  /// Сколько чипов показываем в секции до нажатия «Ещё N».
-  static const int _collapsedChips = 8;
-
   late _SparePartsFilter _draft = widget.initial;
-  bool _warehousesExpanded = false;
-  bool _groupsExpanded = false;
 
   /// Варианты секций и число совпадений — в полях, а не в геттерах.
   ///
@@ -427,12 +405,13 @@ class _SparePartsFilterSheetState extends State<_SparePartsFilterSheet> {
   /// своего собственного. Иначе выбор одного склада спрятал бы все прочие
   /// склады, и второй уже нельзя было бы добавить.
   void _recomputeOptions() {
-    _warehouses = GlobalState.dataProvider.sparePartWarehouses(
+    _warehouses = _sortedByLabel(GlobalState.dataProvider.sparePartWarehouses(
       where: _draft.copyWith(warehouseUuids: const {}).matches,
-    );
-    _groups = GlobalState.dataProvider.sparePartNomenclatureGroups(
+    ));
+    _groups =
+        _sortedByLabel(GlobalState.dataProvider.sparePartNomenclatureGroups(
       where: _draft.copyWith(groupUuids: const {}).matches,
-    );
+    ));
   }
 
   void _recomputeCount() {
@@ -477,11 +456,14 @@ class _SparePartsFilterSheetState extends State<_SparePartsFilterSheet> {
 
   void _apply() => Navigator.of(context).pop(_draft);
 
+  /// Сколько раз нажали «Сбросить» — в ключах разделов: сброс сворачивает
+  /// раскрытое «Ещё N», как и раньше, когда раскрытие хранилось здесь.
+  int _resets = 0;
+
   void _reset() {
     setState(() {
+      _resets++;
       _draft = const _SparePartsFilter();
-      _warehousesExpanded = false;
-      _groupsExpanded = false;
       // Сброс снимает все условия, значит варианты и счётчик меняются тоже.
       _recomputeOptions();
       _recomputeCount();
@@ -494,324 +476,60 @@ class _SparePartsFilterSheetState extends State<_SparePartsFilterSheet> {
     final tt = Theme.of(context).textTheme;
     final warehouses = _warehouses;
     final groups = _groups;
-    final count = _resultCount;
 
-    return SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppConstants.spacingMD,
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    SparePartStrings.filtersTitle,
-                    style: tt.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                TextButton(
-                  onPressed: _draft.isEmpty ? null : _reset,
-                  child: const Text(SparePartStrings.reset),
-                ),
-              ],
+    return FilterSheet(
+      onReset: _draft.isEmpty ? null : _reset,
+      resultCount: _resultCount,
+      resultLabel: (count) =>
+          SparePartStrings.showResults(_pluralizePositions(count)),
+      onApply: _apply,
+      children: [
+        if (warehouses.isNotEmpty)
+          FilterSection(
+            // Ключ — чтобы при исчезновении соседнего раздела раскрытое
+            // «Ещё N» не перешло к другому.
+            key: ValueKey('warehouses#$_resets'),
+            label: SparePartStrings.labelWarehouse,
+            count: _draft.warehouseUuids.length,
+            child: FilterChipGroup(
+              options: warehouses,
+              selected: _draft.warehouseUuids,
+              onChanged: (next) =>
+                  _updateDraft(_draft.copyWith(warehouseUuids: next)),
             ),
           ),
-          Flexible(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(
-                AppConstants.spacingMD,
-                AppConstants.spacingSM,
-                AppConstants.spacingMD,
-                AppConstants.spacingMD,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (warehouses.isNotEmpty) ...[
-                    _SectionLabel(
-                      SparePartStrings.labelWarehouse,
-                      count: _draft.warehouseUuids.length,
-                    ),
-                    const SizedBox(height: AppConstants.spacingSM),
-                    _ChipGroup(
-                      options: warehouses,
-                      selected: _draft.warehouseUuids,
-                      expanded: _warehousesExpanded,
-                      collapsedLimit: _collapsedChips,
-                      onExpand: () =>
-                          setState(() => _warehousesExpanded = true),
-                      onChanged: (next) => _updateDraft(
-                        _draft.copyWith(warehouseUuids: next),
-                      ),
-                    ),
-                    const SizedBox(height: AppConstants.spacingLG),
-                  ],
-                  if (groups.isNotEmpty) ...[
-                    _SectionLabel(
-                      SparePartStrings.labelGroup,
-                      count: _draft.groupUuids.length,
-                    ),
-                    const SizedBox(height: AppConstants.spacingSM),
-                    _ChipGroup(
-                      options: groups,
-                      selected: _draft.groupUuids,
-                      expanded: _groupsExpanded,
-                      collapsedLimit: _collapsedChips,
-                      onExpand: () => setState(() => _groupsExpanded = true),
-                      onChanged: (next) =>
-                          _updateDraft(_draft.copyWith(groupUuids: next)),
-                    ),
-                    const SizedBox(height: AppConstants.spacingLG),
-                  ],
-                  _SectionLabel(SparePartStrings.labelAvailability),
-                  const SizedBox(height: AppConstants.spacingSM),
-                  SegmentedToggle(
-                    labels: const [
-                      SparePartStrings.toggleAll,
-                      SparePartStrings.toggleInStock,
-                    ],
-                    selectedIndex: _draft.inStockOnly ? 1 : 0,
-                    onChanged: (index) => _updateDraft(
-                      _draft.copyWith(inStockOnly: index == 1),
-                    ),
-                  ),
-                  if (warehouses.isEmpty && groups.isEmpty) ...[
-                    const SizedBox(height: AppConstants.spacingLG),
-                    Text(
-                      _draft.inStockOnly
-                          ? SparePartStrings.noFacetsInStock
-                          : SparePartStrings.noFacets,
-                      style: tt.bodyMedium?.copyWith(
-                        color: cs.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+        if (groups.isNotEmpty)
+          FilterSection(
+            key: ValueKey('groups#$_resets'),
+            label: SparePartStrings.labelGroup,
+            count: _draft.groupUuids.length,
+            child: FilterChipGroup(
+              options: groups,
+              selected: _draft.groupUuids,
+              onChanged: (next) =>
+                  _updateDraft(_draft.copyWith(groupUuids: next)),
             ),
           ),
-          // Липкая кнопка: обещает ровно то число, которое обходчик увидит
-          // после закрытия листа — с учётом поиска на экране.
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(
-              AppConstants.spacingMD,
-              AppConstants.spacingSM,
-              AppConstants.spacingMD,
-              AppConstants.spacingMD,
-            ),
-            decoration: BoxDecoration(
-              border: Border(
-                top: BorderSide(color: cs.outlineVariant, width: 0.5),
-              ),
-            ),
-            child: SizedBox(
-              height: AppConstants.buttonHeightLarge,
-              child: ElevatedButton(
-                onPressed: _apply,
-                child: Text(
-                  count == 0
-                      ? SparePartStrings.nothingFound
-                      : SparePartStrings.showResults(
-                          _pluralizePositions(count)),
-                ),
-              ),
-            ),
+        FilterSectionLabel(SparePartStrings.labelAvailability),
+        const SizedBox(height: AppConstants.spacingSM),
+        SegmentedToggle(
+          labels: const [
+            SparePartStrings.toggleAll,
+            SparePartStrings.toggleInStock,
+          ],
+          selectedIndex: _draft.inStockOnly ? 1 : 0,
+          onChanged: (index) =>
+              _updateDraft(_draft.copyWith(inStockOnly: index == 1)),
+        ),
+        if (warehouses.isEmpty && groups.isEmpty) ...[
+          const SizedBox(height: AppConstants.spacingLG),
+          Text(
+            _draft.inStockOnly
+                ? SparePartStrings.noFacetsInStock
+                : SparePartStrings.noFacets,
+            style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _ChipGroup extends StatelessWidget {
-  final Map<String, String> options;
-  final Set<String> selected;
-  final ValueChanged<Set<String>> onChanged;
-  final bool expanded;
-  final int collapsedLimit;
-  final VoidCallback onExpand;
-
-  const _ChipGroup({
-    required this.options,
-    required this.selected,
-    required this.onChanged,
-    required this.expanded,
-    required this.collapsedLimit,
-    required this.onExpand,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final entries = options.entries.toList();
-    // Выбранные поднимаем наверх: иначе после сворачивания активный фильтр
-    // мог бы оказаться спрятанным под «Ещё N».
-    entries.sort((a, b) {
-      final aSelected = selected.contains(a.key) ? 0 : 1;
-      final bSelected = selected.contains(b.key) ? 0 : 1;
-      if (aSelected != bSelected) return aSelected - bSelected;
-      return a.value.compareTo(b.value);
-    });
-
-    final hidden = expanded ? 0 : entries.length - collapsedLimit;
-    final visible = hidden > 0 ? entries.take(collapsedLimit) : entries;
-
-    return Wrap(
-      spacing: AppConstants.spacingSM,
-      runSpacing: AppConstants.spacingSM,
-      children: [
-        for (final entry in visible)
-          _PillChip(
-            label: entry.value,
-            selected: selected.contains(entry.key),
-            onTap: () {
-              final next = {...selected};
-              if (!next.remove(entry.key)) next.add(entry.key);
-              onChanged(next);
-            },
-          ),
-        if (hidden > 0) _MoreChip(count: hidden, onTap: onExpand),
-      ],
-    );
-  }
-}
-
-/// Чип «Ещё N» — раскрывает спрятанные варианты. Обратно не сворачивается:
-/// свернуть уже увиденное посреди выбора только сбивает.
-class _MoreChip extends StatelessWidget {
-  final int count;
-  final VoidCallback onTap;
-
-  const _MoreChip({required this.count, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
-    return Material(
-      color: cs.surfaceContainerHigh,
-      borderRadius: BorderRadius.circular(AppConstants.radiusFull),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppConstants.radiusFull),
-        child: Container(
-          constraints: const BoxConstraints(
-            minHeight: AppConstants.buttonHeightSmall,
-          ),
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppConstants.spacingMD,
-          ),
-          alignment: Alignment.center,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                SparePartStrings.more(count),
-                style: tt.labelLarge?.copyWith(color: cs.onSurfaceVariant),
-              ),
-              const SizedBox(width: 4),
-              Icon(Icons.expand_more_rounded,
-                  size: 18, color: cs.onSurfaceVariant),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PillChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _PillChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
-    return Material(
-      color: selected ? cs.primary : cs.surfaceContainerHigh,
-      borderRadius: BorderRadius.circular(AppConstants.radiusFull),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppConstants.radiusFull),
-        child: Container(
-          // Общая минимальная высота: чипы в строке одинаковые независимо
-          // от того, показана ли галочка. Без неё выбранные становились выше.
-          constraints: const BoxConstraints(
-            minHeight: AppConstants.buttonHeightSmall,
-          ),
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppConstants.spacingMD,
-            vertical: AppConstants.spacingSM,
-          ),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppConstants.radiusFull),
-            border:
-                Border.all(color: selected ? cs.primary : cs.outlineVariant),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (selected) ...[
-                Icon(Icons.check_rounded, size: 16, color: cs.onPrimary),
-                const SizedBox(width: 6),
-              ],
-              Text(
-                label,
-                style: tt.labelLarge?.copyWith(
-                  color: selected ? cs.onPrimary : cs.onSurface,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SectionLabel extends StatelessWidget {
-  final String text;
-
-  /// Сколько значений выбрано в секции. Ноль — счётчик не рисуется.
-  final int count;
-
-  const _SectionLabel(this.text, {this.count = 0});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
-    final labelStyle = tt.labelSmall?.copyWith(
-      color: cs.onSurfaceVariant,
-      fontWeight: FontWeight.w600,
-      letterSpacing: 0.6,
-    );
-    if (count == 0) {
-      return Text(text, style: labelStyle);
-    }
-    return Row(
-      children: [
-        Text(text, style: labelStyle),
-        const SizedBox(width: 6),
-        Text(
-          '· $count',
-          style: labelStyle?.copyWith(color: cs.primary),
-        ),
       ],
     );
   }

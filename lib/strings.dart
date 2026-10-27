@@ -1,3 +1,5 @@
+import 'src/utils/search_text.dart';
+
 class Strings {
   static final locale = 'ru';
 
@@ -520,7 +522,6 @@ class SparePartStrings {
 
   // Справочник
   static const String searchHint = 'Название или артикул';
-  static const String clearSearch = 'Очистить поиск';
   static const String catalogEmptyTitle = 'Справочник ЗИП пуст';
   static const String catalogEmptyHint =
       'Справочник ещё не загружен. Потяните вниз, чтобы синхронизировать.';
@@ -550,7 +551,6 @@ class SparePartStrings {
   }
 
   // Фильтры
-  static const String filtersTitle = 'Фильтры';
   static const String reset = 'Сбросить';
   static const String labelWarehouse = 'СКЛАД';
   static const String labelGroup = 'ГРУППА НОМЕНКЛАТУРЫ';
@@ -564,8 +564,6 @@ class SparePartStrings {
       'фильтровать нечего.';
 
   static String showResults(String positions) => 'Показать $positions';
-
-  static String more(int count) => 'Ещё $count';
 
   // Строка справочника
   static String article(String code) => 'Арт. $code · ';
@@ -1086,34 +1084,74 @@ class ForeignEquipmentStrings {
 }
 
 /// Фильтр списка оборудования «Осмотр оборудования или ТМЦ».
-class EquipmentFilterStrings {
-  EquipmentFilterStrings._();
+/// Общие строки поиска и листа «Фильтры» — ЗИП, оборудование, задачи.
+class FilterStrings {
+  FilterStrings._();
 
   static const String title = 'Фильтры';
   static const String reset = 'Сбросить';
-  static const String labelScope = 'Подразделения';
+  static const String nothingFound = 'Ничего не найдено';
+  static const String resetFilters = 'Сбросить фильтры';
+  static const String clearSearch = 'Очистить поиск';
+
+  static String more(int count) => 'Ещё $count';
+}
+
+class EquipmentFilterStrings {
+  EquipmentFilterStrings._();
+
+  static const String searchHint = 'Название, модель или серийный номер';
+
+  static const String labelScope = 'Область';
   static const String mine = 'Моё подразделение';
   static const String all = 'Все подразделения';
+  static const String labelLocation = 'Местоположение';
+  static const String labelState = 'Состояние';
+  static const String labelTasks = 'Задачи';
+  static const String tasksAll = 'Все';
+  static const String tasksActive = 'С активными задачами';
 
-  static const String nothingFound = 'Ничего не найдено';
+  static String showResults(int n) =>
+      'Показать $n ${pluralRu(n, 'единицу', 'единицы', 'единиц')}';
 
-  static String showResults(int n) {
-    final mod10 = n % 10;
-    final mod100 = n % 100;
-    final word = mod10 == 1 && mod100 != 11
-        ? 'единицу'
-        : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)
-            ? 'единицы'
-            : 'единиц';
-    return 'Показать $n $word';
-  }
-
-  /// Пусто только из-за фильтра «Моё» — подсказываем, куда переключить.
+  /// Пусто только из-за области «Моё» — подсказываем, куда переключить.
   static const String emptyMineTitle =
       'В ваших подразделениях оборудования нет';
   static const String emptyMineHint =
-      'Переключите фильтр на «Все подразделения», чтобы увидеть оборудование '
-      'всей компании.';
+      'Переключите область на «Все подразделения», чтобы увидеть '
+      'оборудование всей компании.';
+  static const String showAllDivisions = 'Показать все подразделения';
+
+  /// Поиск или фильтры ничего не нашли.
+  static const String nothingFoundHint = 'Измените запрос или сбросьте фильтры.';
+  static const String nothingFoundMineHint =
+      'В ваших подразделениях нет такого оборудования. Измените запрос, '
+      'сбросьте фильтры или переключите область на все подразделения.';
+
+  /// В «Моё» пусто, а во всех подразделениях по тому же запросу что-то есть.
+  static String foundElsewhere(int n) =>
+      'В других подразделениях ${pluralRu(n, 'найдена', 'найдены', 'найдено')} '
+      '$n ${pluralRu(n, 'единица', 'единицы', 'единиц')}.';
+  static const String searchAllDivisions = 'Искать во всех подразделениях';
+}
+
+/// Поиск и фильтр на экране задач оборудования.
+class TaskFilterStrings {
+  TaskFilterStrings._();
+
+  static const String searchHint = 'Название задачи или узел';
+  static const String labelPeriodicity = 'Периодичность';
+
+  /// Чип всех групп ППР: «ППР · Октябрьский ППР» и прочих.
+  static const String ppr = 'ППР';
+
+  static String showResults(int n) =>
+      'Показать $n ${pluralRu(n, 'задачу', 'задачи', 'задач')}';
+
+  static const String nothingFoundTitle = 'Задачи не найдены';
+  static const String nothingFoundHint =
+      'По этому оборудованию нет задач по вашему запросу. Измените запрос '
+      'или сбросьте фильтры.';
 }
 
 /// Задачи, возвращённые проверяющим на доработку.

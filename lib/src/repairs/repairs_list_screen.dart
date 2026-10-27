@@ -11,6 +11,7 @@ import '../data/data_provider.dart';
 import '../design/app_constants.dart';
 import '../design/app_theme.dart';
 import '../http/api.dart';
+import '../login/sign_out.dart';
 import '../model/pending_repair.dart';
 import '../model/pending_repair_update.dart';
 import '../model/repair.dart';
@@ -634,12 +635,18 @@ class _AuthExpiredBanner extends StatelessWidget {
                     ),
                     const SizedBox(height: AppConstants.spacingSM),
                     FilledButton(
-                      onPressed: () {
+                      onPressed: () async {
                         // Сохранённого пользователя снимаем сами: пока он в
                         // хранилище, редирект в main.dart считает вход
-                        // выполненным и с '/login' уводит обратно.
-                        GlobalState.authUser = null;
+                        // выполненным и с '/login' уводит обратно. Через общий
+                        // выход: раньше здесь снимался только пользователь, а
+                        // уведомления, их недошедшие отметки, push-сервис и
+                        // запомненные фильтры оставались от прошлой сессии.
+                        // Пользователь снимается синхронно, остановку
+                        // push-сервиса ждём уже после перехода.
+                        final stopping = signOut();
                         GoRouter.of(context).go('/login');
+                        await stopping;
                       },
                       child: const Text(RepairStrings.authExpiredAction),
                     ),

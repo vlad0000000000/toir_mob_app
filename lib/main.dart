@@ -345,6 +345,9 @@ class MyApp extends StatelessWidget {
       // Если приложение было запущено тапом по push-уведомлению — после
       // прохождения авторизационных редиректов перебрасываем сразу на
       // экран уведомлений (один раз).
+      // Уведомление, открытое пушем до входа, отмечаем прочитанным — теперь
+      // есть кому.
+      if (isAuthenticated) PushNotificationRouter.markPendingRead();
       if (isAuthenticated && PushNotificationRouter.hasPendingOpen) {
         final target = PushNotificationRouter.pendingLocation;
         if (state.matchedLocation != target) {

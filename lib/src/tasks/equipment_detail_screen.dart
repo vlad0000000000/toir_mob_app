@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../global_state.dart';
 import '../../src/app_bar/app_bar.dart';
@@ -6,6 +8,9 @@ import '../../src/model/task.dart';
 import '../../strings.dart';
 import '../design/app_constants.dart';
 import '../design/app_theme.dart';
+import '../utils/search_text.dart';
+import '../widgets/empty_state.dart';
+import '../widgets/filter_sheet.dart';
 import 'task_models.dart';
 import 'equipment_detail_controller.dart';
 import 'periodic_task_card.dart';
@@ -90,6 +95,28 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
 
   late Equipment equipment;
 
+  // ── Поиск и фильтр ─────────────────────────────────────────────────────
+  // Только на отдельном экране «Задачи», не в окне выбора задачи при скане
+  // QR. Разовые: сбрасываются при уходе с экрана, это не настройка. Фильтр
+  // только прячет задачи — отправка осмотра, скан и доработка работают как
+  // раньше.
+
+  final _searchController = TextEditingController();
+
+  /// Запрос, по которому отобраны задачи, — после паузы в наборе.
+  String _query = '';
+  Timer? _searchDebounce;
+  static const Duration _searchDelay = Duration(milliseconds: 250);
+
+  /// Выбранные чипы «Периодичность» — ключи [_filterKeyOf].
+  Set<String> _groups = const {};
+
+  /// Свёрнутость групп, пока действуют поиск или фильтр: найденное
+  /// показываем раскрытым, но обходчик может группу свернуть.
+  final Map<String, bool> _filteredExpanded = {};
+
+  bool get _isFiltering => _query.trim().isNotEmpty || _groups.isNotEmpty;
+
   @override
   void initState() {
     super.initState();
@@ -99,9 +126,112 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     _selectionController.onSelectionChanged = _handleSelectionChanged;
   }
 
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
   void _handleSelectionChanged() {
     if (mounted) setState(() {});
   }
+
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(_searchDelay, () {
+      if (mounted) setState(() => _query = value);
+    });
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    _searchDebounce?.cancel();
+    setState(() => _query = '');
+  }
+
+  /// Значение чипа «Периодичность» для группы: все группы ППР («ППР ·
+  /// Октябрьский ППР» и прочие) — одним чипом «ППР», остальные — своим
+  /// названием, включая «На доработку» и «Назначенные задачи».
+  static String _filterKeyOf(String period) =>
+      period.startsWith(kPprGroupName) ? TaskFilterStrings.ppr : period;
+
+  /// Варианты чипов — группы этого оборудования, в порядке экрана. Правила
+  /// периодичности, которых у оборудования нет, не показываем: они всегда
+  /// давали бы «Ничего не найдено».
+  Map<String, String> get _groupOptions => {
+        for (final checklist in equipment.checklists)
+          _filterKeyOf(checklist.period): _filterKeyOf(checklist.period),
+      };
+
+  /// Задача подходит под запрос — по названию или узлу, без учёта регистра
+  /// и «ё/е». [query] — уже из [normalizeSearchText].
+  static bool _taskMatches(Task task, String query) {
+    if (query.isEmpty) return true;
+    final periodic = task.periodicTask;
+    for (final field in [
+      periodic?.title ?? 'Назначенная задача',
+      periodic?.node,
+    ]) {
+      if (field != null && normalizeSearchText(field).contains(query)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Группы после поиска и фильтра: только с найденными задачами, счётчик —
+  /// по найденным. Одна функция и для экрана, и для «Показать N задач».
+  List<Checklist> _filteredChecklists(Set<String> groups, String query) {
+    final normalized = normalizeSearchText(query);
+    if (groups.isEmpty && normalized.isEmpty) return equipment.checklists;
+    final result = <Checklist>[];
+    for (final checklist in equipment.checklists) {
+      if (groups.isNotEmpty &&
+          !groups.contains(_filterKeyOf(checklist.period))) {
+        continue;
+      }
+      final tasks = [
+        for (final task in checklist.tasks)
+          if (_taskMatches(task, normalized)) task,
+      ];
+      if (tasks.isEmpty) continue;
+      result.add(Checklist(
+        checklist.period,
+        tasks,
+        isExpanded: _filteredExpanded[checklist.period] ?? true,
+      ));
+    }
+    return result;
+  }
+
+  /// Применяет набранный текст, не дожидаясь паузы. Перед открытием листа:
+  /// иначе, открытый раньше 250 мс, он считал бы «Показать N задач» по
+  /// прежнему запросу, а экран после закрытия — по новому.
+  void _applySearchNow() {
+    _searchDebounce?.cancel();
+    final text = _searchController.text;
+    if (_query != text) setState(() => _query = text);
+  }
+
+  Future<void> _openFilter() async {
+    _applySearchNow();
+    final result = await showModalBottomSheet<Set<String>>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => _TaskFilterSheet(
+        options: _groupOptions,
+        initial: _groups,
+        countFor: (groups) => _filteredChecklists(groups, _query)
+            .fold(0, (sum, checklist) => sum + checklist.tasks.length),
+      ),
+    );
+    if (result == null || !mounted) return;
+    setState(() => _groups = result);
+  }
+
+  void _resetFilters() => setState(() => _groups = const {});
 
   Equipment createEquipment(InventoryRecord machine) {
     List<Task> tasks =
@@ -146,10 +276,17 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
   }
 
   Widget buildBody(Equipment equipment) {
+    final filtering = !widget.isModal && _isFiltering;
+    // Поиск и фильтр сняты — забываем, что сворачивали среди найденного:
+    // следующий поиск снова покажет найденное раскрытым.
+    if (!filtering) _filteredExpanded.clear();
+    final checklists =
+        filtering ? _filteredChecklists(_groups, _query) : equipment.checklists;
+
     Widget list = ListView.builder(
-      itemCount: equipment.checklists.length + (widget.isModal ? 1 : 0),
+      itemCount: checklists.length + (widget.isModal ? 1 : 0),
       itemBuilder: (context, index) {
-        if (index == equipment.checklists.length) {
+        if (index == checklists.length) {
           return Padding(
             padding: const EdgeInsets.all(AppConstants.spacingMD),
             child: SizedBox(
@@ -163,7 +300,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             ),
           );
         }
-        final checklist = equipment.checklists[index];
+        final checklist = checklists[index];
 
         final tt = Theme.of(context).textTheme;
         return Card(
@@ -185,6 +322,11 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
               Padding(
                 padding: const EdgeInsets.only(left: 4),
                 child: ExpansionTile(
+                  // Ключ меняется при включении и снятии поиска: найденные
+                  // группы открываются раскрытыми, а после очистки поиска
+                  // возвращается прежняя свёрнутость.
+                  key: ValueKey('${checklist.period}|$filtering'),
+                  initiallyExpanded: checklist.isExpanded,
                   shape: const Border(),
                   collapsedShape: const Border(),
                   tilePadding: const EdgeInsets.symmetric(
@@ -232,6 +374,11 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                   onExpansionChanged: (expanded) {
                     setState(() {
                       checklist.isExpanded = expanded;
+                      // Отобранные группы — копии, пересоздаются на каждом
+                      // кадре: свёрнутость храним отдельно.
+                      if (filtering) {
+                        _filteredExpanded[checklist.period] = expanded;
+                      }
                     });
                   },
                 ),
@@ -242,9 +389,43 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
       },
     );
 
+    // Поиск ничего не нашёл — вместо списка пустое состояние, название
+    // оборудования над ним остаётся.
+    if (filtering && checklists.isEmpty) {
+      list = EmptyState(
+        icon: Icons.search_off_rounded,
+        title: TaskFilterStrings.nothingFoundTitle,
+        hint: TaskFilterStrings.nothingFoundHint,
+        // Без фильтра сбрасывать нечего — запрос стирают крестиком в поле.
+        action: _groups.isEmpty
+            ? null
+            : ElevatedButton(
+                onPressed: _resetFilters,
+                child: const Text(FilterStrings.resetFilters),
+              ),
+      );
+    }
+
     final tt = Theme.of(context).textTheme;
     return Column(
       children: [
+        if (!widget.isModal)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppConstants.spacingMD,
+              AppConstants.spacingMD,
+              AppConstants.spacingMD,
+              0,
+            ),
+            child: SearchFilterBar(
+              controller: _searchController,
+              hint: TaskFilterStrings.searchHint,
+              onChanged: _onSearchChanged,
+              onClear: _clearSearch,
+              activeCount: _groups.length,
+              onFilter: _openFilter,
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(
               AppConstants.spacingLG,
@@ -431,6 +612,69 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     return Scaffold(
       appBar: MyAppBar.build(context) as AppBar,
       body: body,
+    );
+  }
+}
+
+/// Лист «Фильтры» экрана задач оборудования: один раздел «Периодичность».
+/// Возвращает выбранные группы.
+class _TaskFilterSheet extends StatefulWidget {
+  /// Группы этого оборудования, в порядке экрана.
+  final Map<String, String> options;
+  final Set<String> initial;
+
+  /// Сколько задач покажет экран при выбранных группах — с его поиском.
+  final int Function(Set<String> groups) countFor;
+
+  const _TaskFilterSheet({
+    required this.options,
+    required this.initial,
+    required this.countFor,
+  });
+
+  @override
+  State<_TaskFilterSheet> createState() => _TaskFilterSheetState();
+}
+
+class _TaskFilterSheetState extends State<_TaskFilterSheet> {
+  late Set<String> _draft = widget.initial;
+  late int _count = widget.countFor(_draft);
+
+  /// Сколько раз нажали «Сбросить» — в ключе раздела: сброс сворачивает
+  /// раскрытое «Ещё N».
+  int _resets = 0;
+
+  void _update(Set<String> next) {
+    setState(() {
+      _draft = next;
+      _count = widget.countFor(next);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FilterSheet(
+      onReset: _draft.isEmpty
+          ? null
+          : () {
+              _resets++;
+              _update(const {});
+            },
+      resultCount: _count,
+      resultLabel: TaskFilterStrings.showResults,
+      onApply: () => Navigator.of(context).pop(_draft),
+      children: [
+        FilterSection(
+          key: ValueKey('periodicity#$_resets'),
+          label: TaskFilterStrings.labelPeriodicity,
+          count: _draft.length,
+          child: FilterChipGroup(
+            options: widget.options,
+            selected: _draft,
+            onChanged: _update,
+          ),
+        ),
+      ],
     );
   }
 }

@@ -17,16 +17,42 @@ void notificationsForegroundCallback() {
   FlutterForegroundTask.setTaskHandler(NotificationsTaskHandler());
 }
 
+/// Ключ сохранённого uuid уведомления, по пушу которого тапнули, — для
+/// холодного старта: основной изолят отметит его прочитанным после входа.
+const String pushTapNotificationKey = 'push_tap_notification';
+
+/// uuid уведомления из payload локального пуша (`uuid`, см.
+/// [NotificationsTaskHandler._showLocalNotification]). `null` — нет или
+/// payload не разобрался.
+String? pushNotificationUuidOf(String? payload) {
+  if (payload == null || payload.isEmpty) return null;
+  try {
+    final data = jsonDecode(payload);
+    final uuid = data is Map ? data['uuid'] : null;
+    return uuid is String && uuid.isNotEmpty ? uuid : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 /// Обработчик тапа по локальному пушу, который вызывается из background-изолята
 /// (когда основное приложение убито/в фоне). Должен быть top-level и
 /// помечен `vm:entry-point`.
 @pragma('vm:entry-point')
-void onLocalNotificationBackgroundTap(NotificationResponse response) {
+Future<void> onLocalNotificationBackgroundTap(
+    NotificationResponse response) async {
   // Ставим персистентный флаг — main isolate подхватит его в
   // `PushNotificationRouter.init()` и сделает редирект на /notifications,
   // даже если активити запустилась через launchApp (не через contentIntent).
+  // Вместе с ним — само уведомление, чтобы отметить его прочитанным.
+  // Дожидаемся записи до запуска активити — см. `_onLocalTap`.
   try {
-    FlutterForegroundTask.saveData(key: 'push_tap_pending', value: true);
+    await FlutterForegroundTask.saveData(key: 'push_tap_pending', value: true);
+    final notificationUuid = pushNotificationUuidOf(response.payload);
+    if (notificationUuid != null) {
+      await FlutterForegroundTask.saveData(
+          key: pushTapNotificationKey, value: notificationUuid);
+    }
   } catch (_) {}
   // Поднимаем активити на экран уведомлений.
   try {
@@ -198,7 +224,7 @@ class NotificationsTaskHandler extends TaskHandler {
         ?.createNotificationChannel(channel);
   }
 
-  void _onLocalTap(NotificationResponse response) {
+  Future<void> _onLocalTap(NotificationResponse response) async {
     // Ремонт открываем адресно; всё остальное — как раньше, общим экраном
     // уведомлений.
     String? repairUuid;
@@ -208,23 +234,39 @@ class NotificationsTaskHandler extends TaskHandler {
         repairUuid = payload['repair_uuid'] as String;
       }
     } catch (_) {}
+    // Само уведомление — чтобы основной изолят отметил его прочитанным:
+    // обходчик его открыл, пусть и тапом по пушу, а не в списке.
+    final notificationUuid = pushNotificationUuidOf(response.payload);
+
+    // Подстраховка для cold-start: ставим персистентный флаг, который main
+    // при `init()` подхватит и инициирует переход даже если активити пришлось
+    // запускать через launchApp (а не через contentIntent самого пуша).
+    //
+    // Сохраняем **до** сигнала основному изоляту и дожидаемся записи: живой
+    // основной изолят, сделав переход сам, снимает эти метки
+    // (`PushNotificationRouter`). Пришли бы они после — остались бы на диске,
+    // и следующий обычный запуск сам прыгнул бы на экран уведомлений или в
+    // давно открытую карточку ремонта.
+    try {
+      await FlutterForegroundTask.saveData(
+          key: 'push_tap_pending', value: true);
+      if (repairUuid != null) {
+        await FlutterForegroundTask.saveData(
+            key: 'push_tap_repair', value: repairUuid);
+      }
+      if (notificationUuid != null) {
+        await FlutterForegroundTask.saveData(
+            key: pushTapNotificationKey, value: notificationUuid);
+      }
+    } catch (_) {}
 
     // Если main isolate жив — он сам сделает GoRouter навигацию.
     try {
       FlutterForegroundTask.sendDataToMain({
         'type': 'push_tap',
         if (repairUuid != null) 'repair_uuid': repairUuid,
+        if (notificationUuid != null) 'notification_uuid': notificationUuid,
       });
-    } catch (_) {}
-    // Подстраховка для cold-start: ставим персистентный флаг, который main
-    // при `init()` подхватит и инициирует переход даже если активити пришлось
-    // запускать через launchApp (а не через contentIntent самого пуша).
-    try {
-      FlutterForegroundTask.saveData(key: 'push_tap_pending', value: true);
-      if (repairUuid != null) {
-        FlutterForegroundTask.saveData(
-            key: 'push_tap_repair', value: repairUuid);
-      }
     } catch (_) {}
     try {
       FlutterForegroundTask.launchApp('/notifications');

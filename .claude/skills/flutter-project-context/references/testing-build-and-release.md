@@ -243,7 +243,7 @@ CLI не автоматизирован.
 ## Что ещё стоит покрыть
 
 Реалистично покрывается без рефакторинга: `SseLineParser.handleLine`,
-`TasksFilterState.apply`, `NotificationFormatters.*`, `*.fromJson` моделей,
+`applyEquipmentFilter`, `NotificationFormatters.*`, `*.fromJson` моделей,
 `UsageParameter.validate`, симметричность **остальных** Hive-адаптеров (сейчас
 покрыты только `Repair` и `PendingRepair`) и разбор ответа ППР
 (`Ppr.fromListJson` / `fromJson` — снимок ездит через `stringBox` строкой).

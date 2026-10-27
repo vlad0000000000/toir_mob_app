@@ -1,20 +1,31 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../global_state.dart';
 import '../../src/app_bar/app_bar.dart';
 import '../../src/model/inventory_record.dart';
-import '../../src/model/task.dart';
 import '../../strings.dart';
 import '../design/app_constants.dart';
-import '../widgets/filter_controls.dart';
+import '../utils/search_text.dart';
 import '../widgets/empty_state.dart';
-import 'tasks_filter.dart';
+import '../widgets/filter_controls.dart';
+import '../widgets/filter_sheet.dart';
+import 'equipment_filter.dart';
 
-/// Перенесённый с экрана уведомлений фильтр. Сейчас спрятан,
-/// при необходимости включить — поставить `_kShowTasksFilter = true`.
-// ignore: prefer_const_declarations
-final bool _kShowTasksFilter = false;
-
+/// Список оборудования — в двух режимах с одним заголовком «Оборудование»:
+///
+/// * «Задачи» (`/tasks`) — оборудование с активными задачами и их число;
+/// * «Осмотр оборудования или ТМЦ» (`/problems`, [isProblems]) — весь
+///   справочник, выбор объекта для осмотра.
+///
+/// В обоих — поиск по названию, модели и серийному номеру и лист фильтров
+/// (местоположение, состояние). Область «Моё подразделение / Все
+/// подразделения» и «Задачи: Все / С активными» — только в справочнике: в
+/// «Задачах» список и так состоит из работы обходчика, которую ему выдал
+/// сервер, и прятать её по подразделению оборудования нельзя.
+///
+/// Отбор локальный, по кэшу: работает и без сети.
 class EquipmentListScreen extends StatefulWidget {
   final bool isModal;
   final bool isProblems;
@@ -22,42 +33,35 @@ class EquipmentListScreen extends StatefulWidget {
   const EquipmentListScreen(
       {super.key, this.isModal = false, this.isProblems = false});
 
+  /// Забывает запомненные фильтры — при выходе из аккаунта: помещения и
+  /// состояния прошлого пользователя (а то и другой компании) следующему
+  /// дали бы «Ничего не найдено».
+  static void forgetFilters() => _EquipmentListScreenState._lastFilters.clear();
+
   @override
   State<EquipmentListScreen> createState() => _EquipmentListScreenState();
 }
 
 class _EquipmentListScreenState extends State<EquipmentListScreen> {
-  TasksFilterState _filter = TasksFilterState();
+  /// Фильтр переживает уход с экрана в пределах запуска — как фильтр
+  /// справочника ЗИП. У каждого режима свой: в «Задачах» нет области и
+  /// раздела задач. Поисковый запрос сюда не входит: его набирают ради
+  /// одной единицы, и восстановленный текст прятал бы список при следующем
+  /// заходе.
+  static final Map<bool, EquipmentFilter> _lastFilters = {};
 
-  /// Фильтр «Моё подразделение / Все подразделения» переживает уход с
-  /// экрана в пределах запуска — как фильтр справочника ЗИП. По умолчанию —
-  /// своё.
-  static bool _lastShowAll = false;
-  bool _showAll = _lastShowAll;
+  late EquipmentFilter _filter =
+      _lastFilters[widget.isProblems] ?? const EquipmentFilter();
 
-  static List<InventoryRecord> _scopedEquipment(
-    List<InventoryRecord> equipment, {
-    required bool showAll,
-  }) {
-    if (showAll) return equipment;
-    final provider = GlobalState.dataProvider;
-    return [
-      for (final item in equipment)
-        if (provider.isOwnEquipment(item)) item,
-    ];
-  }
+  final _searchController = TextEditingController();
 
-  Future<void> _openScopeFilter() async {
-    final result = await showModalBottomSheet<bool>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (_) => _EquipmentScopeSheet(initialShowAll: _showAll),
-    );
-    if (result == null || !mounted) return;
-    _lastShowAll = result;
-    setState(() => _showAll = result);
-  }
+  /// Запрос, по которому отобран список, — после паузы в наборе.
+  String _query = '';
+  Timer? _searchDebounce;
+  static const Duration _searchDelay = Duration(milliseconds: 250);
+
+  /// Область есть только в справочнике — см. класс.
+  bool get _hasScope => widget.isProblems;
 
   /// Синхронизация уже идёт — показываем тонкую полоску над списком, но сам
   /// список не прячем.
@@ -84,6 +88,8 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
     final provider = GlobalState.dataProvider;
     provider.inventoryRevision.removeListener(_onScopeChanged);
     provider.accessProfile.removeListener(_onScopeChanged);
+    _searchDebounce?.cancel();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -99,49 +105,55 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
     setState(() => _isSyncing = false);
   }
 
-  Future<void> _openFilter() async {
-    final result = await showTasksFilterSheet(context, _filter);
-    if (result != null) {
-      setState(() => _filter = result);
-    }
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(_searchDelay, () {
+      if (mounted) setState(() => _query = value);
+    });
   }
 
-  /// Оборудование с задачами — за один проход по задачам, а не по проходу на
-  /// каждую единицу оборудования.
-  ///
-  /// Раньше `_filteredTasksFor` дёргался и в `where`, и дважды в компараторе
-  /// сортировки, и ещё раз в `itemBuilder`; каждый вызов шёл по всем задачам
-  /// и обоим боксам сканов. На двух сотнях единиц оборудования это тысячи
-  /// полных проходов на один кадр.
-  ///
-  /// Возвращает оборудование с числом задач и числом из них возвращённых на
-  /// доработку.
-  List<(InventoryRecord, int)> _equipmentWithTasks() {
-    final equipment = GlobalState.dataProvider.inventoryRecords;
+  void _clearSearch() {
+    _searchController.clear();
+    _searchDebounce?.cancel();
+    setState(() => _query = '');
+  }
 
-    // «Осмотр оборудования или ТМЦ» — это выбор объекта для осмотра, а не
-    // список задач: здесь нужен весь справочник. Счётчик задач в этом режиме
-    // и не показывается (см. `_EquipmentTile`), а отбор по ним всё равно
-    // применялся — и обходчик видел вместо справочника случайный огрызок из
-    // тех единиц, по которым сейчас висит задача.
-    //
-    // Отбор здесь один — фильтр «Моё подразделение / Все подразделения»:
-    // справочник может прийти по всей компании, и своё в нём отличаем на
-    // телефоне. Влияет только на этот список — не на скан QR.
-    if (widget.isProblems) {
-      return [
-        for (final item in _scopedEquipment(equipment, showAll: _showAll))
-          (item, 0),
-      ];
-    }
+  void _setFilter(EquipmentFilter filter) {
+    _lastFilters[widget.isProblems] = filter;
+    setState(() => _filter = filter);
+  }
 
+  bool _isOwn(InventoryRecord equipment) =>
+      !_hasScope || GlobalState.dataProvider.isOwnEquipment(equipment);
+
+  /// Есть ли у оборудования активные задачи — для «С активными задачами».
+  /// Кэш очередей сбрасывает вызывающий, один раз на проход.
+  static bool _hasActiveTasks(InventoryRecord equipment) =>
+      GlobalState.dataProvider.getTasksForMachine(equipment.uuid).isNotEmpty;
+
+  /// Набор до области и фильтров с числом задач у каждой единицы.
+  ///
+  /// В «Задачах» — оборудование с задачами, за один проход по задачам, а не
+  /// по проходу на каждую единицу. Раньше подсчёт дёргался и в `where`, и
+  /// дважды в компараторе сортировки, и ещё раз в `itemBuilder`; каждый
+  /// вызов шёл по всем задачам и обоим боксам сканов. На двух сотнях единиц
+  /// оборудования это тысячи полных проходов на один кадр.
+  ///
+  /// В справочнике — весь справочник: «Осмотр оборудования или ТМЦ» — это
+  /// выбор объекта для осмотра, а не список задач.
+  List<(InventoryRecord, int)> _base() {
+    final provider = GlobalState.dataProvider;
     // Сбрасываем кэш очередей на входе: внутри прохода он живёт и экономит
     // сотни обходов, но между кадрами очередь могла измениться.
-    GlobalState.dataProvider.invalidateScanTaskCache();
+    provider.invalidateScanTaskCache();
+    final equipment = provider.inventoryRecords;
+    if (widget.isProblems) {
+      return [for (final item in equipment) (item, 0)];
+    }
     final withRework = <(InventoryRecord, int)>[];
     final rest = <(InventoryRecord, int)>[];
     for (final item in equipment) {
-      final tasks = _filteredTasksFor(item);
+      final tasks = provider.getTasksForMachine(item.uuid);
       if (tasks.isEmpty) continue;
       final hasRework = tasks.any((task) => task.isReturnedForRework);
       (hasRework ? withRework : rest).add((item, tasks.length));
@@ -152,10 +164,45 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
     return [...withRework, ...rest];
   }
 
-  List<Task> _filteredTasksFor(InventoryRecord equipment) {
-    final all = GlobalState.dataProvider.getTasksForMachine(equipment.uuid);
-    if (_filter.isEmpty) return all;
-    return _filter.apply(all);
+  List<InventoryRecord> _apply(
+    List<InventoryRecord> base,
+    EquipmentFilter filter,
+  ) {
+    return applyEquipmentFilter(
+      base,
+      filter: filter,
+      query: _query,
+      isOwn: _isOwn,
+      hasActiveTasks: _hasActiveTasks,
+    );
+  }
+
+  /// Применяет набранный текст, не дожидаясь паузы. Перед открытием листа:
+  /// иначе, открытый раньше 250 мс, он считал бы «Показать N» по прежнему
+  /// запросу, а список после закрытия — по новому.
+  void _applySearchNow() {
+    _searchDebounce?.cancel();
+    final text = _searchController.text;
+    if (_query != text) setState(() => _query = text);
+  }
+
+  Future<void> _openFilter() async {
+    _applySearchNow();
+    final result = await showModalBottomSheet<EquipmentFilter>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => _EquipmentFilterSheet(
+        initial: _filter,
+        hasScope: _hasScope,
+        hasTasksToggle: widget.isProblems,
+        base: () => [for (final (item, _) in _base()) item],
+        apply: (base, filter) => _apply(base, filter),
+        isOwn: _isOwn,
+      ),
+    );
+    if (result == null || !mounted) return;
+    _setFilter(result);
   }
 
   @override
@@ -163,13 +210,15 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
     final isProblems = widget.isProblems;
     final isModal = widget.isModal;
     // Список считаем один раз на кадр, а не по разу на каждое обращение.
-    final items = _equipmentWithTasks();
+    final base = _base();
+    final taskCounts = {for (final (item, count) in base) item.uuid: count};
+    final baseRecords = [for (final (item, _) in base) item];
+    final items = _apply(baseRecords, _filter);
 
     Widget body;
     if (items.isEmpty) {
-      // Пока идёт первая синхронизация, а показывать ещё нечего — спиннер.
-      // Если данные есть, он не нужен: список уже виден.
-      body = _isSyncing
+      body = _isSyncing && baseRecords.isEmpty
+          // Пока идёт первая синхронизация, а показывать ещё нечего — спиннер.
           ? Center(
               child: CircularProgressIndicator(
                 color: Theme.of(context).colorScheme.primary,
@@ -178,39 +227,23 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
                     const BoxConstraints(minHeight: 128, minWidth: 128),
               ),
             )
-          : isProblems &&
-                  !_showAll &&
-                  GlobalState.dataProvider.inventoryRecords.isNotEmpty
-              // Пусто только из-за фильтра «Моё»: оборудование есть, но не в
-              // помещениях подразделений обходчика.
-              ? const EmptyState(
-                  icon: Icons.warehouse_outlined,
-                  title: EquipmentFilterStrings.emptyMineTitle,
-                  hint: EquipmentFilterStrings.emptyMineHint,
-                )
-              : EmptyState(
-                  icon: isProblems
-                      ? Icons.warehouse_outlined
-                      : Icons.checklist_rounded,
-                  title: isProblems ? 'Нет оборудования' : 'Нет активных задач',
-                  hint: isProblems
-                      ? 'Список оборудования пуст или ещё не загружен.'
-                      : 'Отсканируйте QR-код оборудования, чтобы начать осмотр или открыть задачи.',
-                );
+          : _buildEmpty(baseRecords);
     } else {
       body = ListView.separated(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppConstants.spacingMD,
-          vertical: AppConstants.spacingMD,
+        padding: const EdgeInsets.fromLTRB(
+          AppConstants.spacingMD,
+          AppConstants.spacingSM,
+          AppConstants.spacingMD,
+          AppConstants.spacingMD,
         ),
         itemCount: items.length,
         separatorBuilder: (_, __) =>
             const SizedBox(height: AppConstants.spacingSM),
         itemBuilder: (context, index) {
-          final (equipment, taskCount) = items[index];
+          final equipment = items[index];
           return _EquipmentTile(
             equipment: equipment,
-            taskCount: taskCount,
+            taskCount: taskCounts[equipment.uuid] ?? 0,
             isProblems: isProblems,
             onTap: () {
               // push: список остаётся под карточкой, «назад» возвращает в него
@@ -246,195 +279,273 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
       appBar: MyAppBar.build(context) as AppBar,
       body: Column(
         children: [
-          if (_kShowTasksFilter)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: TasksFilterButton(
-                  activeCount: _filter.activeCount,
-                  onTap: _openFilter,
-                ),
-              ),
+          Padding(
+            // Отступы — как у строки поиска с фильтром в справочнике ЗИП.
+            padding: const EdgeInsets.fromLTRB(
+              AppConstants.spacingMD,
+              AppConstants.spacingMD,
+              AppConstants.spacingMD,
+              AppConstants.spacingSM,
             ),
-          // Фильтр подразделений — в справочнике оборудования. Активным он
-          // считается на «Всё»: по умолчанию показывается своё.
-          if (isProblems)
-            Padding(
-              // Отступы — как у строки поиска с фильтром в справочнике ЗИП.
-              padding: const EdgeInsets.fromLTRB(
-                AppConstants.spacingMD,
-                AppConstants.spacingMD,
-                AppConstants.spacingMD,
-                0,
-              ),
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: SizedBox(
-                  height: FilterButton.standaloneHeight,
-                  child: FilterButton(
-                    activeCount: _showAll ? 1 : 0,
-                    onTap: _openScopeFilter,
-                  ),
-                ),
-              ),
+            child: SearchFilterBar(
+              controller: _searchController,
+              hint: EquipmentFilterStrings.searchHint,
+              onChanged: _onSearchChanged,
+              onClear: _clearSearch,
+              activeCount: _filter.activeCount,
+              onFilter: _openFilter,
             ),
+          ),
           Expanded(child: body),
         ],
       ),
     );
   }
+
+  /// Пустой список — по причине: данных нет совсем, пусто из-за области
+  /// «Моё» или ничего не нашли поиск и фильтры.
+  Widget _buildEmpty(List<InventoryRecord> base) {
+    final isProblems = widget.isProblems;
+    final searching = _query.trim().isNotEmpty || _filter.hasConditions;
+    final mineOnly = _hasScope && !_filter.showAll;
+
+    if (base.isEmpty) {
+      return EmptyState(
+        icon: isProblems ? Icons.warehouse_outlined : Icons.checklist_rounded,
+        title: isProblems ? 'Нет оборудования' : 'Нет активных задач',
+        hint: isProblems
+            ? 'Список оборудования пуст или ещё не загружен.'
+            : 'Отсканируйте QR-код оборудования, чтобы начать осмотр или открыть задачи.',
+      );
+    }
+
+    final showAllButton = ElevatedButton(
+      onPressed: () => _setFilter(_filter.copyWith(showAll: true)),
+      child: Text(searching
+          ? EquipmentFilterStrings.searchAllDivisions
+          : EquipmentFilterStrings.showAllDivisions),
+    );
+
+    if (!searching) {
+      // Пусто только из-за области «Моё»: оборудование есть, но не в
+      // подразделениях обходчика.
+      return EmptyState(
+        icon: Icons.warehouse_outlined,
+        title: EquipmentFilterStrings.emptyMineTitle,
+        hint: EquipmentFilterStrings.emptyMineHint,
+        action: showAllButton,
+      );
+    }
+
+    // В «Моё» не нашлось — но, может, найдётся во всех подразделениях: тогда
+    // говорим сколько и даём переключиться одной кнопкой.
+    if (mineOnly) {
+      final elsewhere = _apply(base, _filter.copyWith(showAll: true)).length;
+      if (elsewhere > 0) {
+        return EmptyState(
+          icon: Icons.search_off_rounded,
+          title: FilterStrings.nothingFound,
+          hint: EquipmentFilterStrings.foundElsewhere(elsewhere),
+          action: showAllButton,
+        );
+      }
+    }
+
+    return EmptyState(
+      icon: Icons.search_off_rounded,
+      title: FilterStrings.nothingFound,
+      hint: mineOnly
+          ? EquipmentFilterStrings.nothingFoundMineHint
+          : EquipmentFilterStrings.nothingFoundHint,
+      // Без фильтров сбрасывать нечего — запрос стирают крестиком в поле.
+      action: _filter.hasConditions
+          ? ElevatedButton(
+              onPressed: () => _setFilter(_filter.withoutConditions()),
+              child: const Text(FilterStrings.resetFilters),
+            )
+          : null,
+    );
+  }
 }
 
-/// Лист фильтра справочника оборудования: пока один переключатель «Моё
-/// подразделение / Все подразделения» — в стиле фильтров справочника ЗИП.
-/// Возвращает «показывать все подразделения».
-class _EquipmentScopeSheet extends StatefulWidget {
-  final bool initialShowAll;
+/// Лист «Фильтры» списка оборудования: область, местоположение, состояние,
+/// задачи. Возвращает выбранный фильтр.
+class _EquipmentFilterSheet extends StatefulWidget {
+  final EquipmentFilter initial;
+  final bool hasScope;
+  final bool hasTasksToggle;
 
-  const _EquipmentScopeSheet({required this.initialShowAll});
+  /// Набор экрана до области и фильтров — функцией: пока лист открыт,
+  /// фоновая синхронизация может его поменять.
+  final List<InventoryRecord> Function() base;
+
+  /// Отбор экрана, с его поисковым запросом — тот же, что у списка.
+  final List<InventoryRecord> Function(
+    List<InventoryRecord> base,
+    EquipmentFilter filter,
+  ) apply;
+  final bool Function(InventoryRecord) isOwn;
+
+  const _EquipmentFilterSheet({
+    required this.initial,
+    required this.hasScope,
+    required this.hasTasksToggle,
+    required this.base,
+    required this.apply,
+    required this.isOwn,
+  });
 
   @override
-  State<_EquipmentScopeSheet> createState() => _EquipmentScopeSheetState();
+  State<_EquipmentFilterSheet> createState() => _EquipmentFilterSheetState();
 }
 
-class _EquipmentScopeSheetState extends State<_EquipmentScopeSheet> {
-  late bool _showAll = widget.initialShowAll;
+class _EquipmentFilterSheetState extends State<_EquipmentFilterSheet> {
+  late EquipmentFilter _draft = widget.initial;
 
-  /// Сколько единиц покажет список — в поле, а не в `build`: проход по
-  /// справочнику на каждое перестроение листа был бы лишним.
-  late int _count = _countFor(_showAll);
+  /// Сколько раз нажали «Сбросить» — в ключах разделов: сброс сворачивает
+  /// раскрытое «Ещё N».
+  int _resets = 0;
 
-  static int _countFor(bool showAll) =>
-      _EquipmentListScreenState._scopedEquipment(
-        GlobalState.dataProvider.inventoryRecords,
-        showAll: showAll,
-      ).length;
-
-  void _set(bool showAll) => setState(() {
-        _showAll = showAll;
-        _count = _countFor(showAll);
-      });
+  /// Варианты и счётчик — в полях, а не в `build`: проход по справочнику на
+  /// каждое перестроение листа был бы лишним.
+  List<InventoryRecord> _base = const [];
+  Map<String, String> _locations = const {};
+  Map<String, String> _states = const {};
+  int _count = 0;
 
   @override
   void initState() {
     super.initState();
+    _base = widget.base();
+    _recompute();
     // Пока лист открыт, фоновая синхронизация может добавить оборудование
-    // или поменять «своё» (помещения подразделений, профиль) — та же
-    // подписка, что у самого списка. Без неё кнопка обещала бы прежнее
-    // число, а после закрытия список показывал бы другое.
+    // или поменять «своё» (помещения подразделений, профиль). Без подписки
+    // кнопка обещала бы прежнее число, а после закрытия список показывал бы
+    // другое.
     final provider = GlobalState.dataProvider;
-    provider.inventoryRevision.addListener(_recount);
-    provider.accessProfile.addListener(_recount);
+    provider.inventoryRevision.addListener(_onDataChanged);
+    provider.accessProfile.addListener(_onDataChanged);
   }
 
   @override
   void dispose() {
     final provider = GlobalState.dataProvider;
-    provider.inventoryRevision.removeListener(_recount);
-    provider.accessProfile.removeListener(_recount);
+    provider.inventoryRevision.removeListener(_onDataChanged);
+    provider.accessProfile.removeListener(_onDataChanged);
     super.dispose();
   }
 
-  void _recount() {
+  void _onDataChanged() {
     if (!mounted) return;
-    setState(() => _count = _countFor(_showAll));
+    setState(() {
+      _base = widget.base();
+      _recompute();
+    });
+  }
+
+  /// Варианты чипов — из набора выбранной области: при «Моё подразделение»
+  /// помещение чужого подразделения всегда давало бы «Ничего не найдено».
+  /// Выбранное, чего в новых вариантах нет (сменили область), снимаем —
+  /// иначе остался бы невидимый активный фильтр.
+  void _recompute() {
+    final scoped = equipmentInScope(
+      _base,
+      showAll: _draft.showAll,
+      isOwn: widget.isOwn,
+    );
+    _locations = equipmentLocationOptions(scoped);
+    _states = equipmentStateOptions(
+      scoped,
+      dictionary: GlobalState.dataProvider.equipmentState?.states ?? const {},
+    );
+    _draft = _draft.copyWith(
+      locations: _draft.locations.intersection(_locations.keys.toSet()),
+      states: _draft.states.intersection(_states.keys.toSet()),
+    );
+    _count = widget.apply(_base, _draft).length;
+  }
+
+  void _update(EquipmentFilter next) {
+    setState(() {
+      _draft = next;
+      _recompute();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
-    return SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: AppConstants.spacingMD),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    EquipmentFilterStrings.title,
-                    style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-                  ),
-                ),
-                TextButton(
-                  onPressed: _showAll ? () => _set(false) : null,
-                  child: const Text(EquipmentFilterStrings.reset),
-                ),
-              ],
+    return FilterSheet(
+      onReset: _draft.isDefault
+          ? null
+          : () {
+              _resets++;
+              _update(const EquipmentFilter());
+            },
+      resultCount: _count,
+      resultLabel: EquipmentFilterStrings.showResults,
+      onApply: () => Navigator.of(context).pop(_draft),
+      children: [
+        if (widget.hasScope) ...[
+          const FilterSectionLabel(EquipmentFilterStrings.labelScope),
+          const SizedBox(height: AppConstants.spacingSM),
+          SegmentedToggle(
+            labels: const [
+              EquipmentFilterStrings.mine,
+              EquipmentFilterStrings.all,
+            ],
+            selectedIndex: _draft.showAll ? 1 : 0,
+            onChanged: (index) => _update(_draft.copyWith(showAll: index == 1)),
+          ),
+          const SizedBox(height: AppConstants.spacingLG),
+        ],
+        if (_locations.isNotEmpty)
+          FilterSection(
+            // Ключ — чтобы при исчезновении соседнего раздела (сменили
+            // область) раскрытое «Ещё N» не перешло к другому; номер сброса
+            // — чтобы «Сбросить» сворачивал раскрытое.
+            key: ValueKey('locations#$_resets'),
+            label: EquipmentFilterStrings.labelLocation,
+            count: _draft.locations.length,
+            child: FilterChipGroup(
+              options: _locations,
+              selected: _draft.locations,
+              onChanged: (next) => _update(_draft.copyWith(locations: next)),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppConstants.spacingMD,
-              AppConstants.spacingSM,
-              AppConstants.spacingMD,
-              AppConstants.spacingMD,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  EquipmentFilterStrings.labelScope.toUpperCase(),
-                  style: tt.labelSmall?.copyWith(
-                    color: cs.onSurfaceVariant,
-                    letterSpacing: 0.6,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: AppConstants.spacingSM),
-                SegmentedToggle(
-                  labels: const [
-                    EquipmentFilterStrings.mine,
-                    EquipmentFilterStrings.all,
-                  ],
-                  selectedIndex: _showAll ? 1 : 0,
-                  onChanged: (index) => _set(index == 1),
-                ),
-              ],
+        if (_states.isNotEmpty)
+          FilterSection(
+            key: ValueKey('states#$_resets'),
+            label: EquipmentFilterStrings.labelState,
+            count: _draft.states.length,
+            child: FilterChipGroup(
+              options: _states,
+              selected: _draft.states,
+              onChanged: (next) => _update(_draft.copyWith(states: next)),
             ),
           ),
-          // Липкая кнопка, как у фильтра ЗИП: обещает ровно то число,
-          // которое обходчик увидит после закрытия листа.
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(
-              AppConstants.spacingMD,
-              AppConstants.spacingSM,
-              AppConstants.spacingMD,
-              AppConstants.spacingMD,
-            ),
-            decoration: BoxDecoration(
-              border: Border(
-                top: BorderSide(color: cs.outlineVariant, width: 0.5),
-              ),
-            ),
-            child: SizedBox(
-              height: AppConstants.buttonHeightLarge,
-              child: ElevatedButton(
-                onPressed: () => Navigator.of(context).pop(_showAll),
-                child: Text(
-                  _count == 0
-                      ? EquipmentFilterStrings.nothingFound
-                      : EquipmentFilterStrings.showResults(_count),
-                ),
-              ),
-            ),
+        if (widget.hasTasksToggle) ...[
+          const FilterSectionLabel(EquipmentFilterStrings.labelTasks),
+          const SizedBox(height: AppConstants.spacingSM),
+          SegmentedToggle(
+            labels: const [
+              EquipmentFilterStrings.tasksAll,
+              EquipmentFilterStrings.tasksActive,
+            ],
+            selectedIndex: _draft.onlyWithTasks ? 1 : 0,
+            onChanged: (index) =>
+                _update(_draft.copyWith(onlyWithTasks: index == 1)),
           ),
         ],
-      ),
+      ],
     );
   }
 }
 
-/// Карточка оборудования в списке: leading-иконка, имя, подзаголовок со
-/// счётчиком задач, badge справа (или chevron в режиме «problems»).
+/// Карточка оборудования в списке: leading-иконка, имя, подзаголовок, badge
+/// справа (или chevron в справочнике).
 class _EquipmentTile extends StatelessWidget {
   final InventoryRecord equipment;
+
   /// Все задачи оборудования, включая возвращённые на доработку: отдельной
   /// строки «N задач на доработку» у плитки нет — иначе одна и та же задача
   /// считалась бы дважды, и активной, и на доработку. Что среди них есть
@@ -451,14 +562,16 @@ class _EquipmentTile extends StatelessWidget {
     required this.onTap,
   });
 
-  String _pluralizeTasks(int n) {
-    final mod10 = n % 10;
-    final mod100 = n % 100;
-    if (mod10 == 1 && mod100 != 11) return '$n активная задача';
-    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
-      return '$n активные задачи';
-    }
-    return '$n активных задач';
+  /// Подпись в справочнике: «Литейный цех · В работе» — то, по чему
+  /// фильтруют, чтобы было видно, почему единица попала в список.
+  String? get _problemsSubtitle {
+    final state = equipment.state;
+    final parts = [
+      if (equipmentLocationOf(equipment) case final location?) location,
+      if (state != null && state.isNotEmpty)
+        GlobalState.dataProvider.getEquipmentStateName(state) ?? state,
+    ];
+    return parts.isEmpty ? null : parts.join(' · ');
   }
 
   @override
@@ -468,10 +581,10 @@ class _EquipmentTile extends StatelessWidget {
     final hasTasks = !isProblems && taskCount > 0;
 
     final subtitle = isProblems
-        ? null
+        ? _problemsSubtitle
         : taskCount == 0
             ? 'Нет активных задач'
-            : _pluralizeTasks(taskCount);
+            : '$taskCount ${pluralRu(taskCount, 'активная задача', 'активные задачи', 'активных задач')}';
 
     return Card(
       child: InkWell(
@@ -514,6 +627,8 @@ class _EquipmentTile extends StatelessWidget {
                         style: tt.bodySmall?.copyWith(
                           color: hasTasks ? cs.primary : cs.onSurfaceVariant,
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ],

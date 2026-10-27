@@ -267,7 +267,7 @@ Material Icons, вариант `_rounded` (доминирует) или `_outlin
 | Модальный тупик / разрешение конфликта | `repairs/repair_conflict_screen.dart`, `qr/scan_conflict_screen.dart` |
 | Блок расхода ЗИП | `widgets/spare_part_consumption.dart` |
 | Сворачиваемые группы | `tasks/ppr_list_screen.dart`, `tasks/equipment_detail_screen.dart` |
-| Фильтр-лист с чипами | `spare_parts/spare_parts_screen.dart` (рабочий) |
+| Поиск и фильтр-лист с чипами | общие `widgets/filter_sheet.dart` (`SearchFilterBar`, `FilterSheet`, `FilterSection`, `FilterChipGroup`); образцы — `spare_parts/spare_parts_screen.dart`, `tasks/equipment_list_screen.dart` |
 | Экран с внешним контентом и ошибкой | `knowledge_base/knowledge_base_screen.dart` |
 
 ---
