@@ -32,11 +32,16 @@ import '../widgets/spare_part_row.dart';
 /// Комментарий: заменил подшипник
 /// Фактический расход ЗИП: Болт 31-23 × 2; Ремень ГРМ × 232;
 /// ```
+///
+/// [now] — момент, на который считается длительность открытого ремонта
+/// ([Repair.durationAt]); по умолчанию — текущий.
 String repairClipboardText({
   required Repair repair,
   String comment = '',
   List<RepairConsumption> consumptions = const [],
+  DateTime? now,
 }) {
+  final duration = repair.durationAt(now ?? DateTime.now());
   final lines = <String>[
     // У черновика серверного номера ещё нет — id нулевой.
     repair.id > 0
@@ -63,8 +68,8 @@ String repairClipboardText({
     if (repair.completedAt != null)
       '${RepairCardStrings.fieldFinishedAt}: '
           '${formatRepairDateTime(repair.completedAt!)}',
-    if ((repair.duration ?? '').isNotEmpty)
-      '${RepairCardStrings.fieldDuration}: ${repair.duration}',
+    if ((duration ?? '').isNotEmpty)
+      '${RepairCardStrings.fieldDuration}: $duration',
     if (comment.trim().isNotEmpty)
       '${ConflictStrings.clipboardComment} ${comment.trim()}',
     if (consumptions.isNotEmpty)

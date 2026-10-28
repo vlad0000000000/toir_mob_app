@@ -23,6 +23,24 @@ class RepairStatuses {
   }
 }
 
+/// Длительность ремонта строкой — так же, как её собирает сервер
+/// (`format_repair_duration` в `backend/schemas/repair.py`): без секунд,
+/// нулевые дни и часы опускаются, «0 мин» — только если иначе пусто.
+/// «2 дн 16 ч 4 мин», «45 мин». Отрицательная (часы телефона отстают от
+/// сервера) — как ноль.
+String formatRepairDuration(Duration value) {
+  final totalMinutes = value.isNegative ? 0 : value.inMinutes;
+  final days = totalMinutes ~/ (24 * 60);
+  final hours = totalMinutes % (24 * 60) ~/ 60;
+  final minutes = totalMinutes % 60;
+  final parts = [
+    if (days > 0) '$days дн',
+    if (hours > 0) '$hours ч',
+  ];
+  if (minutes > 0 || parts.isEmpty) parts.add('$minutes мин');
+  return parts.join(' ');
+}
+
 /// Действия над ремонтом из `allowed_actions` сервера. Значения совпадают с
 /// `repair_allowed_actions` бэкенда (`backend/security/policies/repairs.py`);
 /// здесь — только те, по которым что-то решает мобилка.
@@ -63,8 +81,8 @@ class Repair {
   final DateTime? underReviewAt;
   final DateTime? completedAt;
 
-  /// Готовая строка вида «2 дн 16 ч 4 мин» — её собирает сервер, клиент
-  /// ничего не пересчитывает.
+  /// Готовая строка вида «2 дн 16 ч 4 мин» — её собирает сервер. Показывать
+  /// через [durationAt]: у открытого ремонта эта строка устаревает.
   final String? duration;
 
   final String? comment;
@@ -145,6 +163,24 @@ class Repair {
   /// Активный ремонт — открытый или отправленный на рассмотрение. Именно их
   /// приложение держит в офлайн-кэше; закрытые тянутся с сервера по запросу.
   bool get isActive => isOpen || isUnderReview;
+
+  /// Длительность ремонта для показа на момент [now].
+  ///
+  /// У открытого ремонта сервер (с `ce8525e`) считает длительность до
+  /// момента своего ответа. А ремонт приходит в кэш только когда меняется —
+  /// строка застыла бы на последней синхронизации: ремонт идёт третий день,
+  /// а карточка показывает «2 ч 15 мин», без связи тем более. Поэтому её
+  /// считаем здесь, от [startedAt], в том же формате, что сервер. На
+  /// рассмотрении и закрытый — строка сервера: она уже не меняется.
+  ///
+  /// Черновику (`id == 0`, на сервере ремонта ещё нет) длительность не
+  /// показываем, как и раньше.
+  String? durationAt(DateTime now) {
+    if (isOpen && id > 0) {
+      return formatRepairDuration(now.difference(startedAt));
+    }
+    return duration;
+  }
 
   /// Ремонт назначен на должность, но исполнителя ещё нет — такой может
   /// взять в работу любой обходчик подходящей роли (этап 4).

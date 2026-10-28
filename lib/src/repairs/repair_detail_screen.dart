@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -1585,9 +1586,15 @@ class _DetailsGrid extends StatelessWidget {
         ? repair.responsibleRoleName!
         : RepairCardStrings.responsibleRoleNone;
 
+    // У открытого ремонта длительность идёт до текущего момента и считается
+    // на телефоне, от даты начала: строка сервера застыла бы на синхронизации
+    // (см. [Repair.durationAt]). Само поле обновляется раз в минуту —
+    // [_DurationField].
+    final duration = repair.durationAt(DateTime.now());
+
     // Порядок: ответственный, должность, норма расхода, дата начала, дата
     // окончания, длительность. Поля, которых у ремонта ещё нет (окончание у
-    // открытого, длительность до завершения), просто не показываются — пустая
+    // открытого, длительность у черновика), просто не показываются — пустая
     // подпись сбивала бы. Раскладываем по два в ряд, добивая непарное пустой
     // ячейкой.
     final fields = <Widget>[
@@ -1614,11 +1621,8 @@ class _DetailsGrid extends StatelessWidget {
           label: RepairCardStrings.fieldFinishedAt,
           value: _formatDate(repair.underReviewAt!),
         ),
-      if (repair.duration != null && repair.duration!.isNotEmpty)
-        _Field(
-          label: RepairCardStrings.fieldDuration,
-          value: repair.duration!,
-        ),
+      if (duration != null && duration.isNotEmpty)
+        _DurationField(repair: repair),
     ];
 
     return Column(
@@ -1664,6 +1668,90 @@ class _Field extends StatelessWidget {
         const SizedBox(height: 2),
         Text(value, style: tt.bodyLarge),
       ],
+    );
+  }
+}
+
+/// Поле «Длительность», которое у открытого ремонта идёт само.
+///
+/// Длительность открытого ремонта — до текущего момента ([Repair.durationAt]),
+/// и без таймера застыла бы в открытой карточке: прошла минута, а поле всё
+/// показывает «0 мин». Перестраивается только это поле — форма, комментарий
+/// и расход ЗИП не трогаются, введённое не сбрасывается.
+///
+/// Таймер — на рубеж следующей минуты длительности (от [Repair.startedAt]),
+/// а не каждые 60 секунд от открытия: значение меняется ровно тогда, когда
+/// меняется число минут. Только у открытого ремонта на сервере — у
+/// остальных длительность не меняется ([Repair.durationAt] отдаёт строку
+/// сервера).
+class _DurationField extends StatefulWidget {
+  final Repair repair;
+
+  const _DurationField({required this.repair});
+
+  @override
+  State<_DurationField> createState() => _DurationFieldState();
+}
+
+class _DurationFieldState extends State<_DurationField> {
+  Timer? _tick;
+
+  bool get _isLive => widget.repair.isOpen && widget.repair.id > 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _schedule();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DurationField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Карточка перестраивается часто — на каждый символ комментария, — а
+    // таймер переставляем, только если сменилось то, от чего он зависит:
+    // ремонт отправлен на рассмотрение, пришёл с сервера с другой датой
+    // начала. Иначе идущий таймер и так верен.
+    final before = oldWidget.repair;
+    final after = widget.repair;
+    if (before.id != after.id ||
+        before.status != after.status ||
+        before.startedAt != after.startedAt) {
+      _schedule();
+    }
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  void _schedule() {
+    _tick?.cancel();
+    _tick = null;
+    if (!_isLive) return;
+    final elapsed = DateTime.now().difference(widget.repair.startedAt);
+    // Часы телефона отстают от сервера — длительность пока ноль; ждём, пока
+    // её начало наступит, и ещё минуту.
+    final untilNextMinute = elapsed.isNegative
+        ? -elapsed + const Duration(minutes: 1)
+        : const Duration(minutes: 1) -
+            Duration(
+              microseconds:
+                  elapsed.inMicroseconds % Duration.microsecondsPerMinute,
+            );
+    _tick = Timer(untilNextMinute, () {
+      if (!mounted) return;
+      setState(() {});
+      _schedule();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _Field(
+      label: RepairCardStrings.fieldDuration,
+      value: widget.repair.durationAt(DateTime.now()) ?? '',
     );
   }
 }
