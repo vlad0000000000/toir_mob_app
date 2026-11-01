@@ -176,6 +176,7 @@ class RepairStrings {
   static const String equipmentUnknown = 'Оборудование не указано';
 
   // Статусы
+  static const String statusScheduled = 'Запланирован';
   static const String statusOpen = 'Открыт';
   static const String statusUnderReview = 'На рассмотрении';
   static const String statusClosed = 'Закрыт';
@@ -188,6 +189,42 @@ class RepairStrings {
   static const String listEmptyHint =
       'Здесь появятся ремонты, за которые вы отвечаете.';
   static const String listEmptyClosedHint = 'Закрытых ремонтов пока не было.';
+
+  // Поиск и фильтр списка
+  static const String searchHint = 'Название, модель или серийный номер';
+  static const String labelStatus = 'Статус';
+  static String showResults(int n) =>
+      'Показать $n ${pluralRu(n, 'ремонт', 'ремонта', 'ремонтов')}';
+  static const String nothingFoundHint =
+      'Измените запрос или выберите другие статусы.';
+
+  // Незакрытые ремонты по оборудованию (макеты 14b, 14h)
+  static String unfinishedTitle(int n) =>
+      'НЕЗАКРЫТЫЕ РЕМОНТЫ ПО ОБОРУДОВАНИЮ: $n';
+  static const String unfinishedOffline =
+      'Без связи — показаны только ваши ремонты';
+  static String unfinishedStart({
+    required int id,
+    required bool scheduled,
+    required String start,
+  }) =>
+      '№$id · ${scheduled ? 'Начнётся' : 'Начат'} $start';
+  static const String unfinishedNoResponsible = 'ответственный не назначен';
+
+  /// Плитка запланированного черновика в списке.
+  static String draftStartsAt(String date) => 'Начнётся $date';
+
+  /// Совпадение по времени с другим ремонтом (макет 14c-2) — как в вебе.
+  static String sameStartOne({required bool scheduled, required String ref}) =>
+      'На это время уже ${scheduled ? 'запланирован' : 'начат'} ремонт $ref';
+  static String sameStartMany(String refs) =>
+      'На это время уже есть ремонты $refs';
+  static const String sameStartFooter =
+      'Предупреждение не мешает сохранить ремонт';
+
+  /// Под кнопкой создания, когда оборудование уже «В ремонте» (макет 14b).
+  static const String createFooterBusy =
+      'Оборудование уже «В ремонте» — состояние не изменится';
   static const String closedLoadFailed = 'Не удалось загрузить закрытые '
       'ремонты. Проверьте соединение и потяните вниз.';
   static const String listOfflineHint =
@@ -210,16 +247,6 @@ class RepairStrings {
   /// Запасная подпись состояния «В ремонте» — если справочник состояний ещё
   /// не загрузился и подставить название оттуда неоткуда.
   static const String equipmentInRepair = 'В ремонте';
-
-  static const String busyByOtherTitle = 'Оборудование в ремонте';
-  static const String busyByOtherBody =
-      'По этому оборудованию открыт ремонт другого сотрудника. Состояние '
-      'изменится само, когда ремонт закроют.';
-
-  static const String draftAlreadyQueuedTitle = 'Ремонт уже создан';
-  static const String draftAlreadyQueuedBody =
-      'Ремонт по этому оборудованию сохранён на устройстве и отправится, '
-      'когда появится связь. Второй заводить не нужно.';
 
   static const String draftDeleteTitle = 'Удалить черновик?';
 
@@ -268,7 +295,24 @@ class RepairStrings {
   static const String labelComment = 'КОММЕНТАРИЙ';
   static const String commentHint = 'Опишите планируемые работы…';
   static const String createSubmit = 'Создать ремонт';
+
+  /// Дата начала в будущем — ремонт планируется (макет 14c).
+  static const String createSchedule = 'Запланировать';
   static const String createSubmitting = 'Создаём…';
+
+  /// Часовой пояс у даты начала. Время компании — МСК; если телефон в
+  /// другом поясе, показываем его реальный — иначе подпись бы врала:
+  /// мобилка показывает и отправляет время по часам телефона.
+  static String timeZone(Duration offset) {
+    if (offset == const Duration(hours: 3)) return 'МСК (UTC+3)';
+    final sign = offset.isNegative ? '−' : '+';
+    final abs = offset.abs();
+    final hours = abs.inHours;
+    final minutes = abs.inMinutes % 60;
+    return minutes == 0
+        ? 'UTC$sign$hours'
+        : 'UTC$sign$hours:${minutes.toString().padLeft(2, '0')}';
+  }
   static const String createFooter =
       'Оборудование перейдёт в состояние «В ремонте»';
   static const String normSheetTitle = 'Норма расхода ЗИП';
@@ -333,6 +377,18 @@ class RepairCardStrings {
   static const String lockedUnderReview =
       'Ремонт отправлен на рассмотрение, данные проверит администратор';
 
+  /// Запланированный ремонт (макеты 14d, 14d-2) — тексты как в веб-админке.
+  static String scheduledOn(String startsAt) =>
+      'Ремонт запланирован на $startsAt. До его начала состояние '
+      'оборудования не изменится';
+  /// Правка ремонта, который перенесли на будущее, пока она ждала в очереди.
+  static const String unsentWaitsForStart =
+      'Ремонт перенесён на будущее — изменения сохранены и уйдут, когда он '
+      'начнётся.';
+  static const String scheduledBusyByOther =
+      'Этот ремонт ещё не начался. Оборудование находится «В ремонте» по '
+      'другому ремонту';
+
   /// Открытый ремонт заперт ролью доступа: смотреть можно, работать — нет.
   static const String lockedNoAccess =
       'У вашей роли нет доступа к работе с ремонтами — карточку можно только '
@@ -344,6 +400,11 @@ class RepairCardStrings {
       'Ремонт назначен на другого сотрудника — карточку можно только '
       'посмотреть';
   static const String labelDetails = 'ДЕТАЛИ РЕМОНТА';
+  static const String labelStartedAt = 'ДАТА НАЧАЛА';
+
+  /// Дата начала ремонта на рассмотрении (макет 14g) — как в вебе.
+  static const String startedAtLockedUnderReview =
+      'Дату начала нельзя изменить, пока ремонт находится на рассмотрении';
   static const String labelComment = 'КОММЕНТАРИЙ';
   static const String labelPhotos = 'ФОТО';
   static const String labelUnsent = 'НЕ ОТПРАВЛЕНО';
@@ -1032,8 +1093,12 @@ class DialogStrings {
   static const String toRepairs = 'К ремонтам';
   static const String openRepair = 'Открыть ремонт';
   static const String repairInProgressTitle = 'Оборудование в ремонте';
-  static const String repairInProgressNote =
-      'Состояние вернётся автоматически, когда администратор закроет ремонт.';
+  /// Окно по нажатию на «В ремонте» (макет 14h-2): ремонтов может быть
+  /// несколько.
+  static const String repairsInProgressNote =
+      'Состояние вернётся автоматически, когда администратор закроет все '
+      'активные ремонты.';
+  static const String createRepair = 'Создать ремонт';
 
   static const String syncNoConnection = 'Отсутствует соединение с сервером';
   static const String syncAllDone = 'Все данные успешно синхронизированы';
@@ -1084,6 +1149,23 @@ class ForeignEquipmentStrings {
 }
 
 /// Фильтр списка оборудования «Осмотр оборудования или ТМЦ».
+/// Экран «История ремонта №…» (макет 14i) и вход в него из карточки.
+class RepairHistoryStrings {
+  RepairHistoryStrings._();
+
+  static String title(int id) => 'История ремонта №$id';
+  static const String titleNoId = 'История ремонта';
+
+  /// Пункт внизу карточки ремонта.
+  static const String entry = 'История изменений';
+  static const String emptyTitle = 'Изменений пока нет';
+  static const String emptyHint =
+      'Здесь появятся создание ремонта, переносы даты начала и смены статуса.';
+  static const String loadFailedTitle = 'Не удалось загрузить историю';
+  static const String loadFailedHint =
+      'История доступна только в сети. Проверьте соединение и потяните вниз.';
+}
+
 /// Общие строки поиска и листа «Фильтры» — ЗИП, оборудование, задачи.
 class FilterStrings {
   FilterStrings._();
@@ -1093,6 +1175,9 @@ class FilterStrings {
   static const String nothingFound = 'Ничего не найдено';
   static const String resetFilters = 'Сбросить фильтры';
   static const String clearSearch = 'Очистить поиск';
+
+  /// Кнопка листа, когда число заранее неизвестно — см. `FilterSheet`.
+  static const String show = 'Показать';
 
   static String more(int count) => 'Ещё $count';
 }

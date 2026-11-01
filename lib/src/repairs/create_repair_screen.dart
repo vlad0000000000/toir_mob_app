@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
@@ -11,12 +13,13 @@ import '../model/consumption_norm.dart';
 import '../model/inventory_record.dart';
 import '../model/pending_repair.dart';
 import '../model/repair.dart';
-import '../widgets/info_dialog.dart';
+import '../design/app_theme.dart';
 import '../utils/go_router_ext.dart';
 import '../widgets/date_range_sheet.dart';
 import '../widgets/no_access.dart';
 import '../widgets/offline_banner.dart';
 import 'repair_error_messages.dart';
+import 'repair_unfinished.dart';
 
 /// Форма создания ремонта — по макету «Рисунок 11».
 ///
@@ -41,10 +44,47 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
   ConsumptionNorm? _norm;
   bool _isSaving = false;
 
+  /// Незакрытые ремонты этого оборудования — подсказка «уже есть ремонты» и
+  /// предупреждение о совпадении времени (макеты 14b, 14c-2).
+  UnfinishedRepairs _unfinished = UnfinishedRepairs.empty;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUnfinished();
+  }
+
+  Future<void> _loadUnfinished() async {
+    final result = await loadUnfinishedRepairs(widget.equipment.uuid);
+    if (!mounted) return;
+    setState(() => _unfinished = result);
+  }
+
   @override
   void dispose() {
+    _startPassed?.cancel();
     _commentController.dispose();
     super.dispose();
+  }
+
+  /// Дата начала в будущем — ремонт будет запланирован (бэкенд `7be3756`):
+  /// подпись под датой, рамка и кнопка «Запланировать». Только для вида —
+  /// сам флаг решается в момент отправки ([_create]).
+  bool get _isFuture => _startedAt.isAfter(DateTime.now());
+
+  /// Перестраивает форму, когда выбранное время наступит: обходчик мог
+  /// выбрать «через минуту» и задуматься — подпись «запланирован» осталась
+  /// бы врать, хотя ремонт уже откроется сразу.
+  Timer? _startPassed;
+
+  void _watchStart() {
+    _startPassed?.cancel();
+    _startPassed = null;
+    final left = _startedAt.difference(DateTime.now());
+    if (left.isNegative) return;
+    _startPassed = Timer(left + const Duration(milliseconds: 50), () {
+      if (mounted) setState(() {});
+    });
   }
 
   Future<void> _pickDate() async {
@@ -74,6 +114,7 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
         _startedAt.minute,
       );
     });
+    _watchStart();
   }
 
   /// Время выбирается колёсами часов и минут — как `TimeWheelPicker` в
@@ -100,6 +141,7 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
         picked.minute,
       );
     });
+    _watchStart();
   }
 
   Future<void> _pickNorm() async {
@@ -118,23 +160,10 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
 
   Future<void> _create() async {
     if (_isSaving) return;
-    // Второй черновик по тому же оборудованию сервер всё равно отклонит:
-    // активный ремонт может быть только один. Проверка есть и на входе в
-    // форму (карточка скана), но полагаться на вызывающего нельзя — сюда
-    // можно вернуться «назад» и нажать «Создать» ещё раз, пока первый
-    // черновик ждёт связи.
-    final queued = GlobalState.dataProvider.pendingRepairs
-        .any((item) => item.equipmentUuid == widget.equipment.uuid);
-    if (queued) {
-      showInfoDialog(
-        context,
-        icon: Icons.cloud_upload_outlined,
-        tone: DialogTone.error,
-        title: RepairStrings.draftAlreadyQueuedTitle,
-        body: RepairStrings.draftAlreadyQueuedBody,
-      );
-      return;
-    }
+    // Запрета «один ремонт на оборудование» больше нет (бэкенд `7be3756`):
+    // механика и электрика могут чинить одно и то же одновременно, поэтому
+    // второй черновик по тому же оборудованию — нормальный случай. Двойное
+    // нажатие отсекает [_isSaving], а повтор отправки — ключ черновика.
     setState(() => _isSaving = true);
     final draft = PendingRepair.create(
       equipmentUuid: widget.equipment.uuid,
@@ -146,6 +175,10 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
       // Состав нормы кладём в черновик: без сети карточка не сможет ни
       // показать плановые количества, ни заполнить расход из нормы.
       normItems: _norm?.items ?? const [],
+      // Планирование решается здесь, в момент отправки, а не по подписи на
+      // форме: время могло наступить, пока обходчик заполнял остальное. Без
+      // флага сервер будущую дату подменил бы на «сейчас».
+      schedule: _isFuture,
       // Тело создания фиксируем сразу: если ответ потеряется и черновик
       // уйдёт в очередь, повтор пошлёт ровно то же — сервер сверяет ключ с
       // телом. Норма здесь возможна только с правом на ЗИП: без него поле на
@@ -164,6 +197,7 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
         startedAt: draft.startedAt,
         comment: draft.createComment,
         idempotencyKey: draft.localId,
+        schedule: draft.schedule,
       );
       await GlobalState.dataProvider
           .upsertRepair(repair, generation: generation);
@@ -216,6 +250,23 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     final responsible = GlobalState.authUser?.username ?? '';
+    // Один раз на кадр: подпись, рамка и кнопка должны договориться.
+    final isFuture = _isFuture;
+    final sameStart =
+        sameStartWarning(sameStartRepairs(_unfinished.repairs, _startedAt));
+    // Подпись под кнопкой — что будет с состоянием оборудования:
+    // * совпало время — напоминаем, что предупреждение не мешает (14c-2);
+    // * запланированный — ничего: об этом строка под датой (14c);
+    // * оборудование уже «В ремонте» — состояние не изменится (14b);
+    // * иначе — перейдёт «В ремонт».
+    final footer = sameStart != null
+        ? RepairStrings.sameStartFooter
+        : isFuture
+            ? null
+            : GlobalState.dataProvider
+                    .isEquipmentHeldByRepair(widget.equipment.uuid)
+                ? RepairStrings.createFooterBusy
+                : RepairStrings.createFooter;
 
     return Scaffold(
       appBar: AppBar(
@@ -296,6 +347,16 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
               ),
             ),
           ),
+          // Уже есть ремонты по этому оборудованию — показываем, кто и когда
+          // (макет 14b). Создание это не блокирует.
+          if (_unfinished.repairs.isNotEmpty) ...[
+            const SizedBox(height: AppConstants.spacingLG),
+            UnfinishedRepairsBlock(
+              data: _unfinished,
+              onOpen: (repair) => GoRouter.of(context)
+                  .push('/repairs/${repair.uuid}', extra: repair),
+            ),
+          ],
           const SizedBox(height: AppConstants.spacingLG),
           _Label(RepairStrings.labelResponsible),
           const SizedBox(height: AppConstants.spacingSM),
@@ -347,7 +408,16 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
             style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
           ),
           const SizedBox(height: AppConstants.spacingLG),
-          _Label(RepairStrings.labelStartedAt),
+          Row(
+            children: [
+              Expanded(child: _Label(RepairStrings.labelStartedAt)),
+              // Часовой пояс времени ниже — макет 14c.
+              Text(
+                RepairStrings.timeZone(DateTime.now().timeZoneOffset),
+                style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+              ),
+            ],
+          ),
           const SizedBox(height: AppConstants.spacingSM),
           Row(
             children: [
@@ -356,6 +426,7 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
                   value: DateFormat('dd.MM.yyyy').format(_startedAt),
                   trailingAsset: 'assets/images/calendar.svg',
                   onTap: _isSaving ? null : _pickDate,
+                  highlighted: isFuture,
                 ),
               ),
               const SizedBox(width: AppConstants.spacingMD),
@@ -364,10 +435,29 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
                   value: DateFormat('HH:mm').format(_startedAt),
                   trailingAsset: 'assets/images/clock.svg',
                   onTap: _isSaving ? null : _pickTime,
+                  highlighted: isFuture,
                 ),
               ),
             ],
           ),
+          if (isFuture) ...[
+            const SizedBox(height: AppConstants.spacingSM),
+            Text(
+              RepairCardStrings.scheduledOn(
+                DateFormat('dd.MM.yyyy HH:mm').format(_startedAt),
+              ),
+              style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+            ),
+          ],
+          // На это же время уже есть ремонт — оранжевым, но не запрет
+          // (макет 14c-2).
+          if (sameStart != null) ...[
+            const SizedBox(height: AppConstants.spacingSM),
+            Text(
+              sameStart,
+              style: tt.bodySmall?.copyWith(color: cs.warning),
+            ),
+          ],
           const SizedBox(height: AppConstants.spacingLG),
           _Label(RepairStrings.labelComment),
           const SizedBox(height: AppConstants.spacingSM),
@@ -411,18 +501,26 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
                             color: cs.onPrimary,
                           ),
                         )
-                      : const Icon(Icons.add_rounded),
+                      : Icon(
+                          isFuture ? Icons.event_rounded : Icons.add_rounded),
                   label: Text(_isSaving
                       ? RepairStrings.createSubmitting
-                      : RepairStrings.createSubmit),
+                      : isFuture
+                          ? RepairStrings.createSchedule
+                          : RepairStrings.createSubmit),
                 ),
               ),
-              const SizedBox(height: AppConstants.spacingSM),
-              Text(
-                RepairStrings.createFooter,
-                style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                textAlign: TextAlign.center,
-              ),
+              // «Оборудование перейдёт в „В ремонте“» — только у ремонта,
+              // который начнётся сразу: запланированный состояние не трогает
+              // до даты начала (об этом строка под датой).
+              if (footer != null) ...[
+                const SizedBox(height: AppConstants.spacingSM),
+                Text(
+                  footer,
+                  style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                  textAlign: TextAlign.center,
+                ),
+              ],
             ],
           ),
         ),
@@ -467,6 +565,10 @@ class _PickerField extends StatelessWidget {
   /// Значок в правом краю картинкой — календарь и часы взяты из админки.
   final String? trailingAsset;
 
+  /// Рамка цветом бренда — дата начала в будущем, ремонт планируется
+  /// (макет 14c).
+  final bool highlighted;
+
   const _PickerField({
     this.icon,
     required this.value,
@@ -474,6 +576,7 @@ class _PickerField extends StatelessWidget {
     this.muted = false,
     this.trailing,
     this.trailingAsset,
+    this.highlighted = false,
   });
 
   @override
@@ -490,7 +593,9 @@ class _PickerField extends StatelessWidget {
         ),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(AppConstants.radiusMD),
-          border: Border.all(color: cs.outlineVariant),
+          border: Border.all(
+            color: highlighted ? cs.primary : cs.outlineVariant,
+          ),
         ),
         child: Row(
           children: [

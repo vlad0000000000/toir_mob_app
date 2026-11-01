@@ -90,6 +90,10 @@ extension DataProviderOutbox on DataProvider {
             startedAt: current.startedAt,
             comment: current.createComment,
             idempotencyKey: current.localId,
+            // Флаг — тот, с которым черновик создан, а не «сейчас ли дата в
+            // будущем»: он часть тела под ключом. Если время уже прошло,
+            // сервер сам откроет ремонт сразу.
+            schedule: current.schedule,
           );
           await upsertRepair(repair);
           // Записываем uuid до загрузки снимков: если приложение убьют
@@ -288,6 +292,43 @@ extension DataProviderOutbox on DataProvider {
   /// офлайн-кэше его ещё нет. Если и после этого не нашёлся — значит он
   /// назначен на другого сотрудника, обходчику такие не отдают. Экран
   /// разрешения конфликта это переживёт: перенос всё равно был бы недоступен.
+  /// Пометка «нет прав» у правки устарела: ремонт в кэше открыт, и сервер
+  /// разрешает по нему работу (`execute` в `allowed_actions`).
+  ///
+  /// Так снимается отказ, полученный, пока ремонт был запланирован (работа
+  /// по нему обходчику не положена — 403), — сам по себе он ушёл бы только
+  /// со сменой доступа ([retryNoRightsRejections]), а её может и не быть.
+  /// Если расход есть, а права на ЗИП нет, отказ настоящий — не трогаем,
+  /// иначе пометка снималась и ставилась бы заново на каждом проходе.
+  bool _noRightsRejectionIsStale(PendingRepairUpdate update) {
+    if (!isRepairNoRightsMessage(update.lastError)) return false;
+    if (sectionAccess.consumptionsBlocked(update.consumptions)) return false;
+    final repair = repairBox.get(update.repairUuid);
+    return repair != null &&
+        repair.isOpen &&
+        repair.allows(RepairActions.execute) == true;
+  }
+
+  /// Правку по ремонту [uuid] после 403 «нет прав» не помечать, а оставить
+  /// как есть. Нужен потому, что кэш мог не знать о переносе ремонта на
+  /// будущее: перечитывает ремонт с сервера и кладёт в кэш.
+  ///
+  /// `true` — ремонт запланирован (правка ждёт его начала) или, пока шёл
+  /// запрос, сменился аккаунт: ответ отброшен, а правка не нового
+  /// обходчика — пометку в его очередь писать нельзя. Не удалось прочитать —
+  /// `false`, правка получит отказ как обычно.
+  Future<bool> _shouldKeepWaitingAfterDenied(String uuid) async {
+    final generation = cacheGeneration;
+    try {
+      final fresh = await api.getRepair(uuid);
+      await upsertRepair(fresh, generation: generation);
+      if (isStaleCacheGeneration(generation)) return true;
+      return fresh.isScheduled;
+    } catch (_) {
+      return isStaleCacheGeneration(generation);
+    }
+  }
+
   Future<String?> _findBlockingRepair(String equipmentUuid) async {
     String? search() {
       for (final repair in _repairs) {
@@ -412,8 +453,20 @@ extension DataProviderOutbox on DataProvider {
 
   Future<int> _syncPendingRepairUpdatesImpl() async {
     var sent = 0;
-    for (final update in pendingRepairUpdateBox.values.toList()) {
-      if (update.isRejected) continue;
+    for (var update in pendingRepairUpdateBox.values.toList()) {
+      if (update.isRejected) {
+        if (!_noRightsRejectionIsStale(update)) continue;
+        // «Нет прав» устарело — сервер уже разрешает работу по ремонту.
+        // Снимаем пометку и отправляем этим же проходом.
+        update = update.clearRejection();
+        await pendingRepairUpdateBox.put(update.repairUuid, update);
+      }
+      // Ремонт, пока правка лежала в очереди, перенесли на будущее (бэкенд
+      // `7be3756`): работа по запланированному обходчику не положена, сервер
+      // ответил бы 403, и правка встала бы с ложной причиной «нет прав».
+      // Ждём молча: когда ремонт начнётся, синхронизация принесёт его
+      // открытым, и правка уйдёт сама. Данные при этом не теряются.
+      if (repairBox.get(update.repairUuid)?.isScheduled ?? false) continue;
       // Снаружи try по той же причине, что и у черновиков: в отказ должен
       // попасть объект с уже вычеркнутыми снимками и удалениями, а не
       // исходный — иначе следующая попытка проделает ту же работу заново.
@@ -478,6 +531,15 @@ extension DataProviderOutbox on DataProvider {
         // правка уйдёт заново, когда доступ поменяется
         // ([retryNoRightsRejections]).
         if (e is AccessDeniedException && e.isNoRights) {
+          // Кроме одного случая: ремонт перенесли на будущее, а кэш об этом
+          // ещё не знал. Работа по запланированному обходчику не положена —
+          // отсюда 403, — но право-то есть, и пометка «нет прав» правку
+          // похоронила бы: снимается она только сменой доступа. Уточняем
+          // статус у сервера; запланирован — кладём свежий ремонт в кэш и
+          // оставляем правку ждать его начала (см. проверку в начале цикла).
+          if (await _shouldKeepWaitingAfterDenied(current.repairUuid)) {
+            continue;
+          }
           if (!pendingRepairUpdateBox.containsKey(current.repairUuid)) continue;
           await pendingRepairUpdateBox.put(
             current.repairUuid,

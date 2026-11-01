@@ -86,7 +86,11 @@ class FilterSheet extends StatelessWidget {
   /// `null` — сбрасывать нечего, «Сбросить» приглушена.
   final VoidCallback? onReset;
   final List<Widget> children;
-  final int resultCount;
+
+  /// Сколько покажет список. `null` — заранее неизвестно (часть данных
+  /// приходит с сервера только после применения, как закрытые ремонты):
+  /// кнопка просто «Показать» и активна.
+  final int? resultCount;
 
   /// Подпись кнопки при ненулевом результате: «Показать 5 единиц».
   final String Function(int count) resultLabel;
@@ -163,9 +167,11 @@ class FilterSheet extends StatelessWidget {
               child: ElevatedButton(
                 onPressed: resultCount == 0 ? null : onApply,
                 child: Text(
-                  resultCount == 0
-                      ? FilterStrings.nothingFound
-                      : resultLabel(resultCount),
+                  switch (resultCount) {
+                    null => FilterStrings.show,
+                    0 => FilterStrings.nothingFound,
+                    final count => resultLabel(count),
+                  },
                 ),
               ),
             ),

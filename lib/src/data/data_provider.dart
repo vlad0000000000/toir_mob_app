@@ -1105,7 +1105,11 @@ class DataProvider {
     // плитке на единицу больше, чем ремонтов на самом деле.
     final active = _repairs.where((r) => r.isActive).toList();
     final known = {for (final repair in active) repair.uuid};
+    // Запланированный черновик, как и запланированный ремонт, в счёт не идёт:
+    // работы по нему ещё нет.
+    final now = DateTime.now();
     final drafts = pendingRepairBox.values.where((draft) {
+      if (draft.isScheduledAt(now)) return false;
       final uuid = draft.serverUuid;
       return uuid == null || !known.contains(uuid);
     }).length;
@@ -1122,6 +1126,37 @@ class DataProvider {
     final drafts = pendingRepairBox.values.toList();
     drafts.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return drafts;
+  }
+
+  /// В очереди есть черновик ремонта, который держит оборудование [uuid] «В
+  /// ремонте»: сервер о нём ещё не знает, но оборудование уже занято.
+  ///
+  /// Запланированный черновик, чьё время не наступило, — не держит: и на
+  /// сервере такой ремонт оборудование не трогает до даты начала.
+  bool hasHoldingRepairDraft(String uuid) {
+    final now = DateTime.now();
+    return pendingRepairBox.values.any(
+      (draft) => draft.equipmentUuid == uuid && !draft.isScheduledAt(now),
+    );
+  }
+
+  /// Оборудование [uuid] уже «В ремонте» — по любому ремонту.
+  ///
+  /// Источников несколько, любого достаточно: серверный признак
+  /// `has_open_repair` и состояние в справочнике — они видят и чужие
+  /// ремонты; активный ремонт в кэше и черновик в очереди — работают, когда
+  /// справочник отстал или сервер о ремонте ещё не знает. Запланированные
+  /// не считаются: до даты начала оборудование они не трогают.
+  bool isEquipmentHeldByRepair(String uuid) {
+    for (final item in _inventoryRecords) {
+      if (item.uuid != uuid) continue;
+      if (item.hasOpenRepair || item.state == 'in_repair') return true;
+      break;
+    }
+    return _repairs.any(
+          (repair) => repair.equipmentUuid == uuid && repair.isActive,
+        ) ||
+        hasHoldingRepairDraft(uuid);
   }
 
   /// Кладёт черновик в очередь. Ключ бокса — `localId`, он же
@@ -1657,7 +1692,8 @@ class DataProvider {
   /// операций над одним ремонтом (взять в работу, сохранить расход), чтобы не
   /// перекачивать весь список ради одной записи.
   ///
-  /// Закрытый ремонт из кэша убираем: в нём живут только активные.
+  /// Закрытый ремонт из кэша убираем: в нём живут только незакрытые
+  /// ([Repair.isUnfinished]).
   ///
   /// [generation] передаёт экран, который получил ремонт с сервера: он
   /// запоминает поколение до запроса, и если за время запроса вошёл другой
@@ -1669,7 +1705,8 @@ class DataProvider {
   }
 
   Future<void> _writeRepair(Repair repair) async {
-    if (repair.isActive) {
+    // Кэш держит незакрытые — с запланированными, см. [Repair.isUnfinished].
+    if (repair.isUnfinished) {
       await repairBox.put(repair.uuid, repair);
     } else {
       await repairBox.delete(repair.uuid);

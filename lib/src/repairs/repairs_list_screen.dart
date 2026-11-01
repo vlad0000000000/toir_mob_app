@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -15,28 +17,33 @@ import '../login/sign_out.dart';
 import '../model/pending_repair.dart';
 import '../model/pending_repair_update.dart';
 import '../model/repair.dart';
+import '../utils/search_text.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/filter_sheet.dart';
 import '../widgets/offline_banner.dart';
 import 'repair_delete_dialog.dart';
 import 'repair_status_pill.dart';
 
-/// Статусы, по которым фильтруется список. Выбор множественный.
+/// Статусы, по которым фильтруется список, — в порядке листа «Фильтры».
+/// Выбор множественный.
 ///
-/// Открытые и «на рассмотрении» лежат в офлайн-кэше, а закрытые не
-/// кэшируются вовсе: их отдаёт отдельный эндпоинт, ровно последние 10 без
-/// пагинации. Поэтому выбор «Закрыт» подтягивает их с сервера отдельно.
+/// Запланированные, открытые и «на рассмотрении» лежат в офлайн-кэше, а
+/// закрытые не кэшируются вовсе: их отдаёт отдельный эндпоинт, ровно
+/// последние 10 без пагинации. Поэтому выбор «Закрыт» подтягивает их с
+/// сервера отдельно.
 const Map<String, String> _statusLabels = {
+  RepairStatuses.scheduled: RepairStrings.statusScheduled,
   RepairStatuses.open: RepairStrings.statusOpen,
   RepairStatuses.underReview: RepairStrings.statusUnderReview,
   RepairStatuses.closed: RepairStrings.statusClosed,
 };
 
-/// Что показываем при пустом выборе — те же активные, что и раньше по
-/// умолчанию. Тянуть закрытые без явного запроса не хочется: это лишний
-/// поход в сеть на каждом входе в раздел.
+/// Что показываем при пустом выборе — по макету 14a-2: «Запланирован» и
+/// «Открыт», то, что ещё ждёт работы. Тянуть закрытые без явного запроса не
+/// хочется: это лишний поход в сеть на каждом входе в раздел.
 const Set<String> _defaultStatuses = {
+  RepairStatuses.scheduled,
   RepairStatuses.open,
-  RepairStatuses.underReview,
 };
 
 /// Список ремонтов обходчика.
@@ -46,6 +53,11 @@ const Set<String> _defaultStatuses = {
 /// клиенту передавать не нужно.
 class RepairsListScreen extends StatefulWidget {
   const RepairsListScreen({super.key});
+
+  /// Забывает выбранные статусы — при выходе из аккаунта: это настройка
+  /// прошлого пользователя.
+  static void forgetFilter() =>
+      _RepairsListScreenState._lastStatuses = const {};
 
   @override
   State<RepairsListScreen> createState() => _RepairsListScreenState();
@@ -68,6 +80,70 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
   /// Статусы, по которым реально идёт отбор.
   Set<String> get _effectiveStatuses =>
       _statuses.isEmpty ? _defaultStatuses : _statuses;
+
+  /// Выбор отличается от умолчания — для числа на кнопке фильтров.
+  bool get _isCustomFilter =>
+      _effectiveStatuses.length != _defaultStatuses.length ||
+      !_effectiveStatuses.containsAll(_defaultStatuses);
+
+  // ── Поиск ────────────────────────────────────────────────────────────
+  // По названию, модели и серийному номеру оборудования — как в списке
+  // оборудования. Разовый: не запоминается, при уходе с экрана сброшен.
+  final _searchController = TextEditingController();
+
+  /// Запрос, по которому отобран список, — после паузы в наборе.
+  String _query = '';
+  Timer? _searchDebounce;
+  static const Duration _searchDelay = Duration(milliseconds: 250);
+
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(_searchDelay, () {
+      if (mounted) setState(() => _query = value);
+    });
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    _searchDebounce?.cancel();
+    setState(() => _query = '');
+  }
+
+  /// Применяет набранный текст, не дожидаясь паузы, — перед открытием
+  /// листа: иначе «Показать N» считалось бы по прежнему запросу.
+  void _applySearchNow() {
+    _searchDebounce?.cancel();
+    final text = _searchController.text;
+    if (_query != text) setState(() => _query = text);
+  }
+
+  /// Подходит ли оборудование под запрос. Серийного номера в ремонте нет —
+  /// берём его из справочника оборудования по uuid. [serials] собирается
+  /// один раз на отбор.
+  static bool _matches(
+    String query, {
+    required String name,
+    required String? typeModel,
+    required String equipmentUuid,
+    required Map<String, String?> serials,
+  }) {
+    if (query.isEmpty) return true;
+    for (final field in [name, typeModel, serials[equipmentUuid]]) {
+      if (field != null && normalizeSearchText(field).contains(query)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Серийные номера оборудования — только когда есть запрос: без него
+  /// проход по справочнику не нужен.
+  Map<String, String?> _serialsFor(String query) => query.isEmpty
+      ? const {}
+      : {
+          for (final item in GlobalState.dataProvider.inventoryRecords)
+            item.uuid: item.serialNumber,
+        };
 
   bool get _needsClosed => _effectiveStatuses.contains(RepairStatuses.closed);
 
@@ -106,6 +182,8 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
   @override
   void dispose() {
     GlobalState.dataProvider.repairsRevision.removeListener(_onRepairsChanged);
+    _searchDebounce?.cancel();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -158,10 +236,13 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
     }
   }
 
-  void _toggleStatus(String status) {
+  void _setStatuses(Set<String> statuses) {
+    // Выбор, совпадающий с умолчанием, храним пустым — «фильтр не задан».
+    final next = statuses.length == _defaultStatuses.length &&
+            statuses.containsAll(_defaultStatuses)
+        ? const <String>{}
+        : statuses;
     setState(() {
-      final next = {..._statuses};
-      if (!next.remove(status)) next.add(status);
       _statuses = next;
       _lastStatuses = next;
     });
@@ -171,12 +252,51 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
     }
   }
 
-  List<Repair> get _visibleRepairs {
-    final statuses = _effectiveStatuses;
+  Future<void> _openFilter() async {
+    _applySearchNow();
+    final result = await showModalBottomSheet<Set<String>>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => _StatusFilterSheet(
+        initial: _effectiveStatuses,
+        countFor: (statuses) {
+          // Закрытые приходят с сервера только после выбора — пока их нет,
+          // число заранее неизвестно, и кнопка просто «Показать».
+          if (statuses.contains(RepairStatuses.closed) && _closed == null) {
+            return null;
+          }
+          return _visibleRepairsFor(statuses, _query).length +
+              _visibleDraftsFor(statuses, _query).length;
+        },
+      ),
+    );
+    if (result == null || !mounted) return;
+    _setStatuses(result);
+  }
+
+  List<Repair> get _visibleRepairs =>
+      _visibleRepairsFor(_effectiveStatuses, _query);
+
+  /// Ремонты выбранных [statuses], подходящие под [query]. Одна функция и
+  /// для списка, и для «Показать N» в листе — обещанное совпадает с видимым.
+  List<Repair> _visibleRepairsFor(Set<String> statuses, String query) {
+    final normalized = normalizeSearchText(query);
+    final serials = _serialsFor(normalized);
     final result = <Repair>[
-      ...GlobalState.dataProvider.repairs
-          .where((repair) => statuses.contains(repair.status)),
-      if (statuses.contains(RepairStatuses.closed)) ...?_closed,
+      for (final repair in [
+        ...GlobalState.dataProvider.repairs
+            .where((repair) => statuses.contains(repair.status)),
+        if (statuses.contains(RepairStatuses.closed)) ...?_closed,
+      ])
+        if (_matches(
+          normalized,
+          name: repair.equipmentName,
+          typeModel: repair.equipmentTypeModel,
+          equipmentUuid: repair.equipmentUuid,
+          serials: serials,
+        ))
+          repair,
     ];
     result.sort((a, b) => b.startedAt.compareTo(a.startedAt));
     return result;
@@ -187,13 +307,21 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
   /// Сравнивать должность с ролью пользователя на клиенте не нужно: сервер
   /// и так отдаёт обходчику только его ремонты и ремонты его должности,
   /// поэтому «без ответственного» здесь уже означает «моей должности».
-  List<Repair> _unassignedOf(List<Repair> repairs) =>
-      repairs.where((repair) => repair.isUnassigned && repair.isOpen).toList();
+  ///
+  /// Запланированный без исполнителя — тоже здесь, а не в «Моих ремонтах»:
+  /// он не мой. Взять его до даты начала нельзя (сервер даёт `claim` только
+  /// открытому), поэтому на плитке у него пилюля «Запланирован», а не
+  /// «Свободен», и кнопки «Взять» в карточке нет.
+  List<Repair> _unassignedOf(List<Repair> repairs) => repairs
+      .where((repair) =>
+          repair.isUnassigned && (repair.isOpen || repair.isScheduled))
+      .toList();
 
   /// Черновики — созданные без связи и ещё не принятые сервером.
   ///
-  /// Показываем их только когда в фильтре есть «Открыт»: черновик и есть
-  /// будущий открытый ремонт, а во вкладке «Закрыт» ему делать нечего.
+  /// Показываем их по статусу, каким ремонт создаст сервер: запланированный
+  /// черновик — при «Запланирован», остальные — при «Открыт». Во вкладке
+  /// «Закрыт» черновику делать нечего.
   ///
   /// Черновик, чей ремонт уже создан, из списка убираем: очередь отправляет
   /// его в три шага (создать → снимки → расход и статус), и после первого шага
@@ -206,14 +334,32 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
   ///
   /// Сверяемся со всем кэшем, а не с отобранными по фильтру: ремонт мог уже
   /// уехать «На рассмотрение», и при фильтре «Открыт» дубль вернулся бы.
-  List<PendingRepair> get _visibleDrafts {
-    if (!_effectiveStatuses.contains(RepairStatuses.open)) return const [];
+  List<PendingRepair> get _visibleDrafts =>
+      _visibleDraftsFor(_effectiveStatuses, _query);
+
+  List<PendingRepair> _visibleDraftsFor(Set<String> statuses, String query) {
+    final normalized = normalizeSearchText(query);
+    final serials = _serialsFor(normalized);
     final known = {
       for (final repair in GlobalState.dataProvider.repairs) repair.uuid,
     };
+    final now = DateTime.now();
     return [
       for (final draft in GlobalState.dataProvider.pendingRepairs)
-        if (!known.contains(draft.serverUuid ?? '')) draft,
+        // Черновик — будущий ремонт того статуса, каким его создаст сервер:
+        // запланированный, пока его время не наступило, иначе открытый.
+        if (statuses.contains(draft.isScheduledAt(now)
+                ? RepairStatuses.scheduled
+                : RepairStatuses.open) &&
+            !known.contains(draft.serverUuid ?? '') &&
+            _matches(
+              normalized,
+              name: draft.equipmentName,
+              typeModel: null,
+              equipmentUuid: draft.equipmentUuid,
+              serials: serials,
+            ))
+          draft,
     ];
   }
 
@@ -330,30 +476,34 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
     // Пустым список считается, только когда нет и черновиков: иначе
     // единственный неотправленный ремонт спрятался бы за «Ремонтов нет».
     final isEmpty = repairs.isEmpty && _visibleDrafts.isEmpty;
+    // Пусто из-за поиска, а не потому, что ремонтов нет: в выбранных
+    // статусах что-то есть, но под запрос не подошло.
+    final nothingFound = isEmpty &&
+        _query.trim().isNotEmpty &&
+        (_visibleRepairsFor(_effectiveStatuses, '').isNotEmpty ||
+            _visibleDraftsFor(_effectiveStatuses, '').isNotEmpty);
 
     return Scaffold(
       appBar: MyAppBar.build(context) as AppBar,
       body: Column(
         children: [
-          SizedBox(
-            height: 56,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppConstants.spacingMD,
-                vertical: AppConstants.spacingSM,
-              ),
-              children: [
-                for (final entry in _statusLabels.entries) ...[
-                  if (entry.key != _statusLabels.keys.first)
-                    const SizedBox(width: AppConstants.spacingSM),
-                  _FilterChip(
-                    label: entry.value,
-                    selected: _statuses.contains(entry.key),
-                    onTap: () => _toggleStatus(entry.key),
-                  ),
-                ],
-              ],
+          // Поиск и шторка «Фильтры» — как в справочнике ЗИП (макет 14a).
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppConstants.spacingMD,
+              AppConstants.spacingMD,
+              AppConstants.spacingMD,
+              AppConstants.spacingSM,
+            ),
+            child: SearchFilterBar(
+              controller: _searchController,
+              hint: RepairStrings.searchHint,
+              onChanged: _onSearchChanged,
+              onClear: _clearSearch,
+              // Подсвечиваем, только когда выбор отличается от умолчания:
+              // «Запланирован + Открыт» — обычный вид списка, не фильтр.
+              activeCount: _isCustomFilter ? _effectiveStatuses.length : 0,
+              onFilter: _openFilter,
             ),
           ),
           if (busy && isEmpty)
@@ -379,18 +529,25 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
                         ),
                         children: [
                           const _AuthExpiredBanner(),
-                          EmptyState(
-                            icon: _closedError != null
-                                ? Icons.cloud_off_rounded
-                                : Icons.handyman_outlined,
-                            title: _closedError != null
-                                ? RepairStrings.noConnection
-                                : RepairStrings.listEmptyTitle,
-                            hint: _closedError ??
-                                (onlyClosed
-                                    ? RepairStrings.listEmptyClosedHint
-                                    : RepairStrings.listEmptyHint),
-                          ),
+                          if (nothingFound)
+                            const EmptyState(
+                              icon: Icons.search_off_rounded,
+                              title: FilterStrings.nothingFound,
+                              hint: RepairStrings.nothingFoundHint,
+                            )
+                          else
+                            EmptyState(
+                              icon: _closedError != null
+                                  ? Icons.cloud_off_rounded
+                                  : Icons.handyman_outlined,
+                              title: _closedError != null
+                                  ? RepairStrings.noConnection
+                                  : RepairStrings.listEmptyTitle,
+                              hint: _closedError ??
+                                  (onlyClosed
+                                      ? RepairStrings.listEmptyClosedHint
+                                      : RepairStrings.listEmptyHint),
+                            ),
                         ],
                       )
                     : ListView(
@@ -692,7 +849,12 @@ class _DraftTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    final started = DateFormat('dd.MM HH:mm').format(draft.startedAt.toLocal());
+    final date = DateFormat('dd.MM HH:mm').format(draft.startedAt.toLocal());
+    // Запланированный черновик ничем не отличался от обычного — что ремонт
+    // начнётся позже, было видно только в карточке.
+    final started = draft.isScheduledAt(DateTime.now())
+        ? RepairStrings.draftStartsAt(date)
+        : date;
     final rejected = draft.isRejected;
 
     // Рамки у карточки нет: что записи ещё нет на сервере, видно и без неё —
@@ -846,49 +1008,60 @@ class _GroupLabel extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Чип фильтра статуса (одиночный выбор)
+// Лист «Фильтры»: статусы ремонта
 // ─────────────────────────────────────────────────────────────────────────
-class _FilterChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
+/// Один раздел «Статус» — как фильтры справочника ЗИП (макет 14a-2).
+/// Возвращает выбранные статусы.
+class _StatusFilterSheet extends StatefulWidget {
+  final Set<String> initial;
 
-  const _FilterChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
+  /// Сколько покажет список при выбранных статусах — с поиском экрана.
+  /// `null` — заранее неизвестно (закрытые ещё не загружены).
+  final int? Function(Set<String> statuses) countFor;
+
+  const _StatusFilterSheet({required this.initial, required this.countFor});
+
+  @override
+  State<_StatusFilterSheet> createState() => _StatusFilterSheetState();
+}
+
+class _StatusFilterSheetState extends State<_StatusFilterSheet> {
+  late Set<String> _draft = widget.initial;
+  late int? _count = widget.countFor(_draft);
+
+  bool get _isDefault =>
+      _draft.length == _defaultStatuses.length &&
+      _draft.containsAll(_defaultStatuses);
+
+  void _update(Set<String> next) {
+    setState(() {
+      _draft = next;
+      _count = widget.countFor(next);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
-    // Тот же вид, что у чипов истории движений в карточке ЗИП: полностью
-    // скруглённая пилюля, выбранная — сплошной заливкой без галочки.
-    return Material(
-      color: selected ? cs.primary : cs.surfaceContainerHigh,
-      borderRadius: BorderRadius.circular(AppConstants.radiusFull),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppConstants.radiusFull),
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppConstants.spacingMD,
-          ),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppConstants.radiusFull),
-            border:
-                Border.all(color: selected ? cs.primary : cs.outlineVariant),
-          ),
-          child: Text(
-            label,
-            style: tt.labelLarge?.copyWith(
-              color: selected ? cs.onPrimary : cs.onSurface,
-            ),
+    return FilterSheet(
+      // «Сбросить» возвращает умолчание, а не пустой выбор: пустой список
+      // статусов ничего бы не показал.
+      onReset: _isDefault ? null : () => _update(_defaultStatuses),
+      // Ни одного статуса — показывать нечего.
+      resultCount: _draft.isEmpty ? 0 : _count,
+      resultLabel: RepairStrings.showResults,
+      onApply: () => Navigator.of(context).pop(_draft),
+      children: [
+        FilterSection(
+          label: RepairStrings.labelStatus,
+          count: _draft.length,
+          child: FilterChipGroup(
+            // Порядок статусов — по жизни ремонта, а не по алфавиту.
+            options: _statusLabels,
+            selected: _draft,
+            onChanged: _update,
           ),
         ),
-      ),
+      ],
     );
   }
 }

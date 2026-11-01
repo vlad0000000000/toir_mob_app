@@ -161,13 +161,14 @@ void _offlineClassificationTests() {
     final conflict = ServerFailureException(
         409, 'Idempotency-Key was already used with a different request');
 
-    test('по-русски и как занятое оборудование — с переносом в ремонт', () {
-      // Ремонт этого черновика, скорее всего, уже создан прежней отправкой:
-      // очередь найдёт его, карточка предложит перенести данные.
+    test('по-русски и не как занятое оборудование — без переноса', () {
+      // Ремонт этого черновика, скорее всего, уже создан прежней отправкой,
+      // но какой именно — сервер не говорит. С параллельными ремонтами поиск
+      // по оборудованию мог найти чужой, поэтому переноса не предлагаем.
       final reason = repairErrorMessage(conflict);
 
-      expect(isEquipmentBusyMessage(reason), isTrue);
-      expect(reason, contains('прежняя отправка'));
+      expect(isEquipmentBusyMessage(reason), isFalse);
+      expect(reason, contains('уже отправлялся'));
     });
 
     test('повторять автоматически нельзя — ответ будет тем же', () {

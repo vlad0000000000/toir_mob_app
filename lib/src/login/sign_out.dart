@@ -1,6 +1,7 @@
 import '../../global_state.dart';
 import '../notifications/notifications_service.dart';
 import '../notifications/push/push_notifications_controller.dart';
+import '../repairs/repairs_list_screen.dart';
 import '../spare_parts/spare_parts_screen.dart';
 import '../tasks/equipment_list_screen.dart';
 
@@ -20,6 +21,7 @@ Future<void> signOut() async {
   // Запомненные фильтры — настройка прошлого пользователя.
   EquipmentListScreen.forgetFilters();
   SparePartsScreen.forgetFilter();
+  RepairsListScreen.forgetFilter();
   NotificationsService.instance.onLogout();
   await PushNotificationsController.instance.stop();
 }

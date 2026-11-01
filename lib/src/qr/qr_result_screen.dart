@@ -30,6 +30,7 @@ import '../utils/offline_error.dart';
 import '../utils/quantity_format.dart';
 import '../widgets/no_access.dart';
 import '../../src/onboarding/demo_equipment.dart';
+import '../repairs/repair_unfinished.dart';
 import 'result_controls.dart';
 
 /// Код состояния «В ремонте» на сервере (`EquipmentState.IN_REPAIR`).
@@ -93,61 +94,57 @@ class _QRResultScreenState extends State<QRResultScreen> {
   // понадобилась очереди осмотров, а четвёртой копии в проекте быть не должно.
   bool _isOfflineError(Object e) => isOfflineError(e);
 
-  /// Оборудование уже в ремонте — вместо сырого отказа объясняем ситуацию и
-  /// даём перейти в существующий ремонт (п. 4.4.5 плана).
-  ///
-  /// Заголовок, строка «Ремонт №N — «статус»» с цветом этого статуса,
-  /// пояснение плашкой и две кнопки в столбик.
-  void _showAlreadyInRepair(Repair repair) {
-    final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
-    // Вся гамма окна — по статусу ремонта, как у пилюли в списке: открыт
-    // красным, на рассмотрении оранжевым, закрыт зелёным. Обходчик должен
-    // различать «ремонт ещё идёт» и «работа сдана, ждём администратора» с
-    // одного взгляда, не вчитываясь в подпись.
-    final tone = repair.isClosed
-        ? DialogTone.success
-        : repair.isOpen
-            ? DialogTone.error
-            : DialogTone.warning;
-    final statusColor = InfoDialog.colorsOf(cs, tone).accent;
+  /// Незакрытые ремонты этого оборудования — блок под паспортом (макет 14h)
+  /// и выбор ремонта в окне «Оборудование в ремонте» (14h-2).
+  UnfinishedRepairs _unfinished = UnfinishedRepairs.empty;
 
+  /// Блок незакрытых ремонтов — к нему прокручивает окно, когда ремонтов
+  /// несколько и открывать один из них наугад нельзя.
+  final GlobalKey _unfinishedKey = GlobalKey();
+
+  Future<void> _loadUnfinished() async {
+    if (widget.machine.uuid == DemoEquipment.demoUuid) return;
+    final result = await loadUnfinishedRepairs(widget.machine.uuid);
+    if (!mounted) return;
+    setState(() => _unfinished = result);
+  }
+
+  /// Окно «Оборудование в ремонте» (макет 14h-2): почему состояние заперто и
+  /// что можно сделать — открыть ремонт, создать ещё один (ремонтов по
+  /// оборудованию может быть несколько, бэкенд `7be3756`) или закрыть.
+  ///
+  /// Одно окно на все случаи. Раньше их было три — свой ремонт, черновик в
+  /// очереди, чужой ремонт, — и ни одно не давало завести второй ремонт.
+  void _showEquipmentInRepair() {
+    final access = GlobalState.dataProvider.sectionAccess;
+    final open = _holdingRepairAction();
     showDialog<void>(
       context: context,
       builder: (ctx) => InfoDialog(
         icon: Icons.handyman_rounded,
-        tone: tone,
+        tone: DialogTone.error,
         title: DialogStrings.repairInProgressTitle,
-        content: Text.rich(
-          TextSpan(
-            style: tt.bodyLarge,
-            children: [
-              TextSpan(text: 'Ремонт №${repair.id} — '),
-              TextSpan(
-                text: '«${RepairStatuses.displayName(repair.status)}»',
-                style: TextStyle(
-                  color: statusColor,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          textAlign: TextAlign.center,
-        ),
-        note: DialogStrings.repairInProgressNote,
+        note: DialogStrings.repairsInProgressNote,
         noteTinted: true,
         actions: [
-          DialogPrimaryButton(
-            label: DialogStrings.openRepair,
-            icon: Icons.open_in_new_rounded,
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              // Ремонт уже найден в кэше — отдаём его карточке, чтобы та не
-              // ждала ответа сервера.
-              GoRouter.of(context)
-                  .push('/repairs/${repair.uuid}', extra: repair);
-            },
-          ),
+          if (open != null)
+            DialogPrimaryButton(
+              label: DialogStrings.openRepair,
+              icon: Icons.edit_note_rounded,
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                open();
+              },
+            ),
+          if (access.repairCreate)
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                _openCreateRepair();
+              },
+              icon: const Icon(Icons.add_rounded, size: 20),
+              label: const Text(DialogStrings.createRepair),
+            ),
           DialogSecondaryButton(
             label: DialogStrings.close,
             onPressed: () => Navigator.of(ctx).pop(),
@@ -157,35 +154,69 @@ class _QRResultScreenState extends State<QRResultScreen> {
     );
   }
 
-  /// Ремонт по этому оборудованию уже заведён без связи и ждёт отправки.
-  /// Кнопка ведёт в список ремонтов — там черновик виден с пометкой
-  /// «Не отправлено» и его можно отправить вручную или удалить.
+  /// Что сделает «Открыть ремонт». `null` — открывать нечего: оборудование
+  /// держит ремонт, которого обходчик не видит (чужого направления), —
+  /// кнопки тогда нет.
   ///
-  /// Красным, как у открытого ремонта: черновик и есть будущий «Открыт», и
-  /// оборудование он занимает так же.
-  void _showDraftAlreadyQueued() {
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => InfoDialog(
-        icon: Icons.cloud_upload_outlined,
-        tone: DialogTone.error,
-        title: RepairStrings.draftAlreadyQueuedTitle,
-        body: RepairStrings.draftAlreadyQueuedBody,
-        actions: [
-          DialogPrimaryButton(
-            label: DialogStrings.toRepairs,
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              GoRouter.of(context).push('/repairs');
-            },
-          ),
-          DialogSecondaryButton(
-            label: DialogStrings.close,
-            onPressed: () => Navigator.of(ctx).pop(),
-          ),
-        ],
-      ),
-    );
+  /// * один активный ремонт — открываем его;
+  /// * несколько — прокручиваем к блоку незакрытых ремонтов: какой из них
+  ///   нужен, решает обходчик (так же решено в вебе);
+  /// * активного нет, но в очереди черновик — открываем черновик.
+  VoidCallback? _holdingRepairAction() {
+    final active = [
+      for (final repair in _unfinished.repairs)
+        if (repair.isActive) repair,
+    ];
+    // Свежий ремонт может быть в кэше раньше, чем в загруженном блоке.
+    final cached = _activeRepairForMachine();
+    if (active.isEmpty && cached != null) active.add(cached);
+    if (active.length == 1) {
+      final repair = active.single;
+      return () => _openRepairPage('/repairs/${repair.uuid}', extra: repair);
+    }
+    if (active.length > 1) {
+      return () {
+        final target = _unfinishedKey.currentContext;
+        if (target == null) return;
+        Scrollable.ensureVisible(
+          target,
+          duration: AppConstants.durationFast,
+          alignment: 0.05,
+        );
+      };
+    }
+    final now = DateTime.now();
+    for (final draft in GlobalState.dataProvider.pendingRepairs) {
+      if (draft.equipmentUuid == widget.machine.uuid &&
+          !draft.isScheduledAt(now)) {
+        return () => _openRepairPage('/repair_draft/${draft.localId}');
+      }
+    }
+    return null;
+  }
+
+  /// Карточка ремонта или черновика поверх экрана. После возврата
+  /// перечитываем блок незакрытых ремонтов и пилюлю: в карточке ремонт могли
+  /// отправить на рассмотрение, а черновик — удалить, и блок показывал бы
+  /// прежнее.
+  Future<void> _openRepairPage(String location, {Object? extra}) async {
+    await GoRouter.of(context).push(location, extra: extra);
+    if (!mounted) return;
+    setState(() {});
+    _loadUnfinished();
+  }
+
+  /// Форма создания ремонта по этому оборудованию.
+  ///
+  /// push: карточка оборудования остаётся под формой, и закрытие формы
+  /// возвращает обходчика ровно туда, откуда он её открыл. Ждём возврата и
+  /// перечитываем: пока форма была открыта, ремонт мог появиться — на сервере
+  /// или черновиком в очереди. Пилюля читает это в `build`.
+  Future<void> _openCreateRepair() async {
+    await GoRouter.of(context).push('/repair_create', extra: widget.machine);
+    if (!mounted) return;
+    setState(() {});
+    _loadUnfinished();
   }
 
   void _onStateChanged() async {
@@ -208,24 +239,16 @@ class _QRResultScreenState extends State<QRResultScreen> {
     // она была только в ветке «В ремонте», и любое другое состояние
     // («Исправно», «Неисправно») уходило на сервер, ломая логику «состояние
     // вернётся само при закрытии ремонта».
-    final active = _activeRepairForMachine();
-    if (active != null) {
-      // Пилюлю возвращаем к прежнему значению: ничего не поменялось.
-      stateController.value = _previousState;
-      if (!mounted) return;
-      _showAlreadyInRepair(active);
-      return;
-    }
-
+    //
     // То же самое для черновика: ремонта на сервере ещё нет, но оборудование
     // уже считается занятым — иначе состояние уехало бы на сервер, а следом
     // очередь создала бы по нему ремонт и снова переставила состояние.
-    final hasDraft = GlobalState.dataProvider.pendingRepairs
-        .any((draft) => draft.equipmentUuid == widget.machine.uuid);
-    if (hasDraft) {
+    if (_activeRepairForMachine() != null ||
+        GlobalState.dataProvider.hasHoldingRepairDraft(widget.machine.uuid)) {
+      // Пилюлю возвращаем к прежнему значению: ничего не поменялось.
       stateController.value = _previousState;
       if (!mounted) return;
-      _showDraftAlreadyQueued();
+      _showEquipmentInRepair();
       return;
     }
 
@@ -255,15 +278,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
       // после успешного создания ремонта, и сделает это сервер.
       stateController.value = _previousState;
       if (!mounted) return;
-      // push: карточка оборудования остаётся под формой, и закрытие формы
-      // возвращает обходчика ровно туда, откуда он её открыл.
-      //
-      // Ждём возврата и перестраиваем экран: пока форма была открыта, ремонт
-      // мог появиться — на сервере или черновиком в очереди. Пилюля читает
-      // это в `build`, и без перестроения она осталась бы прежней.
-      await GoRouter.of(context).push('/repair_create', extra: widget.machine);
-      if (!mounted) return;
-      setState(() {});
+      await _openCreateRepair();
       return;
     }
 
@@ -277,11 +292,10 @@ class _QRResultScreenState extends State<QRResultScreen> {
       // Ремонт мог появиться, пока обходчик стоял на экране: локальная
       // проверка его не увидела, а сервер отказал. Показываем то же
       // объяснение, а не сырую ошибку (п. 4.4.5 отчёта).
-      final blocking = await _reloadBlockingRepair();
-      if (blocking != null) {
+      if (await _reloadBlockingRepair() != null) {
         if (!mounted) return;
         stateController.value = _previousState;
-        _showAlreadyInRepair(blocking);
+        _showEquipmentInRepair();
         return;
       }
       if (!mounted) return;
@@ -312,6 +326,8 @@ class _QRResultScreenState extends State<QRResultScreen> {
     } catch (_) {
       // Без связи остаёмся на том, что есть в кэше.
     }
+    // Блок незакрытых ремонтов — тоже: окно выбирает ремонт по нему.
+    await _loadUnfinished();
     return _activeRepairForMachine();
   }
 
@@ -328,41 +344,17 @@ class _QRResultScreenState extends State<QRResultScreen> {
       widget.machine.hasOpenRepair ||
       stateController.value == _inRepairState ||
       _activeRepairForMachine() != null ||
-      GlobalState.dataProvider.pendingRepairs
-          .any((draft) => draft.equipmentUuid == widget.machine.uuid);
+      // Запланированный черновик оборудование не держит — см.
+      // [DataProvider.hasHoldingRepairDraft].
+      GlobalState.dataProvider.hasHoldingRepairDraft(widget.machine.uuid);
 
   /// Объясняет, почему состояние заблокировано. Молчаливо неактивная пилюля
   /// вернула бы ровно ту жалобу, с которой всё началось: «нажимаю — ничего
   /// не происходит».
-  void _explainLockedState() {
-    final active = _activeRepairForMachine();
-    if (active != null) {
-      _showAlreadyInRepair(active);
-      return;
-    }
-    final hasDraft = GlobalState.dataProvider.pendingRepairs
-        .any((draft) => draft.equipmentUuid == widget.machine.uuid);
-    if (hasDraft) {
-      _showDraftAlreadyQueued();
-      return;
-    }
-    // Остался единственный случай: ремонт есть, но чужой — его видит только
-    // сервер, в кэше обходчика таких ремонтов нет. Говорить про черновик
-    // здесь нельзя: черновика не существует.
-    _showBusyByOtherRepair();
-  }
-
-  /// Оборудование занято ремонтом другого сотрудника.
-  void _showBusyByOtherRepair() {
-    showInfoDialog(
-      context,
-      icon: Icons.handyman_rounded,
-      tone: DialogTone.error,
-      title: RepairStrings.busyByOtherTitle,
-      body: RepairStrings.busyByOtherBody,
-      buttonLabel: RepairStrings.understand,
-    );
-  }
+  ///
+  /// Окно одно на все случаи — свой ремонт, черновик в очереди, чужой
+  /// ремонт: «Открыть ремонт» появляется, только когда есть что открыть.
+  void _explainLockedState() => _showEquipmentInRepair();
 
   Widget passport() {
     return _HeroPassport(
@@ -765,6 +757,21 @@ class _QRResultScreenState extends State<QRResultScreen> {
           spacing: 8,
           children: [
             passport(),
+            // Незакрытые ремонты по оборудованию (макет 14h): кто и когда уже
+            // работает. Нажатие открывает ремонт.
+            if (_unfinished.repairs.isNotEmpty)
+              Padding(
+                key: _unfinishedKey,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppConstants.spacingSM,
+                  vertical: AppConstants.spacingSM,
+                ),
+                child: UnfinishedRepairsBlock(
+                  data: _unfinished,
+                  onOpen: (repair) =>
+                      _openRepairPage('/repairs/${repair.uuid}', extra: repair),
+                ),
+              ),
             ResultControls(
               machine: widget.machine,
               descController: descController,
@@ -1017,11 +1024,14 @@ class _QRResultScreenState extends State<QRResultScreen> {
     // Отдельного хранилища пометок не заводим — очередь черновиков и есть
     // хранилище, независимое от справочника: синхронизация перезаписывает
     // справочник целиком, а очередь не трогает.
-    final hasDraft = GlobalState.dataProvider.pendingRepairs
-        .any((draft) => draft.equipmentUuid == widget.machine.uuid);
+    final hasDraft =
+        GlobalState.dataProvider.hasHoldingRepairDraft(widget.machine.uuid);
     _previousState = hasDraft ? _inRepairState : widget.machine.state;
     stateController.value = _previousState;
     stateController.valueNotifier.addListener(_onStateChanged);
+    // Подсказка «уже есть ремонты» — в фоне: экран рисуется сразу, блок
+    // появится, когда придёт ответ (без сети — из кэша).
+    _loadUnfinished();
     descController.addListener(_clearValidationHighlights);
     priorityController.valueNotifier.addListener(_clearValidationHighlights);
     problemController.valueNotifier.addListener(_onProblemChanged);

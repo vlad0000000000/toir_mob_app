@@ -210,6 +210,12 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
   /// Черновик помечен к отправке и ждёт связи.
   bool get _submittedDraft => _draft?.submitForReview ?? false;
 
+  /// Оборудование запланированного [repair] уже «В ремонте» — по другому
+  /// ремонту: сам запланированный оборудование не держит, поэтому любой
+  /// признак занятости — от другого ремонта.
+  static bool _equipmentBusyByOther(Repair repair) =>
+      GlobalState.dataProvider.isEquipmentHeldByRepair(repair.equipmentUuid);
+
   /// Кнопка «Сохранить» активна только при реальных изменениях — так обходчик
   /// видит, есть ли неотправленное.
   bool get _hasChanges {
@@ -1198,7 +1204,11 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
               ? (reason ?? RepairCardStrings.unsentRejectedFallback)
               : _submittedDraft
                   ? RepairCardStrings.unsentSubmitted
-                  : RepairStrings.draftWaiting,
+                  // Правка ремонта, который перенесли на будущее: очередь
+                  // ждёт его начала, а не связи.
+                  : update != null && (_repair?.isScheduled ?? false)
+                      ? RepairCardStrings.unsentWaitsForStart
+                      : RepairStrings.draftWaiting,
           style: tt.bodySmall?.copyWith(
             color: rejected ? cs.error : cs.onSurfaceVariant,
           ),
@@ -1324,6 +1334,9 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
             warning: true,
           ),
           const SizedBox(height: AppConstants.spacingMD),
+        ] else if (repair.isScheduled) ...[
+          // Запланированный — плашка под карточкой оборудования, как на
+          // макете 14d: она про оборудование, а не про запрет правки.
         ] else if (!_editable && !repair.isUnassigned) ...[
           // Без значка: текст занимает всю ширину, и отступы со всех сторон
           // получаются одинаковыми — плашка выглядит ровно.
@@ -1345,10 +1358,28 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
           const SizedBox(height: AppConstants.spacingMD),
         ],
         _EquipmentCard(repair: repair),
+        // Запланированный ремонт ещё не начался (макеты 14d, 14d-2). Правка
+        // по нему обходчику недоступна — сервер даёт работу только по
+        // открытому, — поэтому поля заперты и кнопок нет ([_editable]).
+        if (repair.isScheduled && !_outOfScope) ...[
+          const SizedBox(height: AppConstants.spacingMD),
+          _Banner(
+            text: _equipmentBusyByOther(repair)
+                ? RepairCardStrings.scheduledBusyByOther
+                : RepairCardStrings.scheduledOn(
+                    DateFormat('dd.MM.yyyy HH:mm')
+                        .format(repair.startedAt.toLocal()),
+                  ),
+          ),
+        ],
         const SizedBox(height: AppConstants.spacingLG),
         _SectionLabel(RepairCardStrings.labelDetails),
         const SizedBox(height: AppConstants.spacingSM),
         _DetailsGrid(repair: repair),
+        if (repair.isUnderReview) ...[
+          const SizedBox(height: AppConstants.spacingLG),
+          _LockedStartDate(repair: repair),
+        ],
         const SizedBox(height: AppConstants.spacingLG),
         _SectionLabel(RepairCardStrings.labelComment),
         const SizedBox(height: AppConstants.spacingSM),
@@ -1426,6 +1457,22 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
           onRemove: _removePosition,
         ),
         ..._buildUnsentSection(cs),
+        // История изменений (макет 14i) — внизу карточки: точки входа на
+        // макете нет, так решено. Только у ремонта на сервере: у черновика
+        // истории нет. Экран сам скажет, если связи нет.
+        if (repair.id > 0 && repair.uuid.isNotEmpty) ...[
+          const SizedBox(height: AppConstants.spacingLG),
+          Divider(height: 1, thickness: 0.5, color: cs.outlineVariant),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.history_rounded, color: cs.onSurfaceVariant),
+            title: const Text(RepairHistoryStrings.entry),
+            trailing:
+                Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant),
+            onTap: () => GoRouter.of(context)
+                .push('/repairs/${repair.uuid}/history', extra: repair.id),
+          ),
+        ],
       ],
     );
   }
@@ -1612,10 +1659,13 @@ class _DetailsGrid extends StatelessWidget {
             ? repair.consumptionNormName!
             : RepairCardStrings.normNotSet,
       ),
-      _Field(
-        label: RepairCardStrings.fieldStartedAt,
-        value: _formatDate(repair.startedAt),
-      ),
+      // На рассмотрении дата начала — отдельным блоком с замком под сеткой
+      // ([_LockedStartDate], макет 14g).
+      if (!repair.isUnderReview)
+        _Field(
+          label: RepairCardStrings.fieldStartedAt,
+          value: _formatDate(repair.startedAt),
+        ),
       if (repair.underReviewAt != null)
         _Field(
           label: RepairCardStrings.fieldFinishedAt,
@@ -1643,6 +1693,88 @@ class _DetailsGrid extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+/// Дата начала ремонта на рассмотрении — с замком и пояснением (макет 14g).
+///
+/// Пока ремонт на рассмотрении, сервер дату начала менять не даёт («Start
+/// date cannot be changed while repair is under review»). Обходчику её не
+/// поменять и в других статусах — права на правку ремонта у него нет, — но
+/// здесь запрет от самого статуса, и о нём стоит сказать прямо.
+class _LockedStartDate extends StatelessWidget {
+  final Repair repair;
+
+  const _LockedStartDate({required this.repair});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final start = repair.startedAt.toLocal();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _SectionLabel(
+          RepairCardStrings.labelStartedAt,
+          trailing: Text(
+            RepairStrings.timeZone(DateTime.now().timeZoneOffset),
+            style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+          ),
+        ),
+        const SizedBox(height: AppConstants.spacingSM),
+        Row(
+          children: [
+            Expanded(
+              child: _LockedValue(DateFormat('dd.MM.yyyy').format(start)),
+            ),
+            const SizedBox(width: AppConstants.spacingMD),
+            Expanded(child: _LockedValue(DateFormat('HH:mm').format(start))),
+          ],
+        ),
+        const SizedBox(height: AppConstants.spacingSM),
+        Text(
+          RepairCardStrings.startedAtLockedUnderReview,
+          style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+        ),
+      ],
+    );
+  }
+}
+
+/// Запертое поле: серая заливка, приглушённый текст, замок справа.
+class _LockedValue extends StatelessWidget {
+  final String value;
+
+  const _LockedValue(this.value);
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return Container(
+      height: AppConstants.textFieldHeight,
+      padding: const EdgeInsets.symmetric(horizontal: AppConstants.spacingMD),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainer,
+        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              value,
+              style: tt.bodyLarge?.copyWith(color: cs.onSurfaceVariant),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          Icon(Icons.lock_outline_rounded,
+              size: 20, color: cs.onSurfaceVariant),
+        ],
+      ),
     );
   }
 }

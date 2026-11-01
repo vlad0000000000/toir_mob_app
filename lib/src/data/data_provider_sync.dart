@@ -440,11 +440,11 @@ extension DataProviderSync on DataProvider {
         for (final draft in pendingRepairBox.values) {
           final uuid = draft.serverUuid;
           if (uuid == null || uuid.isEmpty) continue;
-          // Только пока ремонт активен: если администратор успел его
-          // закрыть, держать запись в кэше активных незачем — она попала бы
-          // во вкладку «Закрыт» вторым экземпляром рядом с серверным.
+          // Только пока ремонт не закрыт: если администратор успел его
+          // закрыть, держать запись в кэше незачем — она попала бы во
+          // вкладку «Закрыт» вторым экземпляром рядом с серверным.
           final cached = repairBox.get(uuid);
-          if (cached != null && cached.isActive) keep.add(uuid);
+          if (cached != null && cached.isUnfinished) keep.add(uuid);
         }
         // Ключ — uuid, а не автоинкремент: так отдельный ремонт можно
         // обновить точечно (см. DataProvider.upsertRepair), не перекачивая
@@ -475,8 +475,33 @@ extension DataProviderSync on DataProvider {
   /// Окно «с начала времён» вместо простого списка: тем же запросом приходит
   /// `sync_until`, от которого дальше считается инкрементальный проход. Без
   /// него отметку было бы неоткуда взять, и каждый проход оставался бы полным.
+  ///
+  /// Запланированные — тоже: их обходчик видит в списке и карточке заранее
+  /// (бэкенд `7be3756`).
+  ///
+  /// Сервер прошлой версии статуса `scheduled` не знает и на весь запрос
+  /// отвечает 422 — синхронизация ремонтов падала бы целиком, и список не
+  /// обновлялся бы вовсе. Тогда повторяем без него: запланированных там и
+  /// не бывает.
   Future<(List<Repair>, DateTime?)> _loadActiveRepairsWithCursor() async {
-    const statuses = [RepairStatuses.open, RepairStatuses.underReview];
+    try {
+      return await _loadRepairsWithCursor(const [
+        RepairStatuses.scheduled,
+        RepairStatuses.open,
+        RepairStatuses.underReview,
+      ]);
+    } on ServerFailureException catch (e) {
+      if (e.statusCode != 422) rethrow;
+      return _loadRepairsWithCursor(const [
+        RepairStatuses.open,
+        RepairStatuses.underReview,
+      ]);
+    }
+  }
+
+  Future<(List<Repair>, DateTime?)> _loadRepairsWithCursor(
+    List<String> statuses,
+  ) async {
     final since = DateTime.utc(1970);
     final first = await api.getRepairsPage(
       statuses: statuses,
@@ -549,7 +574,9 @@ extension DataProviderSync on DataProvider {
 
       await _commit(generation, 'Ремонты', () async {
         for (final repair in changed) {
-          if (repair.isActive) {
+          // Незакрытые — с запланированными: раньше здесь стоял `isActive`, и
+          // запланированный, приехав из окна, тут же выбрасывался из кэша.
+          if (repair.isUnfinished) {
             // Как и в полном проходе: подробности берём из кэша, их в списке
             // нет.
             await repairBox.put(
@@ -557,7 +584,7 @@ extension DataProviderSync on DataProvider {
               repair.withDetailsFrom(repairBox.get(repair.uuid)),
             );
           } else {
-            // Ремонт закрыли: в кэше активных ему больше не место. Закрытые
+            // Ремонт закрыли: в кэше незакрытых ему больше не место. Закрытые
             // приложение не кэширует вовсе — их отдаёт отдельный эндпоинт.
             await repairBox.delete(repair.uuid);
           }

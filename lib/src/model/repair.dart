@@ -6,12 +6,17 @@ import 'server_decimal.dart';
 class RepairStatuses {
   RepairStatuses._();
 
+  /// Запланирован: дата начала в будущем. Оборудование «В ремонт» не
+  /// переводит — в «Открыт» его переводит сервер, когда дата наступит.
+  static const String scheduled = 'scheduled';
   static const String open = 'open';
   static const String underReview = 'under_review';
   static const String closed = 'closed';
 
   static String displayName(String status) {
     switch (status) {
+      case scheduled:
+        return 'Запланирован';
       case open:
         return 'Открыт';
       case underReview:
@@ -154,15 +159,25 @@ class Repair {
   /// ([allowedActions]).
   bool? allows(String action) => allowedActions?.contains(action);
 
+  bool get isScheduled => status == RepairStatuses.scheduled;
+
   bool get isOpen => status == RepairStatuses.open;
 
   bool get isUnderReview => status == RepairStatuses.underReview;
 
   bool get isClosed => status == RepairStatuses.closed;
 
-  /// Активный ремонт — открытый или отправленный на рассмотрение. Именно их
-  /// приложение держит в офлайн-кэше; закрытые тянутся с сервера по запросу.
+  /// Активный ремонт — открытый или отправленный на рассмотрение: он держит
+  /// оборудование «В ремонте» и запирает смену его состояния. Запланированный
+  /// сюда не входит — до даты начала оборудование он не трогает.
   bool get isActive => isOpen || isUnderReview;
+
+  /// Незакрытый ремонт — запланированный или активный. Именно их приложение
+  /// держит в офлайн-кэше; закрытые тянутся с сервера по запросу.
+  ///
+  /// Раньше кэш держал «активные», и запланированные выбрасывались из него
+  /// при каждой синхронизации — обходчик их не видел вовсе.
+  bool get isUnfinished => isScheduled || isActive;
 
   /// Длительность ремонта для показа на момент [now].
   ///
@@ -174,8 +189,10 @@ class Repair {
   /// рассмотрении и закрытый — строка сервера: она уже не меняется.
   ///
   /// Черновику (`id == 0`, на сервере ремонта ещё нет) длительность не
-  /// показываем, как и раньше.
+  /// показываем, как и раньше. Запланированному — тоже: он ещё не начался, а
+  /// сервер с будущей датой начала присылает «0 мин».
   String? durationAt(DateTime now) {
+    if (isScheduled) return null;
     if (isOpen && id > 0) {
       return formatRepairDuration(now.difference(startedAt));
     }

@@ -890,6 +890,11 @@ extension AppSemanticColors on ColorScheme {
   Color get infoContainer => const Color(0xFFDBEAFE);
   Color get onInfoContainer => const Color(0xFF1E3A8A);
 
+  /// Запланированный ремонт — серо-синий, как пилюля «Запланирован» в
+  /// веб-админке (slate): спокойный, «ещё не начался», не путается ни с
+  /// красным «Открыт», ни с синим «прочитано».
+  Color get scheduled => const Color(0xFF475569);
+
   /// Приоритеты задач — единая семантика для всех badge.
   Color get priorityHigh => error;
   Color get priorityMedium => const Color(0xFFEA580C);

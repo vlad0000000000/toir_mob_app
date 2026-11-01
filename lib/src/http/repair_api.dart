@@ -60,6 +60,7 @@ extension RepairApi on API {
     int offset = 0,
     DateTime? updatedSince,
     DateTime? syncUntil,
+    String? equipmentUuid,
   }) async {
     _guardOffline();
     if (API.jwtToken == null) {
@@ -73,6 +74,9 @@ extension RepairApi on API {
         'limit': '$limit',
         'skip': '$offset',
         if (statuses != null && statuses.isNotEmpty) 'status': statuses,
+        // Ремонты одного оборудования — для блока «Незакрытые ремонты по
+        // оборудованию» (`repair_unfinished.dart`).
+        if (equipmentUuid != null) 'equipment_uuid': equipmentUuid,
         if (updatedSince != null)
           'updated_since': updatedSince.toUtc().toIso8601String(),
         if (syncUntil != null)
@@ -88,7 +92,9 @@ extension RepairApi on API {
     ).timeout(API._readTimeout);
 
     if (response.statusCode != 200 && response.statusCode != 201) {
-      throw Exception('Failed to load repairs: ${response.statusCode}');
+      // С кодом ответа: по 422 синхронизация узнаёт сервер, не знающий
+      // статуса `scheduled` (см. `_loadActiveRepairsWithCursor`).
+      _throwServerError(response, 'Failed to load repairs');
     }
     const utf8Decoder = Utf8Decoder(allowMalformed: true);
     final decoded = jsonDecode(utf8Decoder.convert(response.bodyBytes));
@@ -116,6 +122,34 @@ extension RepairApi on API {
       syncUntil: DateTime.tryParse(decoded['sync_until']?.toString() ?? ''),
       resyncRequired: parseResyncRequired(decoded),
     );
+  }
+
+  /// История ремонта — `GET /v1/repairs/{uuid}/history` (бэкенд `7be3756`):
+  /// создание, переносы даты, смены статуса. От старых к новым, как отдаёт
+  /// сервер. Только в сети: в кэш не кладётся.
+  Future<List<RepairHistoryEntry>> getRepairHistory(String repairUuid) async {
+    _guardOffline();
+    if (API.jwtToken == null) {
+      throw Exception('Not authenticated');
+    }
+
+    final response = await _client.get(
+      Uri.parse('${API.baseUrl}/v1/repairs/$repairUuid/history'),
+      headers: {
+        'Authorization': 'Bearer ${API.jwtToken}',
+      },
+    ).timeout(API._readTimeout);
+
+    if (response.statusCode != 200) {
+      _throwServerError(response, 'Не удалось загрузить историю ремонта');
+    }
+    const utf8Decoder = Utf8Decoder(allowMalformed: true);
+    final decoded = jsonDecode(utf8Decoder.convert(response.bodyBytes));
+    if (decoded is! List) return const [];
+    return [
+      for (final item in decoded)
+        if (item is Map<String, dynamic>) RepairHistoryEntry.fromJson(item),
+    ];
   }
 
   /// Последние 10 закрытых ремонтов, доступных текущему пользователю.
@@ -213,6 +247,7 @@ extension RepairApi on API {
     DateTime? startedAt,
     String? comment,
     String? idempotencyKey,
+    bool schedule = false,
   }) async {
     _guardOffline();
     if (API.jwtToken == null) {
@@ -225,6 +260,12 @@ extension RepairApi on API {
         'consumption_norm_uuid': consumptionNormUuid,
       if (startedAt != null) 'started_at': startedAt.toUtc().toIso8601String(),
       if (comment != null && comment.isNotEmpty) 'comment': comment,
+      // Явное планирование (бэкенд `7be3756`): без флага сервер будущую дату
+      // подменяет на «сейчас» и открывает ремонт сразу. Только `true`, и
+      // только когда нужен: `false` и отсутствие поля сервер хэширует для
+      // `Idempotency-Key` одинаково, а прошлая версия сервера с его строгой
+      // схемой отклонила бы незнакомое поле.
+      if (schedule) 'schedule': true,
     };
 
     final response = await _client

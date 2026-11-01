@@ -17,6 +17,7 @@ import '../../src/model/notification_settings.dart';
 import '../../src/model/periodicity_rule.dart';
 import '../../src/model/ppr.dart';
 import '../../src/model/repair.dart';
+import '../../src/model/repair_history.dart';
 import '../../src/model/scan.dart';
 import '../../src/model/spare_part.dart';
 import '../../src/model/task.dart';

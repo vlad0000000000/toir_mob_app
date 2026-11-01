@@ -89,6 +89,12 @@ class PendingRepair {
   /// Норма, с которой впервые ушло создание ([createComment]).
   final String? createNormUuid;
 
+  /// Ремонт запланирован: обходчик выбрал дату начала в будущем (бэкенд
+  /// `7be3756`). Решается **один раз**, при нажатии «Запланировать», и дальше
+  /// не меняется: флаг входит в тело создания под `Idempotency-Key`. Уйдёт
+  /// черновик позже выбранного времени — сервер сам откроет ремонт сразу.
+  final bool schedule;
+
   PendingRepair({
     required this.localId,
     required this.equipmentUuid,
@@ -108,10 +114,17 @@ class PendingRepair {
     this.normItems = const [],
     this.createComment,
     this.createNormUuid,
+    this.schedule = false,
   });
 
   /// Тело создания уже зафиксировано — создание отправлялось.
   bool get isCreateFrozen => createComment != null;
+
+  /// Черновик запланированного ремонта, чьё время ещё не наступило: он не
+  /// держит оборудование «В ремонте» и не запирает смену состояния. Время
+  /// прошло, а черновик не уехал — сервер откроет ремонт сразу, и черновик
+  /// уже ведёт себя как открытый.
+  bool isScheduledAt(DateTime now) => schedule && startedAt.isAfter(now);
 
   /// Комментарий надо отправить правкой после создания: он изменился с тех
   /// пор, как ушёл в создании.
@@ -145,6 +158,7 @@ class PendingRepair {
         normItems: normItems,
         createComment: comment.trim(),
         createNormUuid: normUuid,
+        schedule: schedule,
       );
 
   /// Новый черновик: ключ идемпотентности выводим из содержимого плюс момента
@@ -158,6 +172,7 @@ class PendingRepair {
     String? consumptionNormName,
     String comment = '',
     List<RepairNormItem> normItems = const [],
+    bool schedule = false,
   }) {
     final createdAt = DateTime.now();
     final localId = GlobalState.digest(jsonEncode({
@@ -166,6 +181,10 @@ class PendingRepair {
       'consumption_norm_uuid': consumptionNormUuid,
       'comment': comment,
       'created_at': createdAt.millisecondsSinceEpoch,
+      // Ключ меняется вместе с флагом: сервер хэширует `schedule` в тело
+      // под ключом, и запрос с тем же ключом, но другим флагом получил бы
+      // 409. Только при `true` — ключ обычного ремонта прежний.
+      if (schedule) 'schedule': true,
     }));
     return PendingRepair(
       localId: localId,
@@ -177,6 +196,7 @@ class PendingRepair {
       consumptionNormName: consumptionNormName,
       comment: comment,
       normItems: normItems,
+      schedule: schedule,
     );
   }
 
@@ -194,7 +214,11 @@ class PendingRepair {
     return Repair(
       id: 0,
       uuid: '',
-      status: RepairStatuses.open,
+      // Запланированный, пока его время не наступило, — как и будет на
+      // сервере; карточка тогда только для просмотра, как у серверного.
+      status: isScheduledAt(DateTime.now())
+          ? RepairStatuses.scheduled
+          : RepairStatuses.open,
       equipmentUuid: equipmentUuid,
       equipmentName: equipmentName,
       consumptionNormUuid: consumptionNormUuid,
@@ -249,6 +273,7 @@ class PendingRepair {
       normItems: normItems,
       createComment: createComment,
       createNormUuid: createNormUuid,
+      schedule: schedule,
     );
   }
 
@@ -278,6 +303,7 @@ class PendingRepair {
       normItems: normItems,
       createComment: createComment,
       createNormUuid: createNormUuid,
+      schedule: schedule,
     );
   }
 
@@ -303,6 +329,7 @@ class PendingRepair {
       normItems: normItems,
       createComment: createComment,
       createNormUuid: createNormUuid,
+      schedule: schedule,
     );
   }
 }
@@ -347,6 +374,9 @@ class PendingRepairAdapter extends TypeAdapter<PendingRepair> {
     // при следующей отправке.
     final createComment = _readTrailing<String>(reader);
     final createNormUuid = _readTrailing<String>(reader);
+    // Запланированный ремонт — у черновиков прошлой версии флага нет: они
+    // создавались только открытыми.
+    final schedule = _readTrailing<bool>(reader) ?? false;
     return PendingRepair(
       localId: localId,
       equipmentUuid: equipmentUuid,
@@ -366,6 +396,7 @@ class PendingRepairAdapter extends TypeAdapter<PendingRepair> {
       normItems: normItems,
       createComment: createComment,
       createNormUuid: createNormUuid,
+      schedule: schedule,
     );
   }
 
@@ -400,5 +431,6 @@ class PendingRepairAdapter extends TypeAdapter<PendingRepair> {
     writer.write(obj.normItems);
     writer.write(obj.createComment);
     writer.write(obj.createNormUuid);
+    writer.write(obj.schedule);
   }
 }

@@ -67,6 +67,8 @@ class RepairStatusPill extends StatelessWidget {
   /// обходчик и мастер должны видеть одно и то же.
   Color _color(ColorScheme cs) {
     switch (status) {
+      case RepairStatuses.scheduled:
+        return cs.scheduled;
       case RepairStatuses.open:
         return cs.error;
       case RepairStatuses.underReview:

@@ -44,6 +44,7 @@ import '../../src/onboarding/onboarding_video_player.dart';
 import '../../src/onboarding/onboarding_welcome_screen.dart';
 import '../../src/model/consumption_norm.dart';
 import '../../src/repairs/create_repair_screen.dart';
+import '../../src/repairs/repair_history_screen.dart';
 import '../../src/repairs/repair_detail_screen.dart';
 import '../../src/repairs/repairs_list_screen.dart';
 import '../../src/spare_parts/spare_part_detail_screen.dart';
@@ -448,6 +449,19 @@ class MyApp extends StatelessWidget {
             child: CreateRepairScreen(
               key: const Key('repair_create'),
               equipment: state.extra as InventoryRecord,
+            ),
+          );
+        },
+      ),
+      GoRoute(
+        // История ремонта (макет 14i). Номер — через `extra`, для заголовка.
+        path: '/repairs/:uuid/history',
+        pageBuilder: (context, state) {
+          return NoTransitionPage<void>(
+            child: RepairHistoryScreen(
+              key: Key('repair_history_${state.pathParameters['uuid']}'),
+              repairUuid: state.pathParameters['uuid'] ?? '',
+              repairId: state.extra is int ? state.extra as int : null,
             ),
           );
         },
