@@ -17,6 +17,9 @@ const String _noAccessMessage = repairNoAccessMessage;
 /// отложенного удаления это успех, а не отказ.
 const String _photoNotFoundMessage = 'Фотография не найдена';
 
+/// Итог уточнения статуса после 403 по правке — см. `_checkDenied`.
+enum _DeniedCheck { wait, noRights, stateChanged, unknown }
+
 /// Офлайн-очереди отправки: осмотры (scans), наработки (usage),
 /// периодические задачи, черновики ремонтов. Перекладывание pending ↔ box +
 /// ретраи.
@@ -298,10 +301,16 @@ extension DataProviderOutbox on DataProvider {
   /// Так снимается отказ, полученный, пока ремонт был запланирован (работа
   /// по нему обходчику не положена — 403), — сам по себе он ушёл бы только
   /// со сменой доступа ([retryNoRightsRejections]), а её может и не быть.
-  /// Если расход есть, а права на ЗИП нет, отказ настоящий — не трогаем,
-  /// иначе пометка снималась и ставилась бы заново на каждом проходе.
+  /// Настоящий отказ не трогаем, иначе пометка снималась и ставилась бы
+  /// заново на каждом проходе — PATCH и GET впустую и мигающая карточка:
+  /// * расход есть, а права на ЗИП нет;
+  /// * сервер на отказе подтвердил, что ремонт открыт
+  ///   ([RepairConflictKind.noRights]): `execute` бэкенд даёт без проверки
+  ///   подразделения, а правку подразделение не пускает, и кэш после снятия
+  ///   права ещё помнит `execute`.
   bool _noRightsRejectionIsStale(PendingRepairUpdate update) {
     if (!isRepairNoRightsMessage(update.lastError)) return false;
+    if (update.kind == RepairConflictKind.noRights) return false;
     if (sectionAccess.consumptionsBlocked(update.consumptions)) return false;
     final repair = repairBox.get(update.repairUuid);
     return repair != null &&
@@ -309,24 +318,60 @@ extension DataProviderOutbox on DataProvider {
         repair.allows(RepairActions.execute) == true;
   }
 
-  /// Правку по ремонту [uuid] после 403 «нет прав» не помечать, а оставить
-  /// как есть. Нужен потому, что кэш мог не знать о переносе ремонта на
-  /// будущее: перечитывает ремонт с сервера и кладёт в кэш.
+  /// Что делать с правкой по ремонту [uuid] после 403 «нет прав». Кэш мог не
+  /// знать о переносе ремонта на будущее — перечитывает ремонт с сервера и
+  /// кладёт в кэш.
   ///
-  /// `true` — ремонт запланирован (правка ждёт его начала) или, пока шёл
-  /// запрос, сменился аккаунт: ответ отброшен, а правка не нового
-  /// обходчика — пометку в его очередь писать нельзя. Не удалось прочитать —
-  /// `false`, правка получит отказ как обычно.
-  Future<bool> _shouldKeepWaitingAfterDenied(String uuid) async {
+  /// * [_DeniedCheck.wait] — ремонт запланирован (правка ждёт его начала)
+  ///   или, пока шёл запрос, сменился аккаунт: ответ отброшен, а правка не
+  ///   нового обходчика — пометку в его очередь писать нельзя;
+  /// * [_DeniedCheck.noRights] — ремонт открыт и он мой: отказ по правам
+  ///   настоящий;
+  /// * [_DeniedCheck.stateChanged] — дело не в правах: ремонт на
+  ///   рассмотрении, закрыт или передан другому. Бэкенд и на это отвечает
+  ///   403 `permission_denied` («Исполнитель может изменять только открытый
+  ///   ремонт»), а «нет прав» назвало бы не ту причину;
+  /// * [_DeniedCheck.unknown] — статус не уточнить: обычная пометка «нет
+  ///   прав», её очередь снимет сама, когда ремонт в кэше откроется.
+  ///
+  /// Второе значение — свежий ремонт, если его удалось прочитать.
+  Future<(_DeniedCheck, Repair?)> _checkDenied(String uuid) async {
     final generation = cacheGeneration;
     try {
       final fresh = await api.getRepair(uuid);
       await upsertRepair(fresh, generation: generation);
-      if (isStaleCacheGeneration(generation)) return true;
-      return fresh.isScheduled;
+      if (isStaleCacheGeneration(generation) || fresh.isScheduled) {
+        return (_DeniedCheck.wait, fresh);
+      }
+      final me = GlobalState.authUser?.uuid;
+      final mine =
+          fresh.isOpen && me != null && fresh.responsibleUserUuid == me;
+      return (
+        mine ? _DeniedCheck.noRights : _DeniedCheck.stateChanged,
+        fresh,
+      );
     } catch (_) {
-      return isStaleCacheGeneration(generation);
+      return (
+        isStaleCacheGeneration(generation)
+            ? _DeniedCheck.wait
+            : _DeniedCheck.unknown,
+        null,
+      );
     }
+  }
+
+  /// Вид конфликта по свежему ремонту [fresh]: закрыт, передан другому или
+  /// прочее.
+  RepairConflictKind _conflictKindOf(Repair fresh) {
+    if (fresh.isClosed) return RepairConflictKind.repairClosed;
+    // Ремонт жив, но ответственный уже не мы — забрал другой обходчик или
+    // переназначил администратор.
+    final me = GlobalState.authUser?.uuid;
+    final owner = fresh.responsibleUserUuid;
+    if (me != null && owner != null && owner.isNotEmpty && owner != me) {
+      return RepairConflictKind.repairReassigned;
+    }
+    return RepairConflictKind.other;
   }
 
   Future<String?> _findBlockingRepair(String equipmentUuid) async {
@@ -537,19 +582,30 @@ extension DataProviderOutbox on DataProvider {
           // похоронила бы: снимается она только сменой доступа. Уточняем
           // статус у сервера; запланирован — кладём свежий ремонт в кэш и
           // оставляем правку ждать его начала (см. проверку в начале цикла).
-          if (await _shouldKeepWaitingAfterDenied(current.repairUuid)) {
-            continue;
-          }
+          // Ремонт ушёл из «Открыт» или передан другому — это не права, а
+          // конфликт состояния: помечаем так же, как прочий отказ ниже.
+          final (check, fresh) = await _checkDenied(current.repairUuid);
+          if (check == _DeniedCheck.wait) continue;
           if (!pendingRepairUpdateBox.containsKey(current.repairUuid)) continue;
+          final changed = check == _DeniedCheck.stateChanged ? fresh : null;
           await pendingRepairUpdateBox.put(
             current.repairUuid,
             current.markRejected(
-              reason: repairNoRightsMessage,
-              conflictKind: RepairConflictKind.other.code,
+              reason: changed != null
+                  ? repairErrorMessage(e)
+                  : repairNoRightsMessage,
+              serverStatus: changed?.status,
+              conflictKind: changed != null
+                  ? _conflictKindOf(changed).code
+                  : check == _DeniedCheck.noRights
+                      ? RepairConflictKind.noRights.code
+                      : RepairConflictKind.other.code,
             ),
           );
-          _outboxLog.severe(
-              'правка ремонта ${current.repairUuid} отклонена: нет прав: $e');
+          _outboxLog.severe(changed != null
+              ? 'правка ремонта ${current.repairUuid} отклонена: ремонт '
+                  '«${changed.status}»: $e'
+              : 'правка ремонта ${current.repairUuid} отклонена: нет прав: $e');
           continue;
         }
         // Сервер отказал. Чтобы обходчику было что показать, дочитываем
@@ -561,20 +617,7 @@ extension DataProviderOutbox on DataProvider {
           final fresh = await api.getRepair(current.repairUuid);
           serverStatus = fresh.status;
           await upsertRepair(fresh);
-          if (fresh.isClosed) {
-            kind = RepairConflictKind.repairClosed;
-          } else {
-            // Ремонт жив, но ответственный уже не мы — забрал другой обходчик
-            // или переназначил администратор.
-            final me = GlobalState.authUser?.uuid;
-            final owner = fresh.responsibleUserUuid;
-            if (me != null &&
-                owner != null &&
-                owner.isNotEmpty &&
-                owner != me) {
-              kind = RepairConflictKind.repairReassigned;
-            }
-          }
+          kind = _conflictKindOf(fresh);
         } catch (readError) {
           // Доступа к ремонту больше нет — верный признак передачи другому
           // сотруднику: обходчику отдают только свои и своей должности.

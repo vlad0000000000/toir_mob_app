@@ -1,5 +1,6 @@
 import 'package:intl/intl.dart';
 
+import '../../strings.dart';
 import 'repair.dart';
 
 /// Запись истории ремонта — `GET /v1/repairs/{uuid}/history` (бэкенд
@@ -59,45 +60,81 @@ class RepairHistoryEntry {
   /// Подпись автора: «Система», «Сидоров А. И.» или «Автор неизвестен» — как
   /// в веб-админке.
   String get authorLabel {
-    if (isSystem) return 'Система';
+    if (isSystem) return RepairHistoryStrings.authorSystem;
     final name = actorFullname?.trim() ?? '';
-    return name.isEmpty ? 'Автор неизвестен' : shortName(name);
+    return name.isEmpty ? RepairHistoryStrings.authorUnknown : shortName(name);
   }
 
-  /// Что изменила запись — строки «подпись · значение» (макет 14i).
+  /// Инициалы для кружка автора: фамилия и имя — «МД». `null` — автора нет
+  /// (запуск по расписанию или учётную запись удалили).
+  String? get initials {
+    if (isSystem) return null;
+    final parts = (actorFullname?.trim() ?? '')
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .take(2);
+    final result = [for (final part in parts) part[0].toUpperCase()].join();
+    return result.isEmpty ? null : result;
+  }
+
+  /// Что произошло — «закрытие ремонта», «запуск по расписанию», как в
+  /// веб-админке.
+  String get actionLabel {
+    switch (action) {
+      case 'created':
+        return RepairHistoryStrings.actionCreated;
+      case 'deleted':
+        return RepairHistoryStrings.actionDeleted;
+      case 'rescheduled':
+        return RepairHistoryStrings.actionRescheduled;
+      case 'started':
+        return isSystem
+            ? RepairHistoryStrings.actionStartedByScheduler
+            : RepairHistoryStrings.actionStartedEarly;
+    }
+    switch (newStatus) {
+      case RepairStatuses.underReview:
+        return RepairHistoryStrings.actionSubmitted;
+      case RepairStatuses.closed:
+        return RepairHistoryStrings.actionClosed;
+      case RepairStatuses.open when oldStatus == RepairStatuses.underReview:
+        return RepairHistoryStrings.actionReturned;
+    }
+    return RepairHistoryStrings.actionStatusChanged;
+  }
+
+  /// Что изменила запись (макет 14i): создание, перенос даты начала, смена
+  /// статуса.
   ///
   /// Перенос открытого ремонта на будущее меняет и дату, и статус — тогда
   /// строк две. Запись без видимых изменений даёт пустой список: её не
   /// показываем.
-  List<(String, String)> get changes {
-    if (action == 'created') {
-      return [('Ремонт создан', _status(newStatus))];
+  List<RepairHistoryChange> get changes {
+    if (action == 'created' || action == 'deleted') {
+      final status = action == 'created' ? newStatus : oldStatus;
+      return [
+        if (status != null && status.isNotEmpty)
+          RepairHistoryChange.status(to: status),
+      ];
     }
-    if (action == 'deleted') {
-      return [('Ремонт удалён', _status(oldStatus))];
-    }
-    final result = <(String, String)>[];
+    final result = <RepairHistoryChange>[];
     final oldStart = oldStartedAt;
     final newStart = newStartedAt;
     if (oldStart != null &&
         newStart != null &&
         formatDateTime(oldStart) != formatDateTime(newStart)) {
-      result.add((
-        'Дата начала',
-        '${formatDateTime(oldStart)} – ${formatDateTime(newStart)}',
+      result.add(RepairHistoryChange.startDate(
+        from: formatDateTime(oldStart),
+        to: formatDateTime(newStart),
       ));
     }
     final from = oldStatus;
     final to = newStatus;
     if (from != null && to != null && from != to) {
-      result.add(('Статус', '${_status(from)} – ${_status(to)}'));
+      result.add(RepairHistoryChange.status(from: from, to: to));
     }
     return result;
   }
-
-  static String _status(String? status) => status == null || status.isEmpty
-      ? '—'
-      : RepairStatuses.displayName(status);
 
   static String formatDateTime(DateTime value) =>
       DateFormat('dd.MM.yyyy HH:mm').format(value.toLocal());
@@ -111,4 +148,29 @@ class RepairHistoryEntry {
     ].join(' ');
     return initials.isEmpty ? parts.first : '${parts.first} $initials';
   }
+}
+
+/// Строка карточки изменений: «Статус  Открыт → На рассмотрении» или
+/// «Дата начала  01.11.2026 17:15 → 02.11.2026 09:00».
+class RepairHistoryChange {
+  final String label;
+
+  /// Статус (код) или дата начала — от этого зависит, пилюли это или текст.
+  final bool isStatus;
+
+  /// Было. `null` — у создания и удаления: одно значение, без стрелки.
+  final String? from;
+
+  /// Стало: код статуса или дата строкой.
+  final String to;
+
+  const RepairHistoryChange.status({this.from, required this.to})
+      : label = RepairHistoryStrings.changeStatus,
+        isStatus = true;
+
+  const RepairHistoryChange.startDate({
+    required String this.from,
+    required this.to,
+  })  : label = RepairHistoryStrings.changeStartDate,
+        isStatus = false;
 }

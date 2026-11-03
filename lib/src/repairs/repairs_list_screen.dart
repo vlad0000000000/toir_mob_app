@@ -904,7 +904,7 @@ class _DraftTile extends StatelessWidget {
                         const SizedBox(height: AppConstants.spacingSM),
                         Row(
                           children: [
-                            const _DraftPill(),
+                            const RepairDraftPill(),
                             const SizedBox(width: AppConstants.spacingSM),
                             Flexible(
                               child: Text(
@@ -950,37 +950,6 @@ class _DraftTile extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// Пилюля черновика — стоит на месте статуса.
-class _DraftPill extends StatelessWidget {
-  const _DraftPill();
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppConstants.spacingSM,
-        vertical: 2,
-      ),
-      decoration: BoxDecoration(
-        color: cs.errorContainer,
-        borderRadius: BorderRadius.circular(AppConstants.radiusFull),
-      ),
-      child: Text(
-        // На месте статуса — «Черновик»: серверного статуса у него ещё нет
-        // (п. 4.2.4 отчёта). «Не отправлено» осталось за ремонтами, которые
-        // на сервере уже есть, но с неотправленными правками.
-        ConflictStrings.badgeDraft,
-        style: tt.labelSmall?.copyWith(
-          color: cs.error,
-          fontWeight: FontWeight.w600,
-        ),
       ),
     );
   }

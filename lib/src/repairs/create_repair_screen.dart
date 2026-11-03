@@ -45,8 +45,11 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
   bool _isSaving = false;
 
   /// Незакрытые ремонты этого оборудования — подсказка «уже есть ремонты» и
-  /// предупреждение о совпадении времени (макеты 14b, 14c-2).
-  UnfinishedRepairs _unfinished = UnfinishedRepairs.empty;
+  /// предупреждение о совпадении времени (макеты 14b, 14c-2). Сначала из
+  /// кэша — блок рисуется вместе с формой, — потом с сервера.
+  late UnfinishedRepairs _unfinished = cachedUnfinishedRepairs(
+    widget.equipment.uuid,
+  );
 
   @override
   void initState() {
@@ -54,10 +57,34 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
     _loadUnfinished();
   }
 
+  /// Номер последней загрузки блока: после возврата из карточки блок
+  /// перечитывается, и поздний ответ прежнего запуска не должен вернуть
+  /// старое.
+  int _unfinishedSeq = 0;
+
   Future<void> _loadUnfinished() async {
-    final result = await loadUnfinishedRepairs(widget.equipment.uuid);
-    if (!mounted) return;
+    final seq = ++_unfinishedSeq;
+    bool current() => mounted && seq == _unfinishedSeq;
+    final result = await loadUnfinishedRepairs(
+      widget.equipment.uuid,
+      onList: (list) {
+        if (current()) setState(() => _unfinished = list);
+      },
+    );
+    if (!current()) return;
     setState(() => _unfinished = result);
+  }
+
+  /// Карточка ремонта или черновика из блока поверх формы. После возврата
+  /// перечитываем блок: черновик могли удалить, ремонт — отправить на
+  /// рассмотрение, и блок показывал бы прежнее.
+  Future<void> _openFromBlock(String location, {Object? extra}) async {
+    await GoRouter.of(context).push(location, extra: extra);
+    if (!mounted) return;
+    setState(
+      () => _unfinished = withCurrentDrafts(widget.equipment.uuid, _unfinished),
+    );
+    _loadUnfinished();
   }
 
   @override
@@ -252,8 +279,10 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
     final responsible = GlobalState.authUser?.username ?? '';
     // Один раз на кадр: подпись, рамка и кнопка должны договориться.
     final isFuture = _isFuture;
-    final sameStart =
-        sameStartWarning(sameStartRepairs(_unfinished.repairs, _startedAt));
+    final sameStart = sameStartWarning(
+      sameStartRepairs(_unfinished.repairs, _startedAt),
+      drafts: sameStartDrafts(_unfinished.drafts, _startedAt),
+    );
     // Подпись под кнопкой — что будет с состоянием оборудования:
     // * совпало время — напоминаем, что предупреждение не мешает (14c-2);
     // * запланированный — ничего: об этом строка под датой (14c);
@@ -349,12 +378,14 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
           ),
           // Уже есть ремонты по этому оборудованию — показываем, кто и когда
           // (макет 14b). Создание это не блокирует.
-          if (_unfinished.repairs.isNotEmpty) ...[
+          if (!_unfinished.isEmpty) ...[
             const SizedBox(height: AppConstants.spacingLG),
             UnfinishedRepairsBlock(
               data: _unfinished,
-              onOpen: (repair) => GoRouter.of(context)
-                  .push('/repairs/${repair.uuid}', extra: repair),
+              onOpen: (repair) =>
+                  _openFromBlock('/repairs/${repair.uuid}', extra: repair),
+              onOpenDraft: (draft) =>
+                  _openFromBlock('/repair_draft/${draft.localId}'),
             ),
           ],
           const SizedBox(height: AppConstants.spacingLG),

@@ -21,6 +21,11 @@ enum RepairConflictKind {
   /// Ремонт передан другому ответственному — доступа больше нет.
   repairReassigned('repair_reassigned'),
 
+  /// 403 «нет прав», а сервер подтвердил, что ремонт открыт: отказ по правам
+  /// роли (подразделение, снятое право), а не по статусу. Очередь такую
+  /// пометку сама не снимает — только смена доступа или «Повторить».
+  noRights('no_rights'),
+
   /// Прочий отказ сервера. Отправку можно повторить.
   other('other');
 
@@ -39,5 +44,6 @@ enum RepairConflictKind {
   bool get canTransfer => this == equipmentBusyMine;
 
   /// Повторять отправку бессмысленно — сервер откажет снова.
-  bool get isFinal => this != other;
+  /// Отказ по правам не окончательный: доступ могут вернуть.
+  bool get isFinal => this != other && this != noRights;
 }

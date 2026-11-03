@@ -94,30 +94,43 @@ class _QRResultScreenState extends State<QRResultScreen> {
   // понадобилась очереди осмотров, а четвёртой копии в проекте быть не должно.
   bool _isOfflineError(Object e) => isOfflineError(e);
 
-  /// Незакрытые ремонты этого оборудования — блок под паспортом (макет 14h)
-  /// и выбор ремонта в окне «Оборудование в ремонте» (14h-2).
-  UnfinishedRepairs _unfinished = UnfinishedRepairs.empty;
+  /// Незакрытые ремонты этого оборудования — блок под паспортом (макет 14h).
+  /// Сначала из кэша — блок рисуется вместе с карточкой, — потом с сервера.
+  late UnfinishedRepairs _unfinished = cachedUnfinishedRepairs(
+    widget.machine.uuid,
+  );
 
-  /// Блок незакрытых ремонтов — к нему прокручивает окно, когда ремонтов
-  /// несколько и открывать один из них наугад нельзя.
-  final GlobalKey _unfinishedKey = GlobalKey();
+  /// Номер последней загрузки блока. Блок перечитывается не раз — после
+  /// возврата из карточки, после создания ремонта, — и ответ более раннего
+  /// запуска, пришедший позже, вернул бы прежний статус («Открыт» у уже
+  /// отправленного на рассмотрение).
+  int _unfinishedSeq = 0;
 
   Future<void> _loadUnfinished() async {
     if (widget.machine.uuid == DemoEquipment.demoUuid) return;
-    final result = await loadUnfinishedRepairs(widget.machine.uuid);
-    if (!mounted) return;
+    final seq = ++_unfinishedSeq;
+    bool current() => mounted && seq == _unfinishedSeq;
+    final result = await loadUnfinishedRepairs(
+      widget.machine.uuid,
+      onList: (list) {
+        if (current()) setState(() => _unfinished = list);
+      },
+    );
+    if (!current()) return;
     setState(() => _unfinished = result);
   }
 
   /// Окно «Оборудование в ремонте» (макет 14h-2): почему состояние заперто и
-  /// что можно сделать — открыть ремонт, создать ещё один (ремонтов по
-  /// оборудованию может быть несколько, бэкенд `7be3756`) или закрыть.
+  /// что можно сделать — создать ещё один ремонт (ремонтов по оборудованию
+  /// может быть несколько, бэкенд `7be3756`) или закрыть.
+  ///
+  /// «Открыть ремонт» здесь нет: незакрытые ремонты и так видны блоком на
+  /// этом экране, оттуда их и открывают.
   ///
   /// Одно окно на все случаи. Раньше их было три — свой ремонт, черновик в
   /// очереди, чужой ремонт, — и ни одно не давало завести второй ремонт.
   void _showEquipmentInRepair() {
     final access = GlobalState.dataProvider.sectionAccess;
-    final open = _holdingRepairAction();
     showDialog<void>(
       context: context,
       builder: (ctx) => InfoDialog(
@@ -127,23 +140,14 @@ class _QRResultScreenState extends State<QRResultScreen> {
         note: DialogStrings.repairsInProgressNote,
         noteTinted: true,
         actions: [
-          if (open != null)
-            DialogPrimaryButton(
-              label: DialogStrings.openRepair,
-              icon: Icons.edit_note_rounded,
-              onPressed: () {
-                Navigator.of(ctx).pop();
-                open();
-              },
-            ),
           if (access.repairCreate)
-            OutlinedButton.icon(
+            DialogPrimaryButton(
+              label: DialogStrings.createRepair,
+              icon: Icons.add_rounded,
               onPressed: () {
                 Navigator.of(ctx).pop();
                 _openCreateRepair();
               },
-              icon: const Icon(Icons.add_rounded, size: 20),
-              label: const Text(DialogStrings.createRepair),
             ),
           DialogSecondaryButton(
             label: DialogStrings.close,
@@ -154,47 +158,6 @@ class _QRResultScreenState extends State<QRResultScreen> {
     );
   }
 
-  /// Что сделает «Открыть ремонт». `null` — открывать нечего: оборудование
-  /// держит ремонт, которого обходчик не видит (чужого направления), —
-  /// кнопки тогда нет.
-  ///
-  /// * один активный ремонт — открываем его;
-  /// * несколько — прокручиваем к блоку незакрытых ремонтов: какой из них
-  ///   нужен, решает обходчик (так же решено в вебе);
-  /// * активного нет, но в очереди черновик — открываем черновик.
-  VoidCallback? _holdingRepairAction() {
-    final active = [
-      for (final repair in _unfinished.repairs)
-        if (repair.isActive) repair,
-    ];
-    // Свежий ремонт может быть в кэше раньше, чем в загруженном блоке.
-    final cached = _activeRepairForMachine();
-    if (active.isEmpty && cached != null) active.add(cached);
-    if (active.length == 1) {
-      final repair = active.single;
-      return () => _openRepairPage('/repairs/${repair.uuid}', extra: repair);
-    }
-    if (active.length > 1) {
-      return () {
-        final target = _unfinishedKey.currentContext;
-        if (target == null) return;
-        Scrollable.ensureVisible(
-          target,
-          duration: AppConstants.durationFast,
-          alignment: 0.05,
-        );
-      };
-    }
-    final now = DateTime.now();
-    for (final draft in GlobalState.dataProvider.pendingRepairs) {
-      if (draft.equipmentUuid == widget.machine.uuid &&
-          !draft.isScheduledAt(now)) {
-        return () => _openRepairPage('/repair_draft/${draft.localId}');
-      }
-    }
-    return null;
-  }
-
   /// Карточка ремонта или черновика поверх экрана. После возврата
   /// перечитываем блок незакрытых ремонтов и пилюлю: в карточке ремонт могли
   /// отправить на рассмотрение, а черновик — удалить, и блок показывал бы
@@ -202,7 +165,11 @@ class _QRResultScreenState extends State<QRResultScreen> {
   Future<void> _openRepairPage(String location, {Object? extra}) async {
     await GoRouter.of(context).push(location, extra: extra);
     if (!mounted) return;
-    setState(() {});
+    // Черновики — из очереди сразу: удалённый в карточке не должен висеть в
+    // блоке, пока идёт запрос.
+    setState(
+      () => _unfinished = withCurrentDrafts(widget.machine.uuid, _unfinished),
+    );
     _loadUnfinished();
   }
 
@@ -215,7 +182,10 @@ class _QRResultScreenState extends State<QRResultScreen> {
   Future<void> _openCreateRepair() async {
     await GoRouter.of(context).push('/repair_create', extra: widget.machine);
     if (!mounted) return;
-    setState(() {});
+    // Новый черновик — в блоке сразу, не дожидаясь ответа сервера.
+    setState(
+      () => _unfinished = withCurrentDrafts(widget.machine.uuid, _unfinished),
+    );
     _loadUnfinished();
   }
 
@@ -759,9 +729,8 @@ class _QRResultScreenState extends State<QRResultScreen> {
             passport(),
             // Незакрытые ремонты по оборудованию (макет 14h): кто и когда уже
             // работает. Нажатие открывает ремонт.
-            if (_unfinished.repairs.isNotEmpty)
+            if (!_unfinished.isEmpty)
               Padding(
-                key: _unfinishedKey,
                 padding: const EdgeInsets.symmetric(
                   horizontal: AppConstants.spacingSM,
                   vertical: AppConstants.spacingSM,
@@ -770,6 +739,8 @@ class _QRResultScreenState extends State<QRResultScreen> {
                   data: _unfinished,
                   onOpen: (repair) =>
                       _openRepairPage('/repairs/${repair.uuid}', extra: repair),
+                  onOpenDraft: (draft) =>
+                      _openRepairPage('/repair_draft/${draft.localId}'),
                 ),
               ),
             ResultControls(

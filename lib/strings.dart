@@ -211,6 +211,17 @@ class RepairStrings {
       '№$id · ${scheduled ? 'Начнётся' : 'Начат'} $start';
   static const String unfinishedNoResponsible = 'ответственный не назначен';
 
+  /// Строка черновика из очереди в блоке незакрытых ремонтов: номера у него
+  /// ещё нет.
+  static String unfinishedDraftStart({
+    required bool scheduled,
+    required String start,
+  }) =>
+      '${scheduled ? 'Начнётся' : 'Начат'} $start';
+  static const String unfinishedDraftWaiting = 'Ждёт отправки на сервер';
+  static const String unfinishedDraftRejected =
+      'Не отправлен — откройте, чтобы разобраться';
+
   /// Плитка запланированного черновика в списке.
   static String draftStartsAt(String date) => 'Начнётся $date';
 
@@ -219,6 +230,12 @@ class RepairStrings {
       'На это время уже ${scheduled ? 'запланирован' : 'начат'} ремонт $ref';
   static String sameStartMany(String refs) =>
       'На это время уже есть ремонты $refs';
+
+  /// Совпадение по времени с неотправленным черновиком из очереди: номера у
+  /// него ещё нет.
+  static const String sameStartDraft =
+      'На это время уже есть ваш неотправленный ремонт';
+  static const String sameStartDraftRef = 'неотправленный черновик';
   static const String sameStartFooter =
       'Предупреждение не мешает сохранить ремонт';
 
@@ -1091,7 +1108,6 @@ class DialogStrings {
       'Укажите данные обхода: комментарий, проблему, задачу или наработку.';
 
   static const String toRepairs = 'К ремонтам';
-  static const String openRepair = 'Открыть ремонт';
   static const String repairInProgressTitle = 'Оборудование в ремонте';
   /// Окно по нажатию на «В ремонте» (макет 14h-2): ремонтов может быть
   /// несколько.
@@ -1164,6 +1180,28 @@ class RepairHistoryStrings {
   static const String loadFailedTitle = 'Не удалось загрузить историю';
   static const String loadFailedHint =
       'История доступна только в сети. Проверьте соединение и потяните вниз.';
+
+  static const String authorSystem = 'Система';
+  static const String authorUnknown = 'Автор неизвестен';
+
+  /// Что произошло — существительным, как в веб-админке: «перенёс /
+  /// перенесла» зависят от пола сотрудника, которого мы не знаем.
+  static const String actionCreated = 'создание ремонта';
+  static const String actionDeleted = 'удаление ремонта';
+  static const String actionRescheduled = 'перенос ремонта';
+  static const String actionStartedByScheduler = 'запуск по расписанию';
+  static const String actionStartedEarly = 'досрочный старт';
+  static const String actionSubmitted = 'отправка на рассмотрение';
+  static const String actionClosed = 'закрытие ремонта';
+  static const String actionReturned = 'возврат на доработку';
+  static const String actionStatusChanged = 'смена статуса';
+
+  static const String changeStatus = 'Статус';
+  static const String changeStartDate = 'Дата начала';
+
+  /// «1 событие», «3 события», «5 событий».
+  static String eventsCount(int count) =>
+      '$count ${pluralRu(count, 'событие', 'события', 'событий')}';
 }
 
 /// Общие строки поиска и листа «Фильтры» — ЗИП, оборудование, задачи.

@@ -9,10 +9,12 @@ import '../model/repair_history.dart';
 import '../utils/go_router_ext.dart';
 import '../utils/offline_error.dart';
 import '../widgets/empty_state.dart';
+import 'repair_status_pill.dart';
 
 /// «История ремонта №…» (макет 14i): создание, переносы даты начала и смены
-/// статуса, новые сверху. Автор — «Система» (запуск по дате), «Сидоров А. И.»
-/// или «Автор неизвестен».
+/// статуса, новые сверху. Вид — как блок «История изменений» в карточке
+/// ремонта веб-админки: лента событий с кружком автора («МД», у «Системы» —
+/// часы), «Морозов Д. А. закрытие ремонта», время и карточка «было → стало».
 ///
 /// Только в сети: история не кэшируется, она нужна редко и только на этом
 /// экране. Вход — пункт «История изменений» внизу карточки ремонта.
@@ -140,22 +142,134 @@ class _RepairHistoryScreenState extends State<RepairHistoryScreen> {
         ],
       );
     }
-    return ListView.separated(
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    // Лента событий, как блок «История изменений» в веб-админке: сверху число
+    // событий, ниже — запись за записью, связанные линией.
+    return ListView.builder(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(AppConstants.spacingMD),
-      itemCount: rows.length,
-      separatorBuilder: (_, __) =>
-          const SizedBox(height: AppConstants.spacingSM),
-      itemBuilder: (context, index) => _HistoryCard(entry: rows[index]),
+      itemCount: rows.length + 1,
+      itemBuilder: (context, index) {
+        if (index == 0) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              RepairHistoryStrings.eventsCount(rows.length),
+              style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+            ),
+          );
+        }
+        return _HistoryEvent(
+          entry: rows[index - 1],
+          isLast: index == rows.length,
+        );
+      },
     );
   }
 }
 
-/// Запись истории: автор пилюлей и время, ниже — что изменилось.
-class _HistoryCard extends StatelessWidget {
+/// Событие ленты: кружок автора слева, линия от него к следующему событию;
+/// справа — «Морозов Д. А. закрытие ремонта», время и карточка изменений.
+class _HistoryEvent extends StatelessWidget {
   final RepairHistoryEntry entry;
 
-  const _HistoryCard({required this.entry});
+  /// Последнее (самое старое) событие — линии вниз нет.
+  final bool isLast;
+
+  const _HistoryEvent({required this.entry, required this.isLast});
+
+  static const double _avatarSize = 32;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    // IntrinsicHeight — чтобы линия слева тянулась на всю высоту события,
+    // вместе с отступом до следующего.
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: _avatarSize,
+            child: Column(
+              children: [
+                _Avatar(entry: entry, size: _avatarSize),
+                if (!isLast)
+                  Expanded(
+                    child: Container(
+                      width: 1,
+                      margin: const EdgeInsets.only(top: 4),
+                      color: cs.outlineVariant,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: isLast ? 0 : 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Как в вебе: время справа, а не влезает в строку — уходит
+                  // на следующую. Длинное ФИО просто переносится.
+                  Container(
+                    constraints: const BoxConstraints(minHeight: _avatarSize),
+                    alignment: Alignment.centerLeft,
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 12,
+                        runSpacing: 2,
+                        children: [
+                          Text.rich(
+                            TextSpan(children: [
+                              TextSpan(
+                                text: entry.authorLabel,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const TextSpan(text: ' '),
+                              TextSpan(
+                                text: entry.actionLabel,
+                                style: TextStyle(color: cs.onSurfaceVariant),
+                              ),
+                            ]),
+                            style: tt.bodyMedium,
+                          ),
+                          Text(
+                            RepairHistoryEntry.formatDateTime(entry.createdAt),
+                            style: tt.bodySmall
+                                ?.copyWith(color: cs.onSurfaceVariant),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppConstants.spacingSM),
+                  _ChangesCard(changes: entry.changes),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Кружок автора: инициалы, у «Системы» — часы, без автора — «?».
+class _Avatar extends StatelessWidget {
+  final RepairHistoryEntry entry;
+  final double size;
+
+  const _Avatar({required this.entry, required this.size});
 
   @override
   Widget build(BuildContext context) {
@@ -163,62 +277,128 @@ class _HistoryCard extends StatelessWidget {
     final tt = Theme.of(context).textTheme;
     // «Система» — серо-синим, как статус «Запланирован»: её запись — всегда
     // запуск запланированного ремонта по дате.
-    final authorColor = entry.isSystem ? cs.scheduled : cs.onSurface;
+    final color = entry.isSystem ? cs.scheduled : cs.primary;
     return Container(
-      padding: const EdgeInsets.all(AppConstants.spacingMD),
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        shape: BoxShape.circle,
+      ),
+      child: entry.isSystem
+          ? Icon(Icons.schedule_rounded, size: 18, color: color)
+          : Text(
+              entry.initials ?? '?',
+              style: tt.labelMedium?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+    );
+  }
+}
+
+/// Карточка изменений события: строки «подпись — было → стало».
+class _ChangesCard extends StatelessWidget {
+  final List<RepairHistoryChange> changes;
+
+  const _ChangesCard({required this.changes});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return Container(
+      // Карточка на всю ширину ленты, строки прижаты влево: у всех событий
+      // карточки одного размера, подписи и значения — в один столбец.
+      width: double.infinity,
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: cs.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(AppConstants.radiusLG),
+        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
         border: Border.all(color: cs.outlineVariant),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Wrap, а не Row: с длинным ФИО дата уходит на вторую строку, а
-          // пилюля ужимается до ширины карточки и обрезается многоточием.
-          LayoutBuilder(
-            builder: (context, constraints) => Wrap(
-              spacing: AppConstants.spacingSM,
-              runSpacing: AppConstants.spacingXS,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: constraints.maxWidth),
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: entry.isSystem
-                          ? cs.scheduled.withValues(alpha: 0.12)
-                          : cs.surfaceContainerHigh,
-                      borderRadius:
-                          BorderRadius.circular(AppConstants.radiusFull),
-                    ),
-                    child: Text(
-                      entry.authorLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: tt.labelMedium?.copyWith(
-                        color: authorColor,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+          for (final (index, change) in changes.indexed) ...[
+            if (index > 0) Divider(height: 1, color: cs.outlineVariant),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              // Подпись над значением, а не слева, как в вебе: на ширине
+              // телефона «было → стало» иначе не влезает в строку.
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    change.label,
+                    style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
                   ),
-                ),
-                Text(
-                  RepairHistoryEntry.formatDateTime(entry.createdAt),
-                  style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
-                ),
-              ],
+                  const SizedBox(height: 6),
+                  _ChangeValue(change: change),
+                ],
+              ),
             ),
-          ),
-          for (final (label, value) in entry.changes) ...[
-            const SizedBox(height: AppConstants.spacingSM),
-            Text('$label · $value', style: tt.bodyLarge),
           ],
         ],
       ),
+    );
+  }
+}
+
+/// «было → стало»: у статуса — пилюли (прежняя бледнее), у даты — прежняя
+/// зачёркнута, новая жирным. Не влезает — переносится по стрелке.
+class _ChangeValue extends StatelessWidget {
+  final RepairHistoryChange change;
+
+  const _ChangeValue({required this.change});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final from = change.from;
+    final Widget to;
+    Widget? was;
+    if (change.isStatus) {
+      to = RepairStatusPill(status: change.to, compact: true);
+      if (from != null) {
+        was = Opacity(
+          opacity: 0.6,
+          child: RepairStatusPill(status: from, compact: true),
+        );
+      }
+    } else {
+      to = Text(
+        change.to,
+        style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+      );
+      if (from != null) {
+        was = Text(
+          from,
+          style: tt.bodyMedium?.copyWith(
+            color: cs.onSurfaceVariant,
+            decoration: TextDecoration.lineThrough,
+          ),
+        );
+      }
+    }
+    return Wrap(
+      spacing: AppConstants.spacingSM,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        if (was != null) ...[
+          was,
+          Icon(
+            Icons.arrow_forward_rounded,
+            size: 14,
+            color: cs.onSurfaceVariant,
+          ),
+        ],
+        to,
+      ],
     );
   }
 }

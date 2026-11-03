@@ -41,6 +41,38 @@ class RepairFreePill extends StatelessWidget {
   }
 }
 
+/// Пилюля черновика — стоит на месте статуса: в списке ремонтов и в блоке
+/// незакрытых ремонтов оборудования.
+class RepairDraftPill extends StatelessWidget {
+  const RepairDraftPill({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppConstants.spacingSM,
+        vertical: 2,
+      ),
+      decoration: BoxDecoration(
+        color: cs.errorContainer,
+        borderRadius: BorderRadius.circular(AppConstants.radiusFull),
+      ),
+      child: Text(
+        // На месте статуса — «Черновик»: серверного статуса у него ещё нет
+        // (п. 4.2.4 отчёта). «Не отправлено» осталось за ремонтами, которые
+        // на сервере уже есть, но с неотправленными правками.
+        ConflictStrings.badgeDraft,
+        style: tt.labelSmall?.copyWith(
+          color: cs.error,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
 /// Пилюля статуса ремонта. По общему образцу приложения: заливка цветом с
 /// прозрачностью 0.12, точка и текст — тем же цветом на полной непрозрачности.
 ///
