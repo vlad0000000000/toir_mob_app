@@ -197,8 +197,9 @@ class _QRActionsState extends State<QRActions> {
   }
 
   Future<void> _onResetScans() async {
-    await GlobalState.dataProvider.scanBox.clear();
-    await GlobalState.dataProvider.scanPendingBox.clear();
+    // Только свои: неотправленные осмотры другого аккаунта на этом телефоне
+    // ждут его входа (п. 1.5 отчёта).
+    await GlobalState.dataProvider.deleteMyScans();
     GlobalState.dataProvider.refreshRejectedScansCount();
     // Очередь опустела — задачи снова должны стать активными. Без сброса
     // кэша они остались бы скрытыми до первого захода в «Задачи».

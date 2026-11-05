@@ -258,6 +258,42 @@ class ServerFailureException implements Exception {
 /// формат [toString] те же, а 403/409 не «временный сбой», так что разбор
 /// очередей по-прежнему считает это отказом по существу, — но по [code]
 /// очередь отличает его от прочих отказов и называет причину по-своему.
+/// 409 `repair_not_open` (бэкенд `8a88247`): исполнитель правит ремонт не в
+/// статусе «Открыт» — его перенесли на будущее, отправили на рассмотрение или
+/// закрыли. Сервер шлёт его только на заголовок
+/// `X-Repair-Conflict-Format: 2`; без заголовка — прежний 403
+/// `permission_denied` с тем же текстом.
+///
+/// Не «нет прав»: доступ на месте, поменялся ремонт. По [status] очередь
+/// решает — ждать начала (`scheduled`) или считать правку конфликтом.
+class RepairNotOpenException extends ServerFailureException {
+  static const String code = 'repair_not_open';
+
+  /// Текущий статус ремонта на сервере. `null` — сервер его не прислал.
+  final String? status;
+
+  RepairNotOpenException(super.statusCode, super.message, this.status);
+
+  bool get isScheduled => status == 'scheduled';
+
+  static RepairNotOpenException? fromResponse(int statusCode, String body) {
+    if (statusCode != 409) return null;
+    try {
+      final data = jsonDecode(body);
+      if (data is! Map<String, dynamic> || data['code'] != code) return null;
+      final detail = data['detail'];
+      final status = data['status'];
+      return RepairNotOpenException(
+        statusCode,
+        detail is String && detail.trim().isNotEmpty ? detail : code,
+        status is String ? status : null,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
 class AccessDeniedException extends ServerFailureException {
   final String code;
 

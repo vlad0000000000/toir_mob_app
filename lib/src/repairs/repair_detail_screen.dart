@@ -16,6 +16,7 @@ import '../data/data_provider.dart';
 import '../data/repair_photo_files.dart';
 import '../design/app_constants.dart';
 import '../design/app_theme.dart';
+import '../exceptions/app_exceptions.dart';
 import '../http/api.dart';
 import '../model/pending_repair.dart';
 import '../model/pending_repair_update.dart';
@@ -422,8 +423,25 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
         );
         return;
       }
+      // Ремонт перенесли на будущее, пока карточка была открыта: заполненное
+      // не теряем — в очередь, она отправит правку, когда ремонт начнётся.
+      // Карточку перечитываем: плашка «запланирован» и «изменения уйдут,
+      // когда он начнётся» должны появиться сразу.
+      if (e is RepairNotOpenException && e.isScheduled) {
+        await _queueUpdate(
+          submitForReview: submitForReview,
+          clearRejection: true,
+        );
+        if (!mounted) return;
+        setState(() => _isSaving = false);
+        _showSnack(message: _messageOf(e), ok: true);
+        _load();
+        return;
+      }
       setState(() => _isSaving = false);
       _showSnack(message: _messageOf(e), ok: false);
+      // На рассмотрении или закрыт — показываем ремонт таким, какой он есть.
+      if (e is RepairNotOpenException) _load();
     }
   }
 
@@ -652,16 +670,24 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
       // Связи нет — снимок кладём файлом на устройство и ставим в очередь.
       // Терять кадр, который обходчик уже сделал у станка, нельзя: второй раз
       // он туда не пойдёт.
-      if (isRetryableRepairError(e)) {
+      // Ремонт перенесли на будущее — кадр тоже в очередь: уйдёт, когда
+      // ремонт начнётся (см. сохранение формы).
+      final scheduled = e is RepairNotOpenException && e.isScheduled;
+      if (isRetryableRepairError(e) || scheduled) {
         final path = await RepairPhotoFiles.save(bytes);
         await _queuePhotoChange(addPath: path);
         if (!mounted) return;
         setState(() => _isPhotoBusy = false);
-        _showSnack(message: RepairCardStrings.photoQueued, ok: true);
+        _showSnack(
+          message: scheduled ? _messageOf(e) : RepairCardStrings.photoQueued,
+          ok: true,
+        );
+        if (scheduled) _load();
         return;
       }
       setState(() => _isPhotoBusy = false);
       _showSnack(message: _messageOf(e), ok: false);
+      if (e is RepairNotOpenException) _load();
     }
   }
 
@@ -675,14 +701,20 @@ class _RepairDetailScreenState extends State<RepairDetailScreen> {
       await _reloadAfterPhotoChange();
     } catch (e) {
       if (!mounted) return;
-      if (isRetryableRepairError(e)) {
+      final scheduled = e is RepairNotOpenException && e.isScheduled;
+      if (isRetryableRepairError(e) || scheduled) {
         await _queuePhotoChange(deleteUuid: photo.uuid);
         if (!mounted) return;
         setState(() => _isPhotoBusy = false);
+        if (scheduled) {
+          _showSnack(message: _messageOf(e), ok: true);
+          _load();
+        }
         return;
       }
       setState(() => _isPhotoBusy = false);
       _showSnack(message: _messageOf(e), ok: false);
+      if (e is RepairNotOpenException) _load();
     }
   }
 

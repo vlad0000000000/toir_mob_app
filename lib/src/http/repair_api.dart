@@ -24,6 +24,15 @@ class RepairsPage {
   });
 }
 
+/// Заголовок правки ремонта исполнителем (бэкенд `8a88247`): с ним ремонт не
+/// в статусе «Открыт» отвечает 409 `repair_not_open` со статусом
+/// ([RepairNotOpenException]), без него — 403 «нет прав», и очередь
+/// угадывала бы причину, перечитывая ремонт. Сервер прошлой версии заголовок
+/// не знает и отвечает по-старому — для него обход в очереди остаётся.
+const Map<String, String> _repairConflictFormat = {
+  'X-Repair-Conflict-Format': '2',
+};
+
 extension RepairApi on API {
   /// Список ремонтов.
   ///
@@ -122,6 +131,57 @@ extension RepairApi on API {
       syncUntil: DateTime.tryParse(decoded['sync_until']?.toString() ?? ''),
       resyncRequired: parseResyncRequired(decoded),
     );
+  }
+
+  /// Незакрытые ремонты оборудования — подсказка по всем службам,
+  /// `GET /v1/company/equipment/{uuid}/unfinished-repairs` (бэкенд
+  /// `8a88247`). По дате начала, затем по номеру.
+  ///
+  /// `null` — сервер прошлой версии, такого адреса у него нет: вызывающий
+  /// откатывается на список ремонтов. Отличаем по телу 404: неизвестный
+  /// маршрут FastAPI отдаёт без `code`, а «оборудование не найдено» — с
+  /// `code: not_found`; тогда подсказывать нечего — пустой список.
+  ///
+  /// Ремонтов у оборудования единицы — одной страницы в 100 хватает.
+  Future<List<UnfinishedRepairHint>?> getEquipmentUnfinishedRepairs(
+    String equipmentUuid,
+  ) async {
+    _guardOffline();
+    if (API.jwtToken == null) {
+      throw Exception('Not authenticated');
+    }
+    final uri = Uri.parse(
+      '${API.baseUrl}/v1/company/equipment/$equipmentUuid/unfinished-repairs',
+    ).replace(queryParameters: const {'skip': '0', 'limit': '100'});
+    final response = await _client.get(
+      uri,
+      headers: {
+        'Authorization': 'Bearer ${API.jwtToken}',
+      },
+    ).timeout(API._readTimeout);
+
+    const utf8Decoder = Utf8Decoder(allowMalformed: true);
+    if (response.statusCode == 404) {
+      Object? body;
+      try {
+        body = jsonDecode(utf8Decoder.convert(response.bodyBytes));
+      } catch (_) {
+        body = null;
+      }
+      final hasCode = body is Map && body['code'] is String;
+      return hasCode ? const [] : null;
+    }
+    if (response.statusCode != 200) {
+      _throwServerError(response, 'Failed to load unfinished repairs');
+    }
+    final decoded = jsonDecode(utf8Decoder.convert(response.bodyBytes));
+    if (decoded is! List) {
+      throw Exception('Failed to load unfinished repairs: unexpected payload');
+    }
+    return [
+      for (final json in decoded)
+        if (json is Map<String, dynamic>) UnfinishedRepairHint.fromJson(json),
+    ];
   }
 
   /// История ремонта — `GET /v1/repairs/{uuid}/history` (бэкенд `7be3756`):
@@ -320,6 +380,7 @@ extension RepairApi on API {
     );
     request.headers['Authorization'] = 'Bearer ${API.jwtToken}';
     request.headers['accept'] = 'application/json';
+    request.headers.addAll(_repairConflictFormat);
     // Пустую строку сервер считает ошибкой (400), поэтому заголовок ставим
     // только когда ключ действительно есть.
     if (idempotencyKey != null && idempotencyKey.isNotEmpty) {
@@ -362,6 +423,9 @@ extension RepairApi on API {
           .map((json) => RepairPhoto.fromJson(json as Map<String, dynamic>))
           .toList();
     }
+    final notOpen =
+        RepairNotOpenException.fromResponse(streamed.statusCode, body);
+    if (notOpen != null) throw notOpen;
     final denied =
         AccessDeniedException.fromResponse(streamed.statusCode, body);
     if (denied != null) throw denied;
@@ -379,7 +443,10 @@ extension RepairApi on API {
 
     final response = await _client.delete(
       Uri.parse('${API.baseUrl}/v1/repairs/$repairUuid/photos/$photoUuid'),
-      headers: {'Authorization': 'Bearer ${API.jwtToken}'},
+      headers: {
+        'Authorization': 'Bearer ${API.jwtToken}',
+        ..._repairConflictFormat,
+      },
     ).timeout(API._readTimeout);
 
     // 204 No Content — штатный успех удаления.
@@ -388,6 +455,12 @@ extension RepairApi on API {
         response.statusCode == 201) {
       return;
     }
+    const utf8Decoder = Utf8Decoder(allowMalformed: true);
+    final notOpen = RepairNotOpenException.fromResponse(
+      response.statusCode,
+      utf8Decoder.convert(response.bodyBytes),
+    );
+    if (notOpen != null) throw notOpen;
     throw Exception(_serverDetail(
       response,
       'Не удалось удалить фото: ${response.statusCode}',
@@ -469,6 +542,7 @@ extension RepairApi on API {
           headers: {
             'Authorization': 'Bearer ${API.jwtToken}',
             'Content-Type': 'application/json',
+            ..._repairConflictFormat,
           },
           body: jsonEncode(body),
         )

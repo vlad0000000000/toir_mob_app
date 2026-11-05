@@ -100,6 +100,44 @@ class _QRResultScreenState extends State<QRResultScreen> {
     widget.machine.uuid,
   );
 
+  /// `has_open_repair` — свежий: событие `equipment_changed` обновляет его в
+  /// справочнике ([_onEquipmentEvent]), а [QRResultScreen.machine] — снимок
+  /// на момент скана.
+  late bool _hasOpenRepair = widget.machine.hasOpenRepair;
+
+  /// Событие `equipment_changed` про это оборудование (запланированный ремонт
+  /// стартовал, ремонт закрыли, перенесли, удалили): пилюля состояния и блок
+  /// ремонтов — без ручной синхронизации.
+  void _onEquipmentEvent() {
+    final provider = GlobalState.dataProvider;
+    if (!mounted || provider.lastChangedEquipmentUuid != widget.machine.uuid) {
+      return;
+    }
+    InventoryRecord? fresh;
+    for (final record in provider.inventoryRecords) {
+      if (record.uuid == widget.machine.uuid) fresh = record;
+    }
+    if (fresh == null) return;
+    final record = fresh;
+    setState(() {
+      _hasOpenRepair = record.hasOpenRepair;
+      // Пилюлю двигаем, только если обходчик её не трогал и черновик её не
+      // держит: выбранное им не перетираем. `_previousState` — первым, чтобы
+      // [_onStateChanged] принял смену за уже применённую.
+      // Пустое состояние — тоже значение: сервер снял «В ремонте» после
+      // последнего ремонта, а прежнего не было. Иначе пилюля держала бы
+      // «В ремонте» и замок вместе с ней.
+      final state = record.state;
+      final untouched = stateController.value == _previousState;
+      final draftHolds = provider.hasHoldingRepairDraft(widget.machine.uuid);
+      if (untouched && !draftHolds && state != _previousState) {
+        _previousState = state;
+        stateController.value = state;
+      }
+    });
+    _loadUnfinished();
+  }
+
   /// Номер последней загрузки блока. Блок перечитывается не раз — после
   /// возврата из карточки, после создания ремонта, — и ответ более раннего
   /// запуска, пришедший позже, вернул бы прежний статус («Открыт» у уже
@@ -311,7 +349,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
   ///   успел устареть;
   /// * черновик в очереди — ремонта на сервере ещё нет, но он вот-вот будет.
   bool get _isLockedByRepair =>
-      widget.machine.hasOpenRepair ||
+      _hasOpenRepair ||
       stateController.value == _inRepairState ||
       _activeRepairForMachine() != null ||
       // Запланированный черновик оборудование не держит — см.
@@ -737,8 +775,8 @@ class _QRResultScreenState extends State<QRResultScreen> {
                 ),
                 child: UnfinishedRepairsBlock(
                   data: _unfinished,
-                  onOpen: (repair) =>
-                      _openRepairPage('/repairs/${repair.uuid}', extra: repair),
+                  onOpen: (uuid, repair) =>
+                      _openRepairPage('/repairs/$uuid', extra: repair),
                   onOpenDraft: (draft) =>
                       _openRepairPage('/repair_draft/${draft.localId}'),
                 ),
@@ -1003,6 +1041,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
     // Подсказка «уже есть ремонты» — в фоне: экран рисуется сразу, блок
     // появится, когда придёт ответ (без сети — из кэша).
     _loadUnfinished();
+    GlobalState.dataProvider.equipmentEvents.addListener(_onEquipmentEvent);
     descController.addListener(_clearValidationHighlights);
     priorityController.valueNotifier.addListener(_clearValidationHighlights);
     problemController.valueNotifier.addListener(_onProblemChanged);
@@ -1022,6 +1061,7 @@ class _QRResultScreenState extends State<QRResultScreen> {
   @override
   void dispose() {
     // stateController.valueNotifier.removeListener(_onStateChanged);
+    GlobalState.dataProvider.equipmentEvents.removeListener(_onEquipmentEvent);
     descController.removeListener(_clearValidationHighlights);
     priorityController.valueNotifier.removeListener(_clearValidationHighlights);
     problemController.valueNotifier.removeListener(_onProblemChanged);

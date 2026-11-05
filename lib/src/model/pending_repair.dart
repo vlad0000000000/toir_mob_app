@@ -95,6 +95,11 @@ class PendingRepair {
   /// черновик позже выбранного времени — сервер сам откроет ремонт сразу.
   final bool schedule;
 
+  /// Обходчик, поставивший черновик в очередь, — см. [Scan.ownerUuid]. Не
+  /// `final`: перенос старых записей ставит его на месте. В [localId] не
+  /// входит.
+  String? ownerUuid;
+
   PendingRepair({
     required this.localId,
     required this.equipmentUuid,
@@ -115,6 +120,7 @@ class PendingRepair {
     this.createComment,
     this.createNormUuid,
     this.schedule = false,
+    this.ownerUuid,
   });
 
   /// Тело создания уже зафиксировано — создание отправлялось.
@@ -159,6 +165,7 @@ class PendingRepair {
         createComment: comment.trim(),
         createNormUuid: normUuid,
         schedule: schedule,
+        ownerUuid: ownerUuid,
       );
 
   /// Новый черновик: ключ идемпотентности выводим из содержимого плюс момента
@@ -274,6 +281,7 @@ class PendingRepair {
       createComment: createComment,
       createNormUuid: createNormUuid,
       schedule: schedule,
+      ownerUuid: ownerUuid,
     );
   }
 
@@ -304,6 +312,7 @@ class PendingRepair {
       createComment: createComment,
       createNormUuid: createNormUuid,
       schedule: schedule,
+      ownerUuid: ownerUuid,
     );
   }
 
@@ -330,6 +339,7 @@ class PendingRepair {
       createComment: createComment,
       createNormUuid: createNormUuid,
       schedule: schedule,
+      ownerUuid: ownerUuid,
     );
   }
 }
@@ -364,8 +374,8 @@ class PendingRepairAdapter extends TypeAdapter<PendingRepair> {
         _readTrailing<List<dynamic>>(reader)?.cast<RepairConsumption>() ??
             const <RepairConsumption>[];
     final serverUuid = _readTrailing<String>(reader);
-    final photoPaths =
-        _readTrailing<List<dynamic>>(reader)?.cast<String>() ?? const <String>[];
+    final photoPaths = _readTrailing<List<dynamic>>(reader)?.cast<String>() ??
+        const <String>[];
     final submitForReview = _readTrailing<bool>(reader) ?? false;
     final normItems =
         _readTrailing<List<dynamic>>(reader)?.cast<RepairNormItem>() ??
@@ -377,6 +387,8 @@ class PendingRepairAdapter extends TypeAdapter<PendingRepair> {
     // Запланированный ремонт — у черновиков прошлой версии флага нет: они
     // создавались только открытыми.
     final schedule = _readTrailing<bool>(reader) ?? false;
+    // Владелец — у черновиков до привязки очередей к аккаунту его нет.
+    final ownerUuid = _readTrailing<String>(reader);
     return PendingRepair(
       localId: localId,
       equipmentUuid: equipmentUuid,
@@ -397,6 +409,7 @@ class PendingRepairAdapter extends TypeAdapter<PendingRepair> {
       createComment: createComment,
       createNormUuid: createNormUuid,
       schedule: schedule,
+      ownerUuid: ownerUuid,
     );
   }
 
@@ -432,5 +445,6 @@ class PendingRepairAdapter extends TypeAdapter<PendingRepair> {
     writer.write(obj.createComment);
     writer.write(obj.createNormUuid);
     writer.write(obj.schedule);
+    writer.write(obj.ownerUuid);
   }
 }

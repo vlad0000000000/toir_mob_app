@@ -21,6 +21,12 @@ String repairErrorMessage(Object error) {
   if (error is AccessDeniedException && error.isNoRights) {
     return repairNoRightsMessage;
   }
+  // Ремонт ушёл из «Открыт» (409 `repair_not_open`): называем, куда именно —
+  // по статусу из ответа, а не сырым «Исполнитель может изменять только
+  // открытый ремонт».
+  if (error is RepairNotOpenException) {
+    return repairNotOpenMessage(error.status);
+  }
   final raw = _stripExceptionPrefix(error.toString()).trim();
   for (final entry in _translations.entries) {
     if (raw == entry.key || raw.contains(entry.key)) {
@@ -69,6 +75,24 @@ const String repairNoRightsMessage =
     'уйдут, когда администратор вернёт доступ';
 
 bool isRepairNoRightsMessage(String? reason) => reason == repairNoRightsMessage;
+
+/// Причина отказа 409 `repair_not_open` — по статусу ремонта на сервере.
+/// Доступ на месте, поменялся сам ремонт: правку не отправить, пока он не
+/// откроется снова, — а запланированный откроется сам.
+String repairNotOpenMessage(String? status) {
+  switch (status) {
+    case 'scheduled':
+      return 'Ремонт перенесён и ещё не начался. Изменения уйдут, когда он '
+          'начнётся';
+    case 'under_review':
+      return 'Ремонт уже на рассмотрении — изменить его нельзя. Данные можно '
+          'скопировать и передать администратору';
+    case 'closed':
+      return 'Ремонт уже закрыт — изменить его нельзя. Данные можно '
+          'скопировать и передать администратору';
+  }
+  return 'Ремонт уже не открыт — изменить его нельзя';
+}
 
 /// Перевод «No access to this repair» — ремонт есть, но обходчику больше не
 /// виден: передан другому или ушёл из его направления/подразделения. Текст

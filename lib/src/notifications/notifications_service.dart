@@ -120,6 +120,10 @@ class NotificationsService {
     if (data is Map && data['type'] == 'repair_changed') {
       _syncRepairsOnSignal();
     }
+    // Состояние оборудования, пойманное потоком foreground-сервиса.
+    if (data is Map && data['type'] == 'equipment_changed') {
+      _applyEquipmentChanged(data['data']);
+    }
     // Тот же сигнал «доступ изменился», пойманный потоком foreground-сервиса:
     // когда приложение открыто, его поток в главном изоляте может быть и не
     // поднят.
@@ -574,6 +578,15 @@ class NotificationsService {
       _syncRepairsOnSignal();
       return;
     }
+    // `equipment_changed` (бэкенд `8a88247`) — тоже технический сигнал: ремонт
+    // сменил состояние оборудования. Записи в центре уведомлений и пуша нет —
+    // только обновляем справочник.
+    if (event == 'equipment_changed') {
+      try {
+        _applyEquipmentChanged(jsonDecode(dataStr));
+      } catch (_) {}
+      return;
+    }
     if (event != 'notification') return;
     // Доступ обходчика поменяли: сервер шлёт `notification` с
     // `action: access_changed` и закрывает поток. Кроме центра уведомлений
@@ -601,6 +614,18 @@ class NotificationsService {
   /// `docs/mobile_notifications_flow.md`), поэтому перечитываем список
   /// ремонтов целиком. Ошибку глушим: нет связи — фоновый цикл догонит через
   /// минуту.
+  /// `equipment_changed` → запись справочника
+  /// ([DataProvider.applyEquipmentChanged]). Без склейки, в отличие от
+  /// [_syncRepairsOnSignal]: запроса нет, обновление локальное и дешёвое.
+  void _applyEquipmentChanged(Object? data) {
+    if (!GlobalState.isAuthorized || data is! Map) return;
+    GlobalState.dataProvider
+        .applyEquipmentChanged(Map<String, dynamic>.from(data))
+        .catchError((Object e) {
+      debugPrint('Failed to apply equipment_changed: $e');
+    });
+  }
+
   void _syncRepairsOnSignal() {
     if (!GlobalState.isAuthorized) return;
     // Сигнал рассылается всей компании и на каждое изменение ремонта. Правка

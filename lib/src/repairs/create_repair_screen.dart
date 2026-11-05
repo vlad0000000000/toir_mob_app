@@ -280,7 +280,7 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
     // Один раз на кадр: подпись, рамка и кнопка должны договориться.
     final isFuture = _isFuture;
     final sameStart = sameStartWarning(
-      sameStartRepairs(_unfinished.repairs, _startedAt),
+      sameStartRepairs(_unfinished.hints, _startedAt),
       drafts: sameStartDrafts(_unfinished.drafts, _startedAt),
     );
     // Подпись под кнопкой — что будет с состоянием оборудования:
@@ -382,8 +382,8 @@ class _CreateRepairScreenState extends State<CreateRepairScreen> {
             const SizedBox(height: AppConstants.spacingLG),
             UnfinishedRepairsBlock(
               data: _unfinished,
-              onOpen: (repair) =>
-                  _openFromBlock('/repairs/${repair.uuid}', extra: repair),
+              onOpen: (uuid, repair) =>
+                  _openFromBlock('/repairs/$uuid', extra: repair),
               onOpenDraft: (draft) =>
                   _openFromBlock('/repair_draft/${draft.localId}'),
             ),

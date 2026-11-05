@@ -18,6 +18,7 @@ import '../../src/model/periodicity_rule.dart';
 import '../../src/model/ppr.dart';
 import '../../src/model/repair.dart';
 import '../../src/model/repair_history.dart';
+import '../../src/model/unfinished_repair_hint.dart';
 import '../../src/model/scan.dart';
 import '../../src/model/spare_part.dart';
 import '../../src/model/task.dart';
@@ -336,10 +337,14 @@ Never _throwServerError(http.Response response, String fallback) {
   // Отказ по модели доступа — с машинным кодом: «нет права» поправимо, «уже
   // взял другой» окончательно, и очередь обязана их различать.
   const utf8Decoder = Utf8Decoder(allowMalformed: true);
-  final denied = AccessDeniedException.fromResponse(
+  final body = utf8Decoder.convert(response.bodyBytes);
+  // Ремонт ушёл из «Открыт» — не права, а состояние: свой разбор в очереди.
+  final notOpen = RepairNotOpenException.fromResponse(
     response.statusCode,
-    utf8Decoder.convert(response.bodyBytes),
+    body,
   );
+  if (notOpen != null) throw notOpen;
+  final denied = AccessDeniedException.fromResponse(response.statusCode, body);
   if (denied != null) throw denied;
   // Код ответа тащим дальше: по нему очередь отличает отказ по существу от
   // временного сбоя сервера и решает, повторять отправку или нет.

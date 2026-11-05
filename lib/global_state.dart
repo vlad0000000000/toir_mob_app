@@ -33,6 +33,9 @@ class GlobalState {
     // этой строки, офлайн-вход берёт прошлый сохранённый.
     dataProvider.accessProfile.value =
         user == null ? null : dataProvider.storedAccessProfile(user.uuid);
+    // Плашки и счётчики очередей — того, кто вошёл: записи другого аккаунта
+    // на этом телефоне ему не показываются (п. 1.5 отчёта).
+    dataProvider.refreshQueueCounters();
   }
 
   static User? get authUser {
@@ -84,10 +87,10 @@ class GlobalState {
     if (!(await GlobalState.hasConnectionToServer)) {
       serverAccess = "не доступен";
     }
-    String pendingScans =
-        (dataProvider.scanBox.length + dataProvider.scanPendingBox.length)
-            .toString();
-    String pendingUsageUpdates = dataProvider.scanUsageBox.length.toString();
+    // Только записи вошедшего обходчика: очереди другого аккаунта на этом
+    // телефоне ему не принадлежат (п. 1.5 отчёта).
+    String pendingScans = dataProvider.myQueuedScansCount.toString();
+    String pendingUsageUpdates = dataProvider.myQueuedUsageCount.toString();
     // String problems = dataProvider.typicalProblemBox.length.toString();
     String inventory = dataProvider.inventoryRecords.length.toString();
 
@@ -101,17 +104,15 @@ class GlobalState {
     // Ремонты: черновики создания и неотправленные правки. Очередь работает в
     // фоне, поэтому «Сервис» — единственное место, где видно её состояние
     // целиком, включая истёкший токен.
-    String pendingRepairs = dataProvider.pendingRepairBox.length.toString();
+    String pendingRepairs = dataProvider.pendingRepairs.length.toString();
     String pendingRepairEdits =
-        dataProvider.pendingRepairUpdateBox.length.toString();
+        dataProvider.myQueuedRepairEditsCount.toString();
     // Заявки «Проблема»: ждущие отправки (вместе с «в полёте») и отклонённые
     // отдельно — отклонённые сами не уйдут, и по этой строке видно, что
     // застряло именно у сервера.
     final rejectedReports = dataProvider.rejectedProblemReports.length;
-    String pendingProblemReports = (dataProvider.periodicTaskBox.length -
-            rejectedReports +
-            dataProvider.periodicTaskPendingBox.length)
-        .toString();
+    String pendingProblemReports =
+        (dataProvider.myQueuedProblemReportsCount - rejectedReports).toString();
     String rejectedProblemReports = rejectedReports.toString();
     String authState = dataProvider.authExpired.value
         ? "сессия истекла, нужно войти заново"
@@ -152,9 +153,7 @@ class GlobalState {
     if (!(await GlobalState.hasConnectionToServer)) {
       serverAccess = "не доступен";
     }
-    String pendingChecks =
-        (dataProvider.scanBox.length + dataProvider.scanPendingBox.length)
-            .toString();
+    String pendingChecks = dataProvider.myQueuedScansCount.toString();
     // String db =
     //     "Локальные данные: (оборудование: ${dataProvider.inventoryBox.length.toString()}, пользователи: ${dataProvider.users.length.toString()}, осмотры: ${pendingChecks}, проблемы: ${problems})";
     String db = "Осмотров не отправлено: ${pendingChecks}";

@@ -118,6 +118,17 @@ class Scan {
   /// `null` — обычное закрытие задачи. В [key] не входит.
   final int? reviewRevision;
 
+  /// Обходчик, поставивший запись в очередь (`uuid` пользователя).
+  ///
+  /// Очереди переживают смену аккаунта — стирать несделанную работу нельзя, —
+  /// и без владельца записи A отправлялись бы с токеном B, а плашки A
+  /// показывались бы B. Чужие записи ждут, пока владелец снова войдёт.
+  ///
+  /// `null` — запись прошлой версии, владельца ей проставляют один раз на
+  /// старте ([DataProvider.assignQueueOwners]); не вышло — считается своей.
+  /// Не `final`: тот же перенос ставит его на месте. В [key] не входит.
+  String? ownerUuid;
+
   /// Повторная сдача возвращённого результата ([reviewRevision]).
   bool get isRework => reviewRevision != null;
 
@@ -172,10 +183,47 @@ class Scan {
       usageKeys: usageKeys,
       usageUpdates: usageUpdates,
       reviewRevision: reviewRevision,
+      ownerUuid: ownerUuid,
     );
   }
 
-  String key() {
+  /// Ключ записи в боксе. Владелец — в ключе, иначе одинаковый осмотр другого
+  /// обходчика лёг бы на место этого (п. 1.5 отчёта). Только если задан: у
+  /// записей без владельца ключ прежний, их переносит
+  /// `DataProvider.assignQueueOwners`.
+  String key() => _digest(withOwner: true);
+
+  /// Копия с другими ссылками на наработку — для переноса ключей очереди
+  /// (`DataProvider._relinkUsageKeys`). Остальное — как есть, ключ тот же.
+  Scan withUsageKeys(List<String>? keys) => Scan(
+        files: files,
+        periodicTaskUuid: periodicTaskUuid,
+        equipmentUuid: equipmentUuid,
+        resultStatus: resultStatus,
+        comment: comment,
+        faultUuid: faultUuid,
+        isOtherFault: isOtherFault,
+        taskUuid: taskUuid,
+        priority: priority,
+        createdAt: createdAt,
+        closedAt: closedAt,
+        actualConsumptions: actualConsumptions,
+        consumptionNames: consumptionNames,
+        lastError: lastError,
+        lastShortages: lastShortages,
+        eventId: eventId,
+        usageKeys: keys,
+        usageUpdates: usageUpdates,
+        reviewRevision: reviewRevision,
+        ownerUuid: ownerUuid,
+      );
+
+  /// Ключ, под которым запись лежала до привязки очередей к аккаунту, — без
+  /// владельца. По нему перенос на старте находит и долечивает прерванное.
+  String legacyKey() => _digest(withOwner: false);
+
+  String _digest({required bool withOwner}) {
+    final owner = ownerUuid;
     return GlobalState.digest(jsonEncode({
       'files': files,
       'periodic_task_uuid': periodicTaskUuid,
@@ -185,6 +233,7 @@ class Scan {
       'fault_uuid': faultUuid,
       'task_uuid': taskUuid,
       'priority': priority,
+      if (withOwner && owner != null && owner.isNotEmpty) 'owner_uuid': owner,
     }));
   }
   // Расход ЗИП в ключ намеренно не входит. Ключ — это идентификатор записи в
@@ -218,7 +267,8 @@ class Scan {
       this.eventId,
       this.usageKeys,
       this.usageUpdates,
-      this.reviewRevision});
+      this.reviewRevision,
+      this.ownerUuid});
 
   Map<String, dynamic> toJson() {
     var result = <String, dynamic>{
@@ -320,6 +370,12 @@ class ScanAdapter extends TypeAdapter<Scan> {
     } catch (_) {
       reviewRevision = null; // записи до доработки результата — обычные
     }
+    String? ownerUuid;
+    try {
+      ownerUuid = reader.read() as String?;
+    } catch (_) {
+      ownerUuid = null; // записи до привязки очередей к аккаунту
+    }
     return Scan(
       files: files,
       periodicTaskUuid: periodicTaskUuid,
@@ -340,6 +396,7 @@ class ScanAdapter extends TypeAdapter<Scan> {
       usageKeys: usageKeys,
       usageUpdates: usageUpdates,
       reviewRevision: reviewRevision,
+      ownerUuid: ownerUuid,
     );
   }
 
@@ -365,5 +422,6 @@ class ScanAdapter extends TypeAdapter<Scan> {
     writer.write(obj.usageKeys);
     writer.write(obj.usageUpdates);
     writer.write(obj.reviewRevision);
+    writer.write(obj.ownerUuid);
   }
 }

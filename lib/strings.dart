@@ -203,6 +203,12 @@ class RepairStrings {
       'НЕЗАКРЫТЫЕ РЕМОНТЫ ПО ОБОРУДОВАНИЮ: $n';
   static const String unfinishedOffline =
       'Без связи — показаны только ваши ремонты';
+
+  /// Без связи, а счётчики справочника знают и о ремонтах других служб.
+  static String unfinishedOfflineHidden(int n) =>
+      'Без связи — показаны только ваши ремонты. Ещё $n '
+      '${pluralRu(n, 'ремонт', 'ремонта', 'ремонтов')} других служб — '
+      'подробности появятся в сети';
   static String unfinishedStart({
     required int id,
     required bool scheduled,
@@ -210,6 +216,11 @@ class RepairStrings {
   }) =>
       '№$id · ${scheduled ? 'Начнётся' : 'Начат'} $start';
   static const String unfinishedNoResponsible = 'ответственный не назначен';
+
+  /// Ремонт другой службы в блоке незакрытых: виден, но карточку не открыть.
+  static const String unfinishedNoAccess = 'нет доступа';
+  static const String unfinishedNoAccessReason =
+      'Ремонт другой службы — открыть его карточку нельзя';
 
   /// Строка черновика из очереди в блоке незакрытых ремонтов: номера у него
   /// ещё нет.
@@ -1189,6 +1200,11 @@ class RepairHistoryStrings {
   static const String actionCreated = 'создание ремонта';
   static const String actionDeleted = 'удаление ремонта';
   static const String actionRescheduled = 'перенос ремонта';
+
+  /// `start_time_corrected` (бэкенд `ca1cc46`): у открытого ремонта начало
+  /// было в будущем (спешили часы телефона), и сервер при отправке на
+  /// рассмотрение поставил его на текущий момент.
+  static const String actionStartTimeCorrected = 'исправление времени начала';
   static const String actionStartedByScheduler = 'запуск по расписанию';
   static const String actionStartedEarly = 'досрочный старт';
   static const String actionSubmitted = 'отправка на рассмотрение';

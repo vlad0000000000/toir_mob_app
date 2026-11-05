@@ -100,6 +100,8 @@ void main() {
     // Без версии результата — обычное закрытие, а не доработка.
     expect(stored.reviewRevision, isNull);
     expect(stored.isRework, isFalse);
+    // Без владельца — его проставит перенос на старте (п. 1.5 отчёта).
+    expect(stored.ownerUuid, isNull);
   });
 
   test('доработка: версия результата переживает запись и уходит полем формы',

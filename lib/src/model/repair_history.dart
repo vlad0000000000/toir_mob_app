@@ -10,7 +10,8 @@ import 'repair.dart';
 class RepairHistoryEntry {
   final int id;
 
-  /// `created` / `rescheduled` / `started` / `status_changed` / `deleted`.
+  /// `created` / `rescheduled` / `started` / `status_changed` / `deleted` /
+  /// `start_time_corrected`.
   final String action;
 
   /// `scheduler` — ремонт запустил сервер по наступлении даты, автора нет.
@@ -87,6 +88,11 @@ class RepairHistoryEntry {
         return RepairHistoryStrings.actionDeleted;
       case 'rescheduled':
         return RepairHistoryStrings.actionRescheduled;
+      // Прежнее и новое начало — строкой «Дата начала» в [changes], как у
+      // переноса; статус в этой записи не меняется (открыт → открыт), смена
+      // на «На рассмотрении» идёт следующей записью.
+      case 'start_time_corrected':
+        return RepairHistoryStrings.actionStartTimeCorrected;
       case 'started':
         return isSystem
             ? RepairHistoryStrings.actionStartedByScheduler

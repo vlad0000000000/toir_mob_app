@@ -20,6 +20,9 @@ import '../utils/offline_error.dart';
 bool isRetryableProblemPhotoError(Object error) {
   if (error is AuthExpiredException) return true;
   if (error is ServerFailureException) return error.isTransient;
+  // Нет токена — обходчик вышел, пока шла заявка. Заявка не виновата: снимки
+  // уйдут после входа. Тот же разбор, что у ремонтов (`isRetryableRepairError`).
+  if (error.toString().contains('Not authenticated')) return true;
   return isOfflineError(error);
 }
 

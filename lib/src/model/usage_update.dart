@@ -68,10 +68,22 @@ class UsageUpdate {
   /// [toJson] не входит — по той же причине, что [lastError].
   final String? createdAt;
 
+  /// Обходчик, поставивший запись в очередь, — см. [Scan.ownerUuid]. Не
+  /// `final`: перенос старых записей ставит его на месте. В [key] и [toJson]
+  /// не входит.
+  String? ownerUuid;
+
   bool get isRejected => (lastError ?? '').isNotEmpty;
 
   String key() {
     return GlobalState.digest(jsonEncode(toJson()));
+  }
+
+  /// Ключ до привязки очередей к аккаунту — без владельца, см.
+  /// [Scan.legacyKey]. По нему на старте восстанавливаются ссылки осмотров
+  /// на эту наработку ([Scan.usageKeys]).
+  String legacyKey() {
+    return GlobalState.digest(jsonEncode(toJson()..remove('owner_uuid')));
   }
 
   @override
@@ -85,6 +97,7 @@ class UsageUpdate {
     this.equipmentUuid,
     this.lastError,
     this.createdAt,
+    this.ownerUuid,
   });
 
   Map<String, dynamic> toJson() {
@@ -92,6 +105,9 @@ class UsageUpdate {
       'usage_parameter_uuid': usageParameterUuid,
       'usage_parameter_value': usageParameterValue,
       'equipment_uuid': equipmentUuid,
+      // Владелец — в ключе, как у [Scan.key]: одинаковое показание другого
+      // обходчика не должно лечь на место этого. Только если задан.
+      if (ownerUuid != null && ownerUuid!.isNotEmpty) 'owner_uuid': ownerUuid,
     };
   }
 }
@@ -124,12 +140,19 @@ class UsageUpdateAdapter extends TypeAdapter<UsageUpdate> {
     } catch (_) {
       createdAt = null; // записи до появления отметки времени — самые ранние
     }
+    String? ownerUuid;
+    try {
+      ownerUuid = reader.read() as String?;
+    } catch (_) {
+      ownerUuid = null; // записи до привязки очередей к аккаунту
+    }
     return UsageUpdate(
       usageParameterUuid: usageParameterUuid,
       usageParameterValue: usageParameterValue,
       equipmentUuid: equipmentUuid,
       lastError: lastError,
       createdAt: createdAt,
+      ownerUuid: ownerUuid,
     );
   }
 
@@ -141,5 +164,6 @@ class UsageUpdateAdapter extends TypeAdapter<UsageUpdate> {
     // Новое поле — строго в конец: read() читает его так же, через try/catch.
     writer.write(obj.lastError);
     writer.write(obj.createdAt);
+    writer.write(obj.ownerUuid);
   }
 }

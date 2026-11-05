@@ -86,6 +86,32 @@ bool shouldResetCacheForAccount({
   return stored != incoming;
 }
 
+/// Запись очереди отправки с владельцем [owner] — работа пользователя
+/// [userUuid] (п. 1.5 отчёта): её считают, показывают и отправляют только
+/// ему. Записи другого обходчика ждут, пока тот снова войдёт на этом
+/// телефоне.
+///
+/// * [owner] пуст — запись прошлой версии без владельца: своя у любого, как
+///   и было, — так работа не теряется;
+/// * [userUuid] пуст — вошёл неизвестно кто (офлайн-вход по локальной записи
+///   без uuid, см. [shouldResetCacheForAccount]): чужим не считаем ничего,
+///   иначе обходчик остался бы без собственных неотправленных записей.
+/// Ключ правки ремонта в `pendingRepairUpdateBox`: ремонт **и** владелец.
+///
+/// Раньше ключом был один uuid ремонта, и правка B по ремонту, где лежала
+/// неотправленная правка A, затирала её. Без владельца (запись прошлой
+/// версии, вход без uuid) — прежний ключ, uuid ремонта.
+String pendingRepairUpdateKey(String repairUuid, String? ownerUuid) =>
+    ownerUuid == null || ownerUuid.isEmpty
+        ? repairUuid
+        : '$repairUuid@$ownerUuid';
+
+bool isQueueOwner(String? owner, String? userUuid) {
+  if (owner == null || owner.isEmpty) return true;
+  if (userUuid == null || userUuid.isEmpty) return true;
+  return owner == userUuid;
+}
+
 /// Хранилище приложения (Hive-боксы + in-memory кэш). Сетевые загрузки,
 /// фоновая синхронизация и офлайн-очереди вынесены в part-файлы
 /// (`*_remote`, `*_sync`, `*_outbox`) как extension на [DataProvider].
@@ -465,6 +491,208 @@ class DataProvider {
     return previous.isNotEmpty;
   }
 
+  /// Запись очереди отправки принадлежит вошедшему обходчику — см.
+  /// [isQueueOwner].
+  ///
+  /// Вошедшего берём из своего же `userBox`, а не через `GlobalState`: тот
+  /// читает то же самое, но [DataProvider] ещё не присвоен ему, пока идёт
+  /// конструктор, — а счётчики плашек считаются уже там.
+  bool isMine(String? owner) => isQueueOwner(owner, _currentUserUuid);
+
+  /// Uuid вошедшего обходчика — для владельца записей очередей.
+  String? get _currentUserUuid => userBox.get('auth_user')?.uuid;
+
+  /// Сколько записей [values] — мои ([isMine]). Для строк состояния очередей.
+  int countMine<T>(Iterable<T> values, String? Function(T) ownerOf) =>
+      values.where((value) => isMine(ownerOf(value))).length;
+
+  /// Неотправленные осмотры вошедшего обходчика — вместе с «в полёте».
+  int get myQueuedScansCount =>
+      countMine(scanBox.values, (Scan s) => s.ownerUuid) +
+      countMine(scanPendingBox.values, (Scan s) => s.ownerUuid);
+
+  /// «Сбросить осмотры»: удаляет неотправленные осмотры вошедшего обходчика —
+  /// и в основном боксе, и «в полёте». Чужие остаются: это работа другого
+  /// аккаунта, сбросить её может только он сам.
+  Future<void> deleteMyScans() async {
+    for (final box in [scanBox, scanPendingBox]) {
+      final mine = [
+        for (final entry in box.toMap().entries)
+          if (isMine(entry.value.ownerUuid)) entry.key,
+      ];
+      if (mine.isNotEmpty) await box.deleteAll(mine);
+    }
+  }
+
+  /// Неотправленная наработка вошедшего обходчика (без «в полёте»).
+  int get myQueuedUsageCount =>
+      countMine(scanUsageBox.values, (UsageUpdate u) => u.ownerUuid);
+
+  /// Неотправленные правки ремонтов вошедшего обходчика.
+  int get myQueuedRepairEditsCount => countMine(
+      pendingRepairUpdateBox.values, (PendingRepairUpdate u) => u.ownerUuid);
+
+  /// Заявки «Проблема» вошедшего обходчика — вместе с «в полёте» и
+  /// отклонёнными.
+  int get myQueuedProblemReportsCount =>
+      countMine(periodicTaskBox.values, (PeriodicTaskRequest t) => t.ownerUuid) +
+      countMine(
+          periodicTaskPendingBox.values, (PeriodicTaskRequest t) => t.ownerUuid);
+
+  /// Проставляет владельца записям очередей прошлых версий (`ownerUuid ==
+  /// null`) — аккаунт, под которым приложение работало последним
+  /// (`account_scope`): записи создавались под ним.
+  ///
+  /// Один раз на холодном старте, **до** входа и до первого прохода очередей:
+  /// вход другим обходчиком перезапишет `account_scope` ([ensureAccountScope]),
+  /// и записи A получили бы владельцем B. Ключа нет (приложение ни разу не
+  /// входило с ним) — записи остаются без владельца и считаются своими у
+  /// любого, кто войдёт: так прежде и было, и работа не теряется.
+  Future<void> assignQueueOwners() async {
+    final owner = (stringBox.get(_accountScopeKey) ?? '').trim();
+    if (owner.isEmpty) return;
+    await _assignOwners(owner);
+    // Ключи записей с владельцем — другие (владелец входит в ключ, см.
+    // [Scan.key]): переносим записи под них.
+    await _rekeyQueues();
+  }
+
+  Future<void> _assignOwners(String owner) async {
+    Future<void> assign<T>(
+      Box<T> box,
+      String? Function(T) ownerOf,
+      void Function(T, String) setOwner,
+    ) async {
+      for (final entry in box.toMap().entries) {
+        if (ownerOf(entry.value) != null) continue;
+        setOwner(entry.value, owner);
+        await box.put(entry.key, entry.value);
+      }
+    }
+
+    await assign<Scan>(scanBox, (s) => s.ownerUuid, (s, o) => s.ownerUuid = o);
+    await assign<Scan>(
+        scanPendingBox, (s) => s.ownerUuid, (s, o) => s.ownerUuid = o);
+    await assign<UsageUpdate>(
+        scanUsageBox, (u) => u.ownerUuid, (u, o) => u.ownerUuid = o);
+    await assign<UsageUpdate>(
+        scanUsagePendingBox, (u) => u.ownerUuid, (u, o) => u.ownerUuid = o);
+    await assign<PeriodicTaskRequest>(
+        periodicTaskBox, (t) => t.ownerUuid, (t, o) => t.ownerUuid = o);
+    await assign<PeriodicTaskRequest>(
+        periodicTaskPendingBox, (t) => t.ownerUuid, (t, o) => t.ownerUuid = o);
+    await assign<PendingRepair>(
+        pendingRepairBox, (d) => d.ownerUuid, (d, o) => d.ownerUuid = o);
+    await assign<PendingRepairUpdate>(
+        pendingRepairUpdateBox, (u) => u.ownerUuid, (u, o) => u.ownerUuid = o);
+  }
+
+  /// Переносит записи очередей под ключи с владельцем — у каждой ключ в
+  /// боксе обязан совпадать с её собственным (`key()`, `updateKeyOf`): по
+  /// нему очередь кладёт, перекладывает и удаляет записи.
+  ///
+  /// Перенос **повторяемый**: идёт на каждом холодном старте и долечивает
+  /// оборванный прошлый раз, поэтому опирается не на «что перенесли сейчас»,
+  /// а на сами записи:
+  /// * сначала отметка «в полёте» (`scan_pending_…`, `periodic_task_pending_…`),
+  ///   потом запись — без отметки запись «в полёте» не вернулась бы в очередь
+  ///   никогда; отметка, оставшаяся под прежним ключом ([Scan.legacyKey]),
+  ///   переезжает, даже если запись уже на новом месте;
+  /// * запись — сначала под новым ключом, потом старая убирается; новый ключ
+  ///   уже занят — это тот же перенос, оборванный посередине, и старая копия
+  ///   — дубль: её удаляем, иначе очередь отправляла бы её вечно (своим
+  ///   ключом очередь её не нашла бы);
+  /// * ссылки осмотров «только наработка» на ключи наработки
+  ///   ([Scan.usageKeys]) — по прежнему ключу каждой наработки того же
+  ///   владельца, при каждом проходе: иначе оборванный перенос оставил бы
+  ///   ссылки в никуда, и осмотр ушёл бы раньше своих показаний.
+  Future<void> _rekeyQueues() async {
+    Future<void> rekey<T>(
+      Box<T> box,
+      String Function(T) keyOf,
+      String Function(T) legacyKeyOf, {
+      String? timestampPrefix,
+    }) async {
+      for (final entry in box.toMap().entries) {
+        final value = entry.value;
+        final oldKey = entry.key.toString();
+        final newKey = keyOf(value);
+        final prefix = timestampPrefix;
+        if (prefix != null) {
+          for (final from in {oldKey, legacyKeyOf(value)}) {
+            if (from == newKey) continue;
+            final stamp = stringBox.get('$prefix$from');
+            if (stamp == null) continue;
+            if (stringBox.get('$prefix$newKey') == null) {
+              await stringBox.put('$prefix$newKey', stamp);
+            }
+            await stringBox.delete('$prefix$from');
+          }
+        }
+        if (oldKey == newKey) continue;
+        if (!box.containsKey(newKey)) await box.put(newKey, value);
+        await box.delete(entry.key);
+      }
+    }
+
+    for (final box in [scanUsageBox, scanUsagePendingBox]) {
+      await rekey<UsageUpdate>(box, (u) => u.key(), (u) => u.legacyKey());
+    }
+    for (final box in [scanBox, scanPendingBox]) {
+      await rekey<Scan>(
+        box,
+        (s) => s.key(),
+        (s) => s.legacyKey(),
+        timestampPrefix: 'scan_pending_',
+      );
+    }
+    await _relinkUsageKeys();
+    for (final box in [periodicTaskBox, periodicTaskPendingBox]) {
+      await rekey<PeriodicTaskRequest>(
+        box,
+        (t) => t.key(),
+        (t) => t.legacyKey(),
+        timestampPrefix: 'periodic_task_pending_',
+      );
+    }
+    // Правки ремонтов — под «ремонт + владелец» ([pendingRepairUpdateKey]);
+    // прежний ключ — uuid ремонта.
+    await rekey<PendingRepairUpdate>(
+      pendingRepairUpdateBox,
+      updateKeyOf,
+      (u) => u.repairUuid,
+    );
+  }
+
+  /// Ссылки осмотров «только наработка» ([Scan.usageKeys]) на прежние ключи
+  /// наработки — на текущие. По каждой наработке в очереди: её прежний ключ
+  /// ([UsageUpdate.legacyKey]) того же владельца → текущий. Идемпотентно:
+  /// ссылка, уже указывающая на текущий ключ, не меняется.
+  Future<void> _relinkUsageKeys() async {
+    final current = <String, String>{};
+    for (final box in [scanUsageBox, scanUsagePendingBox]) {
+      for (final usage in box.values) {
+        final legacy = usage.legacyKey();
+        final key = usage.key();
+        if (legacy != key) current['${usage.ownerUuid}|$legacy'] = key;
+      }
+    }
+    if (current.isEmpty) return;
+    for (final box in [scanBox, scanPendingBox]) {
+      for (final entry in box.toMap().entries) {
+        final scan = entry.value;
+        final keys = scan.usageKeys;
+        if (keys == null) continue;
+        final relinked = [
+          for (final key in keys) current['${scan.ownerUuid}|$key'] ?? key,
+        ];
+        if (listEquals(relinked, keys)) continue;
+        // Ключ осмотра от ссылок на наработку не зависит — место то же.
+        await box.put(entry.key, scan.withUsageKeys(relinked));
+      }
+    }
+  }
+
   /// Выбрасывает всё, что принадлежит аккаунту и восстанавливается
   /// синхронизацией.
   ///
@@ -486,6 +714,8 @@ class DataProvider {
     // сразу; её поздний конец индикатор нового прохода не тронет.
     _manualSync.forget();
     manualSyncRunning.value = false;
+    // Отметки событий оборудования — прошлого аккаунта.
+    _equipmentEventSeqOf.clear();
     // Сама очистка — в той же очереди, что и записи синхронизации. Запись,
     // которая уже идёт, доделается, и очистка сотрёт её результат; всё, что
     // встанет следом, увидит новое поколение и писать не станет. Без очереди
@@ -986,8 +1216,9 @@ class DataProvider {
   final ValueNotifier<int> rejectedScansCount = ValueNotifier<int>(0);
 
   /// Отклонённые осмотры — для полосы на главной и диалога с причинами.
-  List<Scan> get rejectedScans =>
-      scanBox.values.where((scan) => scan.isRejected).toList();
+  List<Scan> get rejectedScans => scanBox.values
+      .where((scan) => scan.isRejected && isMine(scan.ownerUuid))
+      .toList();
 
   void refreshRejectedScansCount() {
     rejectedScansCount.value = rejectedScans.length;
@@ -1002,8 +1233,9 @@ class DataProvider {
   final ValueNotifier<int> rejectedUsageCount = ValueNotifier<int>(0);
 
   /// Отклонённая наработка — для полосы на главной и списка причин.
-  List<UsageUpdate> get rejectedUsage =>
-      scanUsageBox.values.where((usage) => usage.isRejected).toList();
+  List<UsageUpdate> get rejectedUsage => scanUsageBox.values
+      .where((usage) => usage.isRejected && isMine(usage.ownerUuid))
+      .toList();
 
   void refreshRejectedUsageCount() {
     rejectedUsageCount.value = rejectedUsage.length;
@@ -1016,8 +1248,9 @@ class DataProvider {
   final ValueNotifier<int> rejectedProblemReportsCount = ValueNotifier<int>(0);
 
   /// Отклонённые заявки — для полосы на главной и листа с причинами.
-  List<PeriodicTaskRequest> get rejectedProblemReports =>
-      periodicTaskBox.values.where((task) => task.isRejected).toList();
+  List<PeriodicTaskRequest> get rejectedProblemReports => periodicTaskBox.values
+      .where((task) => task.isRejected && isMine(task.ownerUuid))
+      .toList();
 
   void refreshRejectedProblemReportsCount() {
     rejectedProblemReportsCount.value = rejectedProblemReports.length;
@@ -1094,6 +1327,17 @@ class DataProvider {
           if (scan.usageKeys?.contains(usageKey) ?? false) scan,
       ];
 
+  /// Пересчитывает плашки и счётчики очередей — после входа и выхода: они
+  /// считают только записи вошедшего обходчика ([isMine]), а сами очереди
+  /// при смене аккаунта не меняются, и без пересчёта под B висели бы цифры A.
+  void refreshQueueCounters() {
+    refreshRejectedScansCount();
+    refreshRejectedUsageCount();
+    refreshRejectedProblemReportsCount();
+    invalidateScanTaskCache();
+    _refreshActiveRepairsCount();
+  }
+
   void _refreshActiveRepairsCount() {
     // Черновики тоже активные ремонты — просто ещё не доехавшие. Не считать их
     // значило бы: обходчик создал ремонт в цеху, вернулся в меню, а счётчик
@@ -1109,6 +1353,7 @@ class DataProvider {
     // работы по нему ещё нет.
     final now = DateTime.now();
     final drafts = pendingRepairBox.values.where((draft) {
+      if (!isMine(draft.ownerUuid)) return false;
       if (draft.isScheduledAt(now)) return false;
       final uuid = draft.serverUuid;
       return uuid == null || !known.contains(uuid);
@@ -1123,7 +1368,9 @@ class DataProvider {
   /// Черновики ремонтов, ждущие отправки. Порядок — от новых к старым, как в
   /// списке ремонтов.
   List<PendingRepair> get pendingRepairs {
-    final drafts = pendingRepairBox.values.toList();
+    final drafts = pendingRepairBox.values
+        .where((draft) => isMine(draft.ownerUuid))
+        .toList();
     drafts.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return drafts;
   }
@@ -1136,7 +1383,10 @@ class DataProvider {
   bool hasHoldingRepairDraft(String uuid) {
     final now = DateTime.now();
     return pendingRepairBox.values.any(
-      (draft) => draft.equipmentUuid == uuid && !draft.isScheduledAt(now),
+      (draft) =>
+          draft.equipmentUuid == uuid &&
+          isMine(draft.ownerUuid) &&
+          !draft.isScheduledAt(now),
     );
   }
 
@@ -1163,6 +1413,7 @@ class DataProvider {
   /// `Idempotency-Key`: повторная запись того же черновика перезаписывает
   /// запись, а не плодит вторую.
   Future<void> addPendingRepair(PendingRepair draft) async {
+    draft.ownerUuid ??= _currentUserUuid;
     await pendingRepairBox.put(draft.localId, draft);
     _refreshActiveRepairsCount();
   }
@@ -1176,9 +1427,28 @@ class DataProvider {
     _refreshActiveRepairsCount();
   }
 
-  /// Правка конкретного ремонта, если она есть в очереди.
-  PendingRepairUpdate? pendingUpdateFor(String repairUuid) =>
-      pendingRepairUpdateBox.get(repairUuid);
+  /// Правка конкретного ремонта, если она есть в очереди и она моя: правку
+  /// другого обходчика на этом телефоне карточка не показывает.
+  PendingRepairUpdate? pendingUpdateFor(String repairUuid) {
+    final key = _myUpdateKey(repairUuid);
+    return key == null ? null : pendingRepairUpdateBox.get(key);
+  }
+
+  /// Ключ, под которым лежит **моя** правка ремонта [repairUuid], — см.
+  /// [pendingRepairUpdateKey]. `null` — моей правки нет (чужая не в счёт).
+  String? _myUpdateKey(String repairUuid) {
+    final me = _currentUserUuid;
+    if (me != null && me.isNotEmpty) {
+      final own = pendingRepairUpdateKey(repairUuid, me);
+      if (pendingRepairUpdateBox.containsKey(own)) return own;
+    }
+    final plain = pendingRepairUpdateBox.get(repairUuid);
+    return plain != null && isMine(plain.ownerUuid) ? repairUuid : null;
+  }
+
+  /// Ключ записи [update] в боксе — по её ремонту и владельцу.
+  String updateKeyOf(PendingRepairUpdate update) =>
+      pendingRepairUpdateKey(update.repairUuid, update.ownerUuid);
 
   /// Черновик, из которого создан этот ремонт, если он ещё в очереди.
   ///
@@ -1189,23 +1459,44 @@ class DataProvider {
   PendingRepair? draftForRepair(String repairUuid) {
     if (repairUuid.isEmpty) return null;
     for (final draft in pendingRepairBox.values) {
-      if (draft.serverUuid == repairUuid) return draft;
+      if (draft.serverUuid == repairUuid && isMine(draft.ownerUuid)) {
+        return draft;
+      }
     }
     return null;
   }
 
-  /// Кладёт правку в очередь. Ключ — uuid ремонта: одному ремонту
-  /// соответствует одна правка, повторное сохранение накрывает предыдущую.
+  /// Кладёт правку в очередь. Ключ — ремонт и владелец
+  /// ([pendingRepairUpdateKey]): у ремонта одна правка на обходчика,
+  /// повторное сохранение накрывает его прежнюю, а чужую не трогает.
   Future<void> savePendingRepairUpdate(PendingRepairUpdate update) async {
-    await pendingRepairUpdateBox.put(update.repairUuid, update);
+    update.ownerUuid ??= _currentUserUuid;
+    final key = updateKeyOf(update);
+    // Моя правка могла лежать под прежним ключом (без владельца) — переносим,
+    // иначе у ремонта оказалось бы две мои правки.
+    final previous = _myUpdateKey(update.repairUuid);
+    if (previous != null && previous != key) {
+      await pendingRepairUpdateBox.delete(previous);
+    }
+    await pendingRepairUpdateBox.put(key, update);
     // Число ремонтов от правки не меняется, поэтому счётчик здесь не при чём —
     // а вот пометка «не отправлено» в списке появиться обязана.
     repairsRevision.value++;
   }
 
-  Future<void> deletePendingRepairUpdate(String repairUuid) async {
-    final update = pendingRepairUpdateBox.get(repairUuid);
-    await pendingRepairUpdateBox.delete(repairUuid);
+  /// Удаляет **мою** правку ремонта [repairUuid] вместе с файлами снимков.
+  /// Правку другого обходчика по тому же ремонту не трогает.
+  ///
+  /// [key] — точный ключ записи, если он известен (очередь, отправившая
+  /// именно её): тогда искать «мою» не нужно.
+  Future<void> deletePendingRepairUpdate(
+    String repairUuid, {
+    String? key,
+  }) async {
+    key ??= _myUpdateKey(repairUuid);
+    if (key == null) return;
+    final update = pendingRepairUpdateBox.get(key);
+    await pendingRepairUpdateBox.delete(key);
     if (update != null) await RepairPhotoFiles.deleteAll(update.photoPaths);
     repairsRevision.value++;
   }
@@ -1644,6 +1935,7 @@ class DataProvider {
   }
 
   addScan(Scan scan) async {
+    scan.ownerUuid ??= _currentUserUuid;
     await scanBox.put(scan.key(), scan);
     invalidateScanTaskCache();
     if (scan.taskUuid != null) {
@@ -1681,10 +1973,12 @@ class DataProvider {
   }
 
   addUsageScan(UsageUpdate scan) async {
+    scan.ownerUuid ??= _currentUserUuid;
     await scanUsageBox.put(scan.key(), scan);
   }
 
   addPeriodicTask(PeriodicTaskRequest taskRequest) async {
+    taskRequest.ownerUuid ??= _currentUserUuid;
     await periodicTaskBox.put(taskRequest.key(), taskRequest);
   }
 
@@ -1762,6 +2056,132 @@ class DataProvider {
       }
     });
   }
+
+  /// Событие потока `equipment_changed` (бэкенд `8a88247`): ремонт сменил
+  /// состояние оборудования — запланированный стартовал по расписанию, ремонт
+  /// перенесли, закрыли или удалили. Обновляет запись справочника без
+  /// синхронизации: `state`, `has_open_repair` (открытые + на рассмотрении)
+  /// и счётчики незакрытых ремонтов.
+  ///
+  /// Пропущенное событие догонит обычная синхронизация справочника: сервер в
+  /// этот момент двигает `updated_at` оборудования. Оборудования нет в
+  /// справочнике (не наше) — ничего не делаем.
+  Future<void> applyEquipmentChanged(Map<String, dynamic> data) async {
+    final uuid = (data['equipment_uuid'] ?? data['entity_uuid'])?.toString();
+    if (uuid == null || uuid.isEmpty) return;
+    final open = InventoryRecord.unfinishedCount(data, 'open');
+    final underReview = InventoryRecord.unfinishedCount(data, 'under_review');
+    final state = data['state'];
+    final generation = cacheGeneration;
+    var changed = false;
+    await _commit(generation, 'Событие оборудования', () async {
+      for (final key in inventoryBox.keys) {
+        final record = inventoryBox.get(key);
+        if (record == null || record.uuid != uuid) continue;
+        await inventoryBox.put(
+          key,
+          record.copyWith(
+            // `state: null` в событии — состояния у оборудования больше нет
+            // (закрыли последний ремонт, а до него состояния не было): снимаем,
+            // иначе пилюля держала бы «В ремонте». Ключа нет — не трогаем.
+            state: state is String && state.isNotEmpty ? state : null,
+            clearState: data.containsKey('state') &&
+                (state == null || (state is String && state.isEmpty)),
+            hasOpenRepair: open == null ? null : open + (underReview ?? 0) > 0,
+            unfinishedScheduled: InventoryRecord.unfinishedCount(
+              data,
+              'scheduled',
+            ),
+            unfinishedOpen: open,
+            unfinishedUnderReview: underReview,
+          ),
+        );
+        updateInventoryRecords();
+        // Номер события — чтобы сверить с началом идущей синхронизации
+        // ([_withFresherEquipmentEvent]). Номер, а не время: два вызова
+        // `DateTime.now()` подряд могут совпасть, номер растёт строго.
+        _equipmentEventSeqOf[uuid] = ++_equipmentEventSeq;
+        changed = true;
+        break;
+      }
+    });
+    if (!changed) return;
+    lastChangedEquipmentUuid = uuid;
+    equipmentEvents.value++;
+  }
+
+  /// Номер последнего применённого события `equipment_changed` — растёт на
+  /// каждое. Проход справочника запоминает его до запроса
+  /// ([_withFresherEquipmentEvent]).
+  int _equipmentEventSeq = 0;
+
+  /// Оборудование → номер события, последним обновившего его запись.
+  /// Сбрасывается вместе с кэшем при смене аккаунта и чистится по мере того,
+  /// как заканчиваются проходы справочника ([endInventoryEventWindow]).
+  final Map<String, int> _equipmentEventSeqOf = {};
+
+  /// Номера событий на начало идущих проходов справочника. Проходы могут
+  /// идти и параллельно — поэтому список, а не одно число.
+  final List<int> _inventoryPassesFrom = [];
+
+  /// Начало прохода справочника: номер событий, с которым сравнивать ответ
+  /// ([_withFresherEquipmentEvent]). Парный вызов — [endInventoryEventWindow].
+  int beginInventoryEventWindow() {
+    _inventoryPassesFrom.add(_equipmentEventSeq);
+    return _equipmentEventSeq;
+  }
+
+  /// Конец прохода, начатого с номером [from]. Отметки событий, не новее
+  /// начала самого раннего из идущих проходов, больше никому не нужны:
+  /// следующий проход начнётся с номера не меньше нынешнего. Идущих нет —
+  /// не нужна ни одна.
+  void endInventoryEventWindow(int from) {
+    _inventoryPassesFrom.remove(from);
+    if (_inventoryPassesFrom.isEmpty) {
+      _equipmentEventSeqOf.clear();
+      return;
+    }
+    final earliest = _inventoryPassesFrom.reduce((a, b) => a < b ? a : b);
+    _equipmentEventSeqOf.removeWhere((_, seq) => seq <= earliest);
+  }
+
+  /// [incoming] из ответа синхронизации, запрошенного при номере событий
+  /// [requestedSeq], — но с состоянием, `hasOpenRepair` и счётчиками ремонтов
+  /// из кэша, если событие `equipment_changed` обновило запись **после**
+  /// начала запроса.
+  ///
+  /// Иначе задержавшийся ответ вернул бы прежнее («В работе» вместо «В
+  /// ремонте») поверх свежего события: поколение кэша защищает только от
+  /// смены аккаунта. Сравниваются номера событий, а не время: часы телефона
+  /// могут дать одно значение началу запроса и событию, номер — нет. Прочие
+  /// поля — из ответа: событие их не касается.
+  InventoryRecord _withFresherEquipmentEvent(
+    InventoryRecord incoming,
+    int requestedSeq,
+  ) {
+    final eventSeq = _equipmentEventSeqOf[incoming.uuid];
+    if (eventSeq == null || eventSeq <= requestedSeq) return incoming;
+    final cached = inventoryBox.get(incoming.uuid);
+    if (cached == null) return incoming;
+    return incoming.copyWith(
+      state: cached.state,
+      clearState: cached.state == null,
+      hasOpenRepair: cached.hasOpenRepair,
+      unfinishedScheduled: cached.unfinishedScheduled,
+      unfinishedOpen: cached.unfinishedOpen,
+      unfinishedUnderReview: cached.unfinishedUnderReview,
+    );
+  }
+
+  /// Оборудование последнего события `equipment_changed` — его экран
+  /// перечитывает пилюлю и блок незакрытых ремонтов ([equipmentEvents]).
+  String? lastChangedEquipmentUuid;
+
+  /// Счётчик событий `equipment_changed`: открытый экран оборудования
+  /// слушает его и обновляется, если событие про него
+  /// ([lastChangedEquipmentUuid]). Не [inventoryRevision]: тот двигает и
+  /// каждая синхронизация, а блок ремонтов перечитывать на каждую незачем.
+  final ValueNotifier<int> equipmentEvents = ValueNotifier<int>(0);
 
   String periodRealName(String periodName) {
     return periodicityRuleBox.values

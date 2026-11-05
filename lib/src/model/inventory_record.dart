@@ -53,6 +53,24 @@ class InventoryRecord {
   /// Сервер прислал поле `division` ([divisionUuid] не `null`).
   bool get hasDivisionField => divisionUuid != null;
 
+  /// Незакрытые ремонты оборудования по статусам — по **всем** службам, без
+  /// удалённых (`unfinished_repairs`, бэкенд `8a88247`; обновляется и
+  /// событием `equipment_changed`). `null` — неизвестно: сервер прошлой
+  /// версии или запись кэша до появления полей.
+  ///
+  /// Нужны без сети: кэш ремонтов знает только свои, а эти числа — сколько их
+  /// всего ([unfinishedRepairsTotal]).
+  final int? unfinishedScheduled;
+  final int? unfinishedOpen;
+  final int? unfinishedUnderReview;
+
+  /// Всего незакрытых ремонтов. `null` — счётчиков нет.
+  int? get unfinishedRepairsTotal => unfinishedOpen == null
+      ? null
+      : (unfinishedScheduled ?? 0) +
+          unfinishedOpen! +
+          (unfinishedUnderReview ?? 0);
+
   String get descriptionText {
     final List<String> parts = [];
     parts.add('**Наименование оборудования**: $name');
@@ -104,6 +122,9 @@ class InventoryRecord {
     this.hasOpenRepair = false,
     this.locationUuid,
     this.divisionUuid,
+    this.unfinishedScheduled,
+    this.unfinishedOpen,
+    this.unfinishedUnderReview,
   });
 
   InventoryRecord copyWith({
@@ -123,6 +144,13 @@ class InventoryRecord {
     bool? hasOpenRepair,
     String? locationUuid,
     String? divisionUuid,
+    int? unfinishedScheduled,
+    int? unfinishedOpen,
+    int? unfinishedUnderReview,
+    // `state: null` значит «не менять» — снять состояние им нельзя. Снимает
+    // этот флаг: событие `equipment_changed` с `state: null` после закрытия
+    // последнего ремонта, когда прежнего состояния не было.
+    bool clearState = false,
   }) {
     return InventoryRecord(
       id: id ?? this.id,
@@ -137,7 +165,7 @@ class InventoryRecord {
       description: description ?? this.description,
       imageData: imageData ?? this.imageData,
       usageParameters: usageParameters ?? this.usageParameters,
-      state: state ?? this.state,
+      state: clearState ? null : state ?? this.state,
       // Параметра с этим именем в сигнатуре не было, и выражение сравнивало
       // поле само с собой — анализатор ругался `dead_null_aware_expression`.
       // Признак при этом сохранялся, так что данные не страдали, но строка
@@ -146,6 +174,10 @@ class InventoryRecord {
       hasOpenRepair: hasOpenRepair ?? this.hasOpenRepair,
       locationUuid: locationUuid ?? this.locationUuid,
       divisionUuid: divisionUuid ?? this.divisionUuid,
+      unfinishedScheduled: unfinishedScheduled ?? this.unfinishedScheduled,
+      unfinishedOpen: unfinishedOpen ?? this.unfinishedOpen,
+      unfinishedUnderReview:
+          unfinishedUnderReview ?? this.unfinishedUnderReview,
     );
   }
 
@@ -166,6 +198,15 @@ class InventoryRecord {
   @override
   String toString() {
     return "$id, $uuid, $name, $typeModel, $serialNumber, $location";
+  }
+
+  /// Счётчик [status] из `unfinished_repairs` ответа сервера или события
+  /// `equipment_changed`. `null` — счётчиков нет (сервер прошлой версии).
+  static int? unfinishedCount(Map<String, dynamic> json, String status) {
+    final counts = json['unfinished_repairs'];
+    if (counts is! Map) return null;
+    final value = counts[status];
+    return value is num ? value.toInt() : 0;
   }
 
   factory InventoryRecord.fromJson(Map<String, dynamic> json) {
@@ -204,6 +245,9 @@ class InventoryRecord {
           divisionUuid: json.containsKey('division')
               ? (json['division']?['uuid'] as String? ?? '')
               : null,
+          unfinishedScheduled: unfinishedCount(json, 'scheduled'),
+          unfinishedOpen: unfinishedCount(json, 'open'),
+          unfinishedUnderReview: unfinishedCount(json, 'under_review'),
         ),
       _ => throw const FormatException('Failed to load InventoryRecord.'),
     };
@@ -235,7 +279,19 @@ class InventoryAdapter extends TypeAdapter<InventoryRecord> {
       hasOpenRepair: _readTrailingBool(reader),
       locationUuid: _readTrailingString(reader),
       divisionUuid: _readTrailingString(reader),
+      // Счётчики незакрытых ремонтов — у записей до бэкенда `8a88247` их нет.
+      unfinishedScheduled: _readTrailingInt(reader),
+      unfinishedOpen: _readTrailingInt(reader),
+      unfinishedUnderReview: _readTrailingInt(reader),
     );
+  }
+
+  static int? _readTrailingInt(BinaryReader reader) {
+    try {
+      return reader.read() as int?;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Строковое поле в хвосте записи. `null`, если его там нет — запись
@@ -275,6 +331,9 @@ class InventoryAdapter extends TypeAdapter<InventoryRecord> {
     writer.write(obj.hasOpenRepair);
     writer.write(obj.locationUuid);
     writer.write(obj.divisionUuid);
+    writer.write(obj.unfinishedScheduled);
+    writer.write(obj.unfinishedOpen);
+    writer.write(obj.unfinishedUnderReview);
   }
 }
 

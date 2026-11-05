@@ -32,14 +32,22 @@ extension DataProviderSync on DataProvider {
       // Поколение — один раз на весь проход, включая откат с дельты на полный:
       // запись должна принадлежать тому аккаунту, под которым проход начался.
       final generation = cacheGeneration;
-      final cursor = getEquipmentCursor();
-      if (cursor != null &&
-          inventoryBox.isNotEmpty &&
-          !isEquipmentWriteIncomplete &&
-          !isEquipmentFullResyncDue) {
-        await _syncInventoryIncremental(cursor, generation);
-      } else {
-        await _syncInventoryFull(generation);
+      // Номер событий `equipment_changed` на начало прохода — по нему видно,
+      // какие события свежее ответа ([DataProvider._withFresherEquipmentEvent]).
+      // Тоже один раз на весь проход; закрывается в `finally` ниже.
+      final fromSeq = beginInventoryEventWindow();
+      try {
+        final cursor = getEquipmentCursor();
+        if (cursor != null &&
+            inventoryBox.isNotEmpty &&
+            !isEquipmentWriteIncomplete &&
+            !isEquipmentFullResyncDue) {
+          await _syncInventoryIncremental(cursor, generation, fromSeq);
+        } else {
+          await _syncInventoryFull(generation, fromSeq);
+        }
+      } finally {
+        endInventoryEventWindow(fromSeq);
       }
     } catch (e, s) {
       // Стек кладём в само сообщение: слушатель в `main.dart` печатает только
@@ -59,7 +67,10 @@ extension DataProviderSync on DataProvider {
   ///
   /// Выборка — курсором, с откатом на `skip` для старого сервера (см.
   /// [loadSyncWindow]); пишем только выбранное целиком окно.
-  Future<void> _syncInventoryFull(int generation) async {
+  ///
+  /// [requestedSeq] — номер событий оборудования на начало прохода, см.
+  /// [syncInventory].
+  Future<void> _syncInventoryFull(int generation, int requestedSeq) async {
     final window = await loadSyncWindow(
       api.getEquipmentPage,
       since: DateTime.utc(1970),
@@ -75,10 +86,15 @@ extension DataProviderSync on DataProvider {
       // Между clear() и putAll() бокс пуст или неполон. Флаг снаружи этой
       // пары помечает такое состояние как незавершённое — тот же приём, что
       // у ЗИП.
+      // До clear(): свежее событие берётся из кэша, а после очистки его там
+      // уже нет.
+      final merged = {
+        for (final record in all)
+          record.uuid: _withFresherEquipmentEvent(record, requestedSeq),
+      };
       await markEquipmentWriteStarted();
       await inventoryBox.clear();
-      await inventoryBox
-          .putAll({for (final record in all) record.uuid: record});
+      await inventoryBox.putAll(merged);
       await markEquipmentWriteFinished();
       await saveEquipmentCursor(window.syncUntil);
       await markEquipmentFullResyncDone();
@@ -94,6 +110,7 @@ extension DataProviderSync on DataProvider {
   Future<void> _syncInventoryIncremental(
     DateTime cursor,
     int generation,
+    int requestedSeq,
   ) async {
     final window = await loadSyncWindow(
       api.getEquipmentPage,
@@ -103,15 +120,20 @@ extension DataProviderSync on DataProvider {
     );
     // Сервер не понял инкрементальный режим — откатываемся на полный
     // проход, чтобы не принять «всё подряд» за список изменений.
-    if (window.syncUntil == null) return _syncInventoryFull(generation);
+    if (window.syncUntil == null) {
+      return _syncInventoryFull(generation, requestedSeq);
+    }
     final changed = window.items;
     final deleted = window.deleted;
     final until = window.syncUntil;
 
     await _commit(generation, 'Оборудование', () async {
       if (changed.isNotEmpty) {
-        await inventoryBox
-            .putAll({for (final record in changed) record.uuid: record});
+        // Событие `equipment_changed` свежее ответа — его поля не затираем.
+        await inventoryBox.putAll({
+          for (final record in changed)
+            record.uuid: _withFresherEquipmentEvent(record, requestedSeq),
+        });
       }
       if (deleted.isNotEmpty) await inventoryBox.deleteAll(deleted);
       await saveEquipmentCursor(until);
@@ -438,6 +460,8 @@ extension DataProviderSync on DataProvider {
         _repairsCursor = until;
         final keep = {for (final repair in fresh) repair.uuid};
         for (final draft in pendingRepairBox.values) {
+          // Ремонт чужого черновика — тоже чужая работа.
+          if (!isMine(draft.ownerUuid)) continue;
           final uuid = draft.serverUuid;
           if (uuid == null || uuid.isEmpty) continue;
           // Только пока ремонт не закрыт: если администратор успел его
@@ -1051,16 +1075,20 @@ extension DataProviderSync on DataProvider {
     });
   }
 
-  /// Все очереди отправки пусты — гонять по ним проход незачем.
+  /// В очередях отправки нет записей вошедшего обходчика — гонять по ним
+  /// проход незачем. Записи другого аккаунта не в счёт: проход их всё равно
+  /// пропустит (п. 1.5 отчёта), а цикл крутился бы впустую.
   bool get _outboxIsEmpty =>
-      scanBox.isEmpty &&
-      scanPendingBox.isEmpty &&
-      scanUsageBox.isEmpty &&
-      scanUsagePendingBox.isEmpty &&
-      periodicTaskBox.isEmpty &&
-      periodicTaskPendingBox.isEmpty &&
-      pendingRepairBox.isEmpty &&
-      pendingRepairUpdateBox.isEmpty;
+      _myScansAndUsageCount == 0 &&
+      myQueuedProblemReportsCount == 0 &&
+      pendingRepairs.isEmpty &&
+      myQueuedRepairEditsCount == 0;
+
+  /// Мои осмотры и наработка — в основных боксах и «в полёте».
+  int get _myScansAndUsageCount =>
+      myQueuedScansCount +
+      myQueuedUsageCount +
+      countMine(scanUsagePendingBox.values, (u) => u.ownerUuid);
 
   /// Задержки цикла отправки: обычная и те, на которые он отходит, пока
   /// сервер недоступен.
@@ -1153,10 +1181,7 @@ extension DataProviderSync on DataProvider {
     // Осмотры уезжают параллельно со справочниками: очереди пишут в свои
     // боксы и на загрузку справочников не влияют, а по очереди это было
     // сложением двух самых долгих частей.
-    final queueWas = scanBox.length +
-        scanPendingBox.length +
-        scanUsageBox.length +
-        scanUsagePendingBox.length;
+    final queueWas = _myScansAndUsageCount;
     // Отклонённые заявки фон не повторяет — кнопка и есть ручной повтор.
     await retryRejectedProblemReports();
     await Future.wait([
@@ -1178,16 +1203,12 @@ extension DataProviderSync on DataProvider {
       // её внёс. Присоединившись, кнопка ответила бы «не получилось» по тому,
       // что уехало бы следующим циклом.
       if (queueWas > 0) _flushUsageAndScans(),
-      if (periodicTaskBox.isNotEmpty || periodicTaskPendingBox.isNotEmpty)
-        syncPeriodicTasksFresh(),
+      if (myQueuedProblemReportsCount > 0) syncPeriodicTasksFresh(),
     ]);
     // Остаток считаем по обеим очередям и вместе с «в полёте»: раньше
     // смотрели только на основной бокс осмотров, и осмотр, ушедший после
     // временного сбоя в pending, или застрявшая наработка давали «успешно».
-    final left = scanBox.length +
-        scanPendingBox.length +
-        scanUsageBox.length +
-        scanUsagePendingBox.length;
+    final left = _myScansAndUsageCount;
     // Заявки «Проблема» — тоже данные обходчика: раньше их остаток не
     // считался, и при 503 на создании задачи кнопка отвечала «успешно».
     // Отклонённые — отдельно, с причинами: сами они не уйдут.
@@ -1195,10 +1216,9 @@ extension DataProviderSync on DataProvider {
     return SyncReport(
       scansWereQueued: queueWas > 0,
       scansLeft: queueWas > 0 && left > 0,
-      repairsLeft:
-          pendingRepairBox.isNotEmpty || pendingRepairUpdateBox.isNotEmpty,
-      problemReportsLeft: periodicTaskBox.length - rejected.length > 0 ||
-          periodicTaskPendingBox.isNotEmpty,
+      repairsLeft: pendingRepairs.isNotEmpty ||
+          myQueuedRepairEditsCount > 0,
+      problemReportsLeft: myQueuedProblemReportsCount - rejected.length > 0,
       problemReportReasons: [
         ...{
           for (final task in rejected)
@@ -1219,10 +1239,14 @@ extension DataProviderSync on DataProvider {
   /// не сдвинул (отклонённые, нет связи): крутиться дальше бессмысленно.
   Future<void> _flushUsageAndScans() async {
     int unsent() =>
-        scanBox.values.where((scan) => !scan.isRejected).length +
-        scanPendingBox.length +
-        scanUsageBox.values.where((usage) => !usage.isRejected).length +
-        scanUsagePendingBox.length;
+        scanBox.values
+            .where((scan) => !scan.isRejected && isMine(scan.ownerUuid))
+            .length +
+        countMine(scanPendingBox.values, (s) => s.ownerUuid) +
+        scanUsageBox.values
+            .where((usage) => !usage.isRejected && isMine(usage.ownerUuid))
+            .length +
+        countMine(scanUsagePendingBox.values, (u) => u.ownerUuid);
     for (var round = 0; round < 3; round++) {
       final before = unsent();
       await syncUsageScansFresh();

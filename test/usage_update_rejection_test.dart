@@ -79,6 +79,7 @@ void main() {
 
     expect(stored.lastError, isNull);
     expect(stored.isRejected, isFalse);
+    expect(stored.ownerUuid, isNull);
     // Пустая строка тоже не считается отказом: очередь ориентируется на
     // `isRejected`, и «отклонена без причины» было бы тупиком.
     stored.lastError = '';

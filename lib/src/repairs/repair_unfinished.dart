@@ -4,9 +4,12 @@ import 'package:intl/intl.dart';
 import '../../global_state.dart';
 import '../../strings.dart';
 import '../design/app_constants.dart';
+import '../exceptions/app_exceptions.dart';
 import '../http/api.dart';
 import '../model/pending_repair.dart';
 import '../model/repair.dart';
+import '../model/unfinished_repair_hint.dart';
+import '../utils/offline_error.dart';
 import 'repair_error_messages.dart';
 import 'repair_status_pill.dart';
 
@@ -16,9 +19,17 @@ import 'repair_status_pill.dart';
 /// Ремонтов по оборудованию может быть несколько (механика и электрика
 /// сразу, бэкенд `7be3756`), и создание это не блокирует — блок только
 /// показывает, кто уже работает и когда.
+///
+/// Строки — подсказки ([hints]) по всем службам. Ремонты, которые обходчик
+/// может открыть, лежат ещё и целиком ([details]): карточка из блока должна
+/// встать сразу полной, без мелькания.
 class UnfinishedRepairs {
-  /// По дате начала: сначала идущие, потом запланированные.
-  final List<Repair> repairs;
+  /// По дате начала, затем по номеру: сначала идущие, потом запланированные.
+  final List<UnfinishedRepairHint> hints;
+
+  /// Полные ремонты по uuid — только для подсказок с `canOpen`. Нет записи —
+  /// подробности не дочитались, карточка загрузит их сама.
+  final Map<String, Repair> details;
 
   /// Черновики из очереди отправки, о которых сервер ещё не знает. Они уже
   /// держат оборудование «В ремонте» ([DataProvider.hasHoldingRepairDraft]),
@@ -29,59 +40,137 @@ class UnfinishedRepairs {
   /// Связи нет — показаны ремонты из офлайн-кэша, то есть только свои.
   final bool fromCache;
 
-  const UnfinishedRepairs(
-    this.repairs, {
+  /// Сколько незакрытых ремонтов у оборудования всего, по всем службам, —
+  /// из счётчиков справочника ([InventoryRecord.unfinishedRepairsTotal]).
+  /// Только без связи: кэш знает свои, а это число — сколько их на самом
+  /// деле. `null` — неизвестно.
+  final int? offlineTotal;
+
+  const UnfinishedRepairs({
+    this.hints = const [],
+    this.details = const {},
     this.drafts = const [],
     this.fromCache = false,
+    this.offlineTotal,
   });
 
-  static const UnfinishedRepairs empty = UnfinishedRepairs([]);
+  static const UnfinishedRepairs empty = UnfinishedRepairs();
 
-  bool get isEmpty => repairs.isEmpty && drafts.isEmpty;
+  bool get isEmpty =>
+      hints.isEmpty && drafts.isEmpty && (offlineTotal ?? 0) == 0;
+
+  /// Ремонтов других служб без связи не видно, но счётчики справочника о
+  /// них знают — сколько не показано. `0` — показаны все.
+  int get hiddenOffline {
+    final total = offlineTotal;
+    if (!fromCache || total == null || total <= hints.length) return 0;
+    return total - hints.length;
+  }
 }
 
 /// Незакрытые ремонты оборудования [equipmentUuid].
 ///
-/// В сети — с сервера (`GET /v1/repairs/?equipment_uuid=…&status=…`). Сервер
-/// отдаёт только ремонты в области пользователя: ремонт другого направления в
-/// подсказку не попадёт (п. 2 `docs/backend-unplanned-repairs.md`). Без сети —
-/// из кэша: там только ремонты самого обходчика, о чём блок и говорит.
-///
-/// Ремонты отдаются целиком, с подробностями (см. [_withDetails]): из блока
-/// их открывают, и карточка должна сразу встать полной.
+/// * **В сети** — `GET /v1/company/equipment/{uuid}/unfinished-repairs`
+///   (бэкенд `8a88247`): ремонты всех служб. Чужой ремонт (`can_open:
+///   false`) — строка с замком, без перехода.
+/// * **Сервер прошлой версии** (адреса нет) — прежний
+///   `GET /v1/repairs/?equipment_uuid=…`: только ремонты в области обходчика.
+/// * **Без сети** — из кэша: там только ремонты самого обходчика, о чём блок
+///   и говорит.
 ///
 /// Блок рисуется в три шага, чтобы не ждать сети: экран начинает с
-/// [cachedUnfinishedRepairs], [onList] получает ответ списка (подробности —
+/// [cachedUnfinishedRepairs], [onList] получает ответ сервера (подробности —
 /// из кэша, где они есть), а результат — с дочитанными подробностями.
 Future<UnfinishedRepairs> loadUnfinishedRepairs(
   String equipmentUuid, {
   ValueChanged<UnfinishedRepairs>? onList,
 }) async {
-  final List<Repair> repairs;
+  var hints = <UnfinishedRepairHint>[];
+  final details = <String, Repair>{};
   try {
-    final page = await API().getRepairsPage(
-      statuses: const [
-        RepairStatuses.scheduled,
-        RepairStatuses.open,
-        RepairStatuses.underReview,
-      ],
-      equipmentUuid: equipmentUuid,
-    );
-    repairs = _unfinishedOf(equipmentUuid, page.items.map(_withCachedDetails));
-  } catch (_) {
-    return cachedUnfinishedRepairs(equipmentUuid, offline: true);
+    final fresh = await API().getEquipmentUnfinishedRepairs(equipmentUuid);
+    if (fresh != null) {
+      hints = _sortedHints(fresh.where((hint) => hint.isUnfinished));
+      for (final hint in hints) {
+        if (!hint.canOpen) continue;
+        final cached = GlobalState.dataProvider.repairBox.get(hint.uuid);
+        // Кэш годится, только если он не отстал от подсказки: подсказка
+        // свежая, а синхронизации после правки в админке могло ещё не быть.
+        // Отставший кэш карточка показала бы на миг со старым статусом и
+        // формой, а потом перерисовала, — то же мелькание. Тогда дочитываем.
+        if (cached != null &&
+            cached.detailsLoaded &&
+            cached.status == hint.status &&
+            cached.startedAt.isAtSameMomentAs(hint.startedAt)) {
+          details[hint.uuid] = cached;
+        }
+      }
+    } else {
+      final page = await API().getRepairsPage(
+        statuses: const [
+          RepairStatuses.scheduled,
+          RepairStatuses.open,
+          RepairStatuses.underReview,
+        ],
+        equipmentUuid: equipmentUuid,
+      );
+      final repairs =
+          _unfinishedOf(equipmentUuid, page.items.map(_withCachedDetails));
+      hints = [
+        for (final repair in repairs) UnfinishedRepairHint.fromRepair(repair)
+      ];
+      for (final repair in repairs) {
+        details[repair.uuid] = repair;
+      }
+    }
+  } catch (e) {
+    // Свои ремонты из кэша — в обоих случаях, но «Без связи» пишем, только
+    // если связи и правда нет: на отказ сервера (500, 403) подпись звала бы
+    // проверить интернет, который на месте.
+    return cachedUnfinishedRepairs(equipmentUuid, offline: isOfflineError(e));
   }
-  if (repairs.every((repair) => repair.detailsLoaded)) {
-    return _withDrafts(equipmentUuid, repairs);
+  final missing = [
+    for (final hint in hints)
+      if (hint.canOpen && !(details[hint.uuid]?.detailsLoaded ?? false)) hint,
+  ];
+  if (missing.isEmpty) return _withDrafts(equipmentUuid, hints, details);
+  onList?.call(_withDrafts(equipmentUuid, hints, Map.of(details)));
+
+  final fetched = {
+    for (final (index, result)
+        in (await Future.wait(missing.map((h) => _fetchDetails(h.uuid))))
+            .indexed)
+      missing[index].uuid: result,
+  };
+  // Пока дочитывались подробности, ремонт могли закрыть, удалить, начать
+  // досрочно или увести из области обходчика: полный ответ свежее
+  // подсказки — по нему и решаем, что показывать.
+  final next = <UnfinishedRepairHint>[];
+  for (final hint in hints) {
+    final result = fetched[hint.uuid];
+    if (result == null) {
+      next.add(hint);
+      continue;
+    }
+    switch (result) {
+      case _Details(:final repair):
+        if (repair.equipmentUuid != equipmentUuid || !repair.isUnfinished) {
+          details.remove(hint.uuid);
+          continue;
+        }
+        details[hint.uuid] = repair;
+        next.add(UnfinishedRepairHint.fromRepair(repair));
+      case _Gone():
+        details.remove(hint.uuid);
+      case _Locked():
+        details.remove(hint.uuid);
+        next.add(hint.locked());
+      case _Failed():
+        // Нет связи и т. п. — строка остаётся, карточка дочитает сама.
+        next.add(hint);
+    }
   }
-  onList?.call(_withDrafts(equipmentUuid, repairs));
-  final detailed = await Future.wait(repairs.map(_withDetails));
-  // Пока дочитывались подробности, ремонт могли закрыть, удалить или начать
-  // досрочно: полный ответ свежее списка — фильтруем и сортируем ещё раз.
-  return _withDrafts(
-    equipmentUuid,
-    _unfinishedOf(equipmentUuid, detailed.whereType<Repair>()),
-  );
+  return _withDrafts(equipmentUuid, _sortedHints(next), details);
 }
 
 /// Незакрытые ремонты оборудования из офлайн-кэша — только свои, зато сразу
@@ -94,10 +183,20 @@ UnfinishedRepairs cachedUnfinishedRepairs(
   String equipmentUuid, {
   bool offline = false,
 }) {
+  final provider = GlobalState.dataProvider;
+  final repairs = _unfinishedOf(equipmentUuid, provider.repairs);
+  int? total;
+  if (offline) {
+    for (final record in provider.inventoryRecords) {
+      if (record.uuid == equipmentUuid) total = record.unfinishedRepairsTotal;
+    }
+  }
   return _withDrafts(
     equipmentUuid,
-    _unfinishedOf(equipmentUuid, GlobalState.dataProvider.repairs),
+    [for (final repair in repairs) UnfinishedRepairHint.fromRepair(repair)],
+    {for (final repair in repairs) repair.uuid: repair},
     fromCache: offline,
+    offlineTotal: total,
   );
 }
 
@@ -109,7 +208,8 @@ UnfinishedRepairs withCurrentDrafts(
   String equipmentUuid,
   UnfinishedRepairs data,
 ) =>
-    _withDrafts(equipmentUuid, data.repairs, fromCache: data.fromCache);
+    _withDrafts(equipmentUuid, data.hints, data.details,
+        fromCache: data.fromCache, offlineTotal: data.offlineTotal);
 
 /// Незакрытые ремонты оборудования [equipmentUuid] из [repairs], по дате
 /// начала. Фильтр по оборудованию у сервера прошлой версии мог и не
@@ -121,24 +221,41 @@ List<Repair> _unfinishedOf(String equipmentUuid, Iterable<Repair> repairs) {
   ]..sort((a, b) => a.startedAt.compareTo(b.startedAt));
 }
 
-/// [repairs] и черновики оборудования из очереди отправки.
+/// Порядок сервера: по дате начала, затем по номеру.
+List<UnfinishedRepairHint> _sortedHints(Iterable<UnfinishedRepairHint> hints) {
+  return hints.toList()
+    ..sort((a, b) {
+      final byStart = a.startedAt.compareTo(b.startedAt);
+      return byStart != 0 ? byStart : a.id.compareTo(b.id);
+    });
+}
+
+/// [hints] с [details] и черновики оборудования из очереди отправки.
 ///
 /// Черновик, чей ремонт сервер уже создал (`serverUuid`), показываем, только
 /// если самого ремонта в блоке нет — без связи кэш о нём мог ещё не узнать.
 /// Иначе один ремонт стоял бы в блоке дважды.
 UnfinishedRepairs _withDrafts(
   String equipmentUuid,
-  List<Repair> repairs, {
+  List<UnfinishedRepairHint> hints,
+  Map<String, Repair> details, {
   bool fromCache = false,
+  int? offlineTotal,
 }) {
-  final known = {for (final repair in repairs) repair.uuid};
+  final known = {for (final hint in hints) hint.uuid};
   final drafts = [
     for (final draft in GlobalState.dataProvider.pendingRepairs)
       if (draft.equipmentUuid == equipmentUuid &&
           (draft.serverUuid == null || !known.contains(draft.serverUuid)))
         draft,
   ]..sort((a, b) => a.startedAt.compareTo(b.startedAt));
-  return UnfinishedRepairs(repairs, drafts: drafts, fromCache: fromCache);
+  return UnfinishedRepairs(
+    hints: hints,
+    details: details,
+    drafts: drafts,
+    fromCache: fromCache,
+    offlineTotal: offlineTotal,
+  );
 }
 
 /// [repair] из списка с подробностями из кэша, если они там есть.
@@ -148,23 +265,50 @@ Repair _withCachedDetails(Repair repair) => repair.detailsLoaded
         GlobalState.dataProvider.repairBox.get(repair.uuid),
       );
 
-/// [repair] из списка — с комментарием, расходом и фото.
+/// Итог дочитывания подробностей одного ремонта — см. [_fetchDetails].
+sealed class _DetailsResult {
+  const _DetailsResult();
+}
+
+class _Details extends _DetailsResult {
+  final Repair repair;
+  const _Details(this.repair);
+}
+
+/// Ремонта больше нет (404): в блоке ему не место.
+class _Gone extends _DetailsResult {
+  const _Gone();
+}
+
+/// Ремонт есть, но карточку сервер не отдаёт: строка остаётся с замком.
+class _Locked extends _DetailsResult {
+  const _Locked();
+}
+
+/// Не дочиталось по другой причине (нет связи).
+class _Failed extends _DetailsResult {
+  const _Failed();
+}
+
+/// Полный ремонт [uuid] — с комментарием, расходом и фото
+/// (`GET /v1/repairs/{uuid}`).
 ///
-/// Список (`RepairListSchema`) их не отдаёт, а карточка, открытая с таким
-/// ремонтом, на миг показывала полосу «данные могли устареть» и «расход
+/// Ни список ремонтов, ни подсказка их не отдают, а карточка, открытая без
+/// них, на миг показывала полосу «данные могли устареть» и «расход
 /// неизвестен», пока не приходил полный ответ, — мелькание. Свой ремонт
-/// обычно уже лежит в кэше целиком ([_withCachedDetails]), остальные
-/// дочитываем (`GET /v1/repairs/{uuid}`; ремонтов у оборудования единицы).
-///
-/// `null` — ремонта больше нет или он ушёл из области обходчика (404, «нет
-/// доступа»): открыть его всё равно нельзя, в блоке ему не место. Прочая
-/// ошибка (нет связи) — остаётся запись из списка, карточка дочитает сама.
-Future<Repair?> _withDetails(Repair repair) async {
-  if (repair.detailsLoaded) return repair;
+/// обычно уже лежит в кэше целиком, сюда попадают остальные (ремонтов у
+/// оборудования единицы).
+Future<_DetailsResult> _fetchDetails(String uuid) async {
   try {
-    return await API().getRepair(repair.uuid);
+    return _Details(await API().getRepair(uuid));
   } catch (e) {
-    return isRepairOutOfScope(e) ? null : repair;
+    if (e is ServerFailureException &&
+        e is! AccessDeniedException &&
+        e.statusCode == 404 &&
+        repairErrorMessage(e) != repairNoAccessMessage) {
+      return const _Gone();
+    }
+    return isRepairOutOfScope(e) ? const _Locked() : const _Failed();
   }
 }
 
@@ -172,12 +316,15 @@ Future<Repair?> _withDetails(Repair repair) async {
 String _minute(DateTime value) =>
     DateFormat('yyyy-MM-dd HH:mm').format(value.toLocal());
 
-/// Ремонты, начинающиеся в ту же минуту, что [start].
-List<Repair> sameStartRepairs(List<Repair> repairs, DateTime start) {
+/// Ремонты (всех служб), начинающиеся в ту же минуту, что [start].
+List<UnfinishedRepairHint> sameStartRepairs(
+  List<UnfinishedRepairHint> hints,
+  DateTime start,
+) {
   final target = _minute(start);
   return [
-    for (final repair in repairs)
-      if (_minute(repair.startedAt) == target) repair,
+    for (final hint in hints)
+      if (_minute(hint.startedAt) == target) hint,
   ];
 }
 
@@ -193,11 +340,12 @@ List<PendingRepair> sameStartDrafts(
 }
 
 /// Предупреждение под датой начала (макет 14c-2): на это время уже есть
-/// ремонт. Создание не блокирует — над одним оборудованием могут работать
-/// мастера разных направлений. Тексты — как в веб-админке; неотправленный
-/// черновик номера не имеет и называется черновиком.
+/// ремонт — в том числе другой службы. Создание не блокирует — над одним
+/// оборудованием могут работать мастера разных направлений. Тексты — как в
+/// веб-админке; неотправленный черновик номера не имеет и называется
+/// черновиком.
 String? sameStartWarning(
-  List<Repair> repairs, {
+  List<UnfinishedRepairHint> repairs, {
   List<PendingRepair> drafts = const [],
 }) {
   final total = repairs.length + drafts.length;
@@ -216,7 +364,7 @@ String? sameStartWarning(
   );
 }
 
-String _repairRef(Repair repair) {
+String _repairRef(UnfinishedRepairHint repair) {
   final direction = repair.responsibleRoleName;
   return direction == null || direction.isEmpty
       ? '№${repair.id}'
@@ -229,8 +377,10 @@ String _repairRef(Repair repair) {
 class UnfinishedRepairsBlock extends StatelessWidget {
   final UnfinishedRepairs data;
 
-  /// Нажатие на ремонт — открыть его карточку. `null` — строки не нажимаются.
-  final ValueChanged<Repair>? onOpen;
+  /// Нажатие на ремонт — открыть его карточку: uuid и, если дочитан, полный
+  /// ремонт (иначе карточка загрузит его сама). `null` — строки не
+  /// нажимаются. Ремонт другой службы не открывается вовсе — у него замок.
+  final void Function(String uuid, Repair? repair)? onOpen;
 
   /// Нажатие на черновик — открыть его карточку. `null` — не нажимаются.
   final ValueChanged<PendingRepair>? onOpenDraft;
@@ -245,17 +395,17 @@ class UnfinishedRepairsBlock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (data.isEmpty) return const SizedBox.shrink();
-    final repairs = data.repairs;
-    final drafts = data.drafts;
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     final rows = <Widget>[
-      for (final repair in repairs)
+      for (final hint in data.hints)
         _UnfinishedRepairRow(
-          repair: repair,
-          onTap: onOpen == null ? null : () => onOpen!(repair),
+          hint: hint,
+          onTap: onOpen == null || !hint.canOpen
+              ? null
+              : () => onOpen!(hint.uuid, data.details[hint.uuid]),
         ),
-      for (final draft in drafts)
+      for (final draft in data.drafts)
         _UnfinishedDraftRow(
           draft: draft,
           onTap: onOpenDraft == null ? null : () => onOpenDraft!(draft),
@@ -266,7 +416,7 @@ class UnfinishedRepairsBlock extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          RepairStrings.unfinishedTitle(rows.length),
+          RepairStrings.unfinishedTitle(rows.length + data.hiddenOffline),
           style: tt.labelSmall?.copyWith(
             color: cs.onSurfaceVariant,
             fontWeight: FontWeight.w600,
@@ -276,11 +426,13 @@ class UnfinishedRepairsBlock extends StatelessWidget {
         if (data.fromCache) ...[
           const SizedBox(height: 4),
           Text(
-            RepairStrings.unfinishedOffline,
+            data.hiddenOffline > 0
+                ? RepairStrings.unfinishedOfflineHidden(data.hiddenOffline)
+                : RepairStrings.unfinishedOffline,
             style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
           ),
         ],
-        const SizedBox(height: AppConstants.spacingSM),
+        if (rows.isNotEmpty) const SizedBox(height: AppConstants.spacingSM),
         for (var i = 0; i < rows.length; i++) ...[
           if (i > 0) const SizedBox(height: AppConstants.spacingSM),
           rows[i],
@@ -291,29 +443,35 @@ class UnfinishedRepairsBlock extends StatelessWidget {
 }
 
 class _UnfinishedRepairRow extends StatelessWidget {
-  final Repair repair;
+  final UnfinishedRepairHint hint;
   final VoidCallback? onTap;
 
-  const _UnfinishedRepairRow({required this.repair, this.onTap});
+  const _UnfinishedRepairRow({required this.hint, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final start = DateFormat('dd.MM HH:mm').format(repair.startedAt.toLocal());
-    final direction = repair.responsibleRoleName;
-    final person = (repair.responsibleUserFullname ?? '').trim();
+    final start = DateFormat('dd.MM HH:mm').format(hint.startedAt.toLocal());
+    final direction = hint.responsibleRoleName;
+    final person = (hint.responsibleUserFullname ?? '').trim();
     final who = [
       if (direction != null && direction.isNotEmpty) direction,
       person.isNotEmpty ? person : RepairStrings.unfinishedNoResponsible,
+      if (!hint.canOpen) RepairStrings.unfinishedNoAccess,
     ].join(' · ');
     return _UnfinishedRow(
-      pill: RepairStatusPill(status: repair.status, compact: true),
+      pill: RepairStatusPill(status: hint.status, compact: true),
       title: RepairStrings.unfinishedStart(
-        id: repair.id,
-        scheduled: repair.isScheduled,
+        id: hint.id,
+        scheduled: hint.isScheduled,
         start: start,
       ),
       subtitle: who,
       onTap: onTap,
+      // Чужой ремонт не прячем — подсказка, что над оборудованием уже
+      // работают, нужна и без доступа к карточке. Заперт: замок и причина
+      // по нажатию.
+      lockedReason:
+          hint.canOpen ? null : RepairStrings.unfinishedNoAccessReason,
     );
   }
 }
@@ -343,24 +501,39 @@ class _UnfinishedDraftRow extends StatelessWidget {
   }
 }
 
-/// Строка блока: пилюля и «№… · Начат …», ниже подпись, справа стрелка.
+/// Строка блока: пилюля и «№… · Начат …», ниже подпись, справа стрелка — или
+/// замок, если строка заперта ([lockedReason]).
 class _UnfinishedRow extends StatelessWidget {
   final Widget pill;
   final String title;
   final String subtitle;
   final VoidCallback? onTap;
 
+  /// Почему строку не открыть. Задан — справа замок, нажатие показывает
+  /// причину.
+  final String? lockedReason;
+
   const _UnfinishedRow({
     required this.pill,
     required this.title,
     required this.subtitle,
     this.onTap,
+    this.lockedReason,
   });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
+    final reason = lockedReason;
+    final tap = reason == null
+        ? onTap
+        : () => ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(SnackBar(
+            content: Text(reason),
+            behavior: SnackBarBehavior.floating,
+          ));
     return Material(
       color: cs.surfaceContainerLowest,
       shape: RoundedRectangleBorder(
@@ -369,7 +542,7 @@ class _UnfinishedRow extends StatelessWidget {
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: onTap,
+        onTap: tap,
         child: Padding(
           padding: const EdgeInsets.all(AppConstants.spacingMD),
           child: Row(
@@ -400,11 +573,15 @@ class _UnfinishedRow extends StatelessWidget {
                 ),
               ),
               // Стрелка — как в вебе: строка нажимается и открывает ремонт.
-              if (onTap != null) ...[
+              // Замок — строка заперта, ремонт другой службы.
+              if (reason != null || onTap != null) ...[
                 const SizedBox(width: AppConstants.spacingSM),
                 Icon(
-                  Icons.chevron_right_rounded,
+                  reason != null
+                      ? Icons.lock_outline_rounded
+                      : Icons.chevron_right_rounded,
                   color: cs.onSurfaceVariant,
+                  size: reason != null ? 20 : null,
                 ),
               ],
             ],

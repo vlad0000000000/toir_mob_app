@@ -24,6 +24,10 @@ enum _DeniedCheck { wait, noRights, stateChanged, unknown }
 /// периодические задачи, черновики ремонтов. Перекладывание pending ↔ box +
 /// ретраи.
 extension DataProviderOutbox on DataProvider {
+  /// Правка [update] ещё в очереди — её не удалили с экрана, пока шёл запрос.
+  bool _isQueued(PendingRepairUpdate update) =>
+      pendingRepairUpdateBox.containsKey(updateKeyOf(update));
+
   /// Отправляет черновики ремонтов, накопленные без связи.
   ///
   /// Схема проще, чем у осмотров: отдельный pending-бокс с возвратом через
@@ -57,6 +61,9 @@ extension DataProviderOutbox on DataProvider {
   Future<int> _syncPendingRepairsImpl() async {
     var sent = 0;
     for (final draft in pendingRepairBox.values.toList()) {
+      // Черновик другого обходчика с его токеном не уходит: ждёт, пока тот
+      // снова войдёт на этом телефоне (п. 1.5 отчёта).
+      if (!isMine(draft.ownerUuid)) continue;
       // Отклонённые не долбим на каждом цикле: причина никуда не денется
       // сама («Для этого оборудования уже есть ремонт»), а обходчик увидит
       // её в списке и решит — повторить вручную или удалить черновик.
@@ -69,6 +76,18 @@ extension DataProviderOutbox on DataProvider {
       var current = draft;
       // Сессия — до запросов: ответ может прийти уже после нового входа.
       final session = _accessSession;
+      // Поколение кэша — тоже до запросов. Конвейер — несколько запросов
+      // подряд, а токен в `API` общий: выйди A посреди него и войди B,
+      // следующий шаг ушёл бы с токеном B, а ответ с ремонтом A лёг бы в кэш
+      // B. Поэтому после каждого сетевого шага сверяемся и при смене аккаунта
+      // бросаем запись — она A, и дошлёт её A, когда войдёт.
+      //
+      // Сверяем и номер сессии: обычный «Выйти» поколение не трогает (оно
+      // меняется только при входе другого), а токена после него нет вовсе.
+      // Вышел и вошёл тот же A — проход бросит запись, следующий продолжит.
+      final generation = cacheGeneration;
+      bool switched() =>
+          isStaleCacheGeneration(generation) || session != _accessSession;
       try {
         // Ремонт создаём только если его ещё нет: на повторном проходе
         // (например, когда доехал ремонт, но не доехали снимки) черновик уже
@@ -87,6 +106,9 @@ extension DataProviderOutbox on DataProvider {
             if (!pendingRepairBox.containsKey(current.localId)) continue;
             await pendingRepairBox.put(current.localId, current);
           }
+          // Фиксация тела — ожидание: сменись за него аккаунт, ремонт A
+          // создался бы от имени B. Тело уже записано — повтор A совпадёт.
+          if (switched()) continue;
           final repair = await api.createRepair(
             equipmentUuid: current.equipmentUuid,
             consumptionNormUuid: current.createNormUuid,
@@ -98,9 +120,11 @@ extension DataProviderOutbox on DataProvider {
             // сервер сам откроет ремонт сразу.
             schedule: current.schedule,
           );
-          await upsertRepair(repair);
+          await upsertRepair(repair, generation: generation);
           // Записываем uuid до загрузки снимков: если приложение убьют
-          // посреди неё, следующий проход не создаст второй ремонт.
+          // посреди неё, следующий проход не создаст второй ремонт. И при
+          // смене аккаунта тоже: черновик — запись A в общей очереди, и без
+          // uuid A, войдя снова, создал бы второй ремонт.
           current = current.copyWith(serverUuid: repair.uuid);
           // Черновик мог быть удалён с экрана, пока запрос был в полёте.
           // Возвращать его в бокс нельзя: обходчик уже решил, что не хочет
@@ -108,10 +132,30 @@ extension DataProviderOutbox on DataProvider {
           // следующей синхронизацией.
           if (!pendingRepairBox.containsKey(current.localId)) continue;
           await pendingRepairBox.put(current.localId, current);
+          if (switched()) continue;
         }
 
-        final left =
-            await _uploadPhotos(current.serverUuid!, current.photoPaths);
+        // Ремонт создан запланированным, а время ещё не пришло: снимки и
+        // финальную правку сервер исполнителю не примет (409
+        // `repair_not_open`, у старого сервера — 403 «нет прав»). Ждём начала:
+        // тогда сервер откроет ремонт, и конвейер дойдёт до конца.
+        //
+        // Решает ремонт в кэше, а не дата черновика: администратор мог
+        // открыть ремонт досрочно или перенести его, и синхронизация уже это
+        // принесла. Запланирован, но его время прошло — пробуем: сервер,
+        // скорее всего, уже открыл; нет — 409 «запланирован», и ждём дальше.
+        // Кэш о ремонте не знает — по дате черновика.
+        final now = DateTime.now();
+        final created = repairBox.get(current.serverUuid!);
+        final waitsForStart = created != null
+            ? created.isScheduled && created.startedAt.isAfter(now)
+            : current.isScheduledAt(now);
+        if (waitsForStart) continue;
+        final left = await _uploadPhotos(
+          current.serverUuid!,
+          current.photoPaths,
+          stop: switched,
+        );
         if (left.isNotEmpty) {
           // Часть снимков не ушла — черновик остаётся в очереди ровно с
           // ними. Отправленные уже вычеркнуты и повторно не полетят.
@@ -153,17 +197,22 @@ extension DataProviderOutbox on DataProvider {
           );
           continue;
         }
+        // Последний шаг — с токеном того, чей черновик.
+        if (switched()) continue;
         final finished = await api.updateRepair(
           current.serverUuid!,
           comment: commentChanged ? current.comment : null,
           consumptions: sectionAccess.consumptionsToSend(current.consumptions),
           submitForReview: current.submitForReview,
         );
-        await upsertRepair(finished);
+        await upsertRepair(finished, generation: generation);
         await deletePendingRepair(current.localId);
         _authExpiredFlag.set(false, requestSession: session);
         sent++;
       } catch (e) {
+        // Аккаунт сменился, пока шёл запрос: отказ мог прийти и на токен B —
+        // черновик A не помечаем, он уйдёт, когда A войдёт.
+        if (switched()) continue;
         if (e is AuthExpiredException) {
           // Токен протух. Черновик не виноват — оставляем как есть и поднимаем
           // пометку; после повторного входа отправка продолжится сама.
@@ -176,6 +225,10 @@ extension DataProviderOutbox on DataProvider {
           // ключом — оставляем как есть, даже попытку не засчитываем.
           continue;
         }
+        // Созданный ремонт ещё запланирован (часы телефона отстают от
+        // сервера) — ждём начала, как и выше. На рассмотрении или закрыт —
+        // обычный отказ ниже, с причиной по статусу.
+        if (e is RepairNotOpenException && e.isScheduled) continue;
         // Сервер ответил и отказал. Запоминаем причину по-русски и больше не
         // повторяем автоматически.
         //
@@ -185,16 +238,20 @@ extension DataProviderOutbox on DataProvider {
         // сервера и ошибку валидации — значило гонять сеть впустую ради
         // значения, которое всё равно окажется пустым.
         final reason = repairErrorMessage(e);
-        // Удалён с экрана, пока летел запрос, — пометку ставить некуда.
+        var blocking = isEquipmentBusyMessage(reason)
+            ? await _findBlockingRepair(current.equipmentUuid)
+            : null;
+        // Поиск — ещё один запрос и чтение кэша: сменись за него аккаунт, он
+        // ушёл бы с токеном B и нашёл бы ремонт по кэшу B. Сама причина верна
+        // (пришла на запрос A) — ставим её без ссылки на ремонт: найдёт
+        // следующий разбор под A.
+        if (switched()) blocking = null;
+        // Удалён с экрана, пока летел запрос или шёл поиск, — пометку ставить
+        // некуда.
         if (!pendingRepairBox.containsKey(current.localId)) continue;
         await pendingRepairBox.put(
           current.localId,
-          current.markRejected(
-            reason: reason,
-            conflictRepairUuid: isEquipmentBusyMessage(reason)
-                ? await _findBlockingRepair(current.equipmentUuid)
-                : null,
-          ),
+          current.markRejected(reason: reason, conflictRepairUuid: blocking),
         );
         _outboxLog.severe(
             'черновик ремонта ${current.localId} отклонён сервером: $e');
@@ -221,18 +278,33 @@ extension DataProviderOutbox on DataProvider {
   /// содержимого кадра (`RepairPhotoFiles.idempotencyKey`), поэтому он один и
   /// тот же при любом числе повторов — и совпадает с тем, под которым тот же
   /// кадр уже пытались отправить из карточки.
+  ///
+  /// [stop] — проверка конвейера «сменился аккаунт или вышли» (`switched()`:
+  /// поколение кэша и номер сессии): сработала — следующий снимок не шлём
+  /// (ушёл бы с чужим токеном или без него), он остаётся в оставшихся.
   Future<List<String>> _uploadPhotos(
-      String repairUuid, List<String> paths) async {
+    String repairUuid,
+    List<String> paths, {
+    required bool Function() stop,
+  }) async {
     final left = <String>[];
     var failed = false;
     for (final path in paths) {
-      if (failed) {
+      if (failed || stop()) {
         left.add(path);
         continue;
       }
       final bytes = await RepairPhotoFiles.read(path);
       if (bytes == null) {
         // Файла нет — вычёркиваем: ждать его бессмысленно.
+        continue;
+      }
+      // Ещё раз — после чтения: оно асинхронное, и сменись сессия, пока
+      // читался файл, снимок A ушёл бы с токеном B. Путь остаётся в
+      // оставшихся, дальше не шлём — как при обрыве связи.
+      if (stop()) {
+        failed = true;
+        left.add(path);
         continue;
       }
       final session = _accessSession;
@@ -244,6 +316,11 @@ extension DataProviderOutbox on DataProvider {
         );
         await RepairPhotoFiles.delete(path);
       } catch (e) {
+        // Ремонт ушёл из «Открыт» — это не сбой связи, повтор на каждом
+        // проходе ничего не дал бы: решает вызывающий (ждать начала или
+        // пометить правку). Принятые снимки уже удалены с телефона, их путь
+        // следующая попытка просто пропустит.
+        if (e is RepairNotOpenException) rethrow;
         if (e is AuthExpiredException) {
           _authExpiredFlag.set(true, requestSession: session);
         }
@@ -263,12 +340,14 @@ extension DataProviderOutbox on DataProvider {
   /// это успех, а не ошибка: цель достигнута.
   Future<List<String>> _deletePhotos(
     String repairUuid,
-    List<String> photoUuids,
-  ) async {
+    List<String> photoUuids, {
+    required bool Function() stop,
+  }) async {
     final left = <String>[];
     var failed = false;
     for (final uuid in photoUuids) {
-      if (failed) {
+      // Сменился аккаунт или вышли — как у загрузки: дальше не шлём.
+      if (failed || stop()) {
         left.add(uuid);
         continue;
       }
@@ -277,6 +356,10 @@ extension DataProviderOutbox on DataProvider {
         await api.deleteRepairPhoto(repairUuid, uuid);
       } catch (e) {
         if (repairErrorMessage(e) == _photoNotFoundMessage) continue;
+        // Ремонт ушёл из «Открыт» — не сбой связи: решает вызывающий (ждать
+        // начала или пометить правку). Удалённое уже вычеркнуто им не будет:
+        // повтор удаления безвреден (404 — успех).
+        if (e is RepairNotOpenException) rethrow;
         if (e is AuthExpiredException) {
           _authExpiredFlag.set(true, requestSession: session);
         }
@@ -404,8 +487,11 @@ extension DataProviderOutbox on DataProvider {
   /// занятое оборудование) не трогаем: от смены доступа они не исчезают.
   Future<int> retryNoRightsRejections() async {
     var cleared = 0;
+    // Сменился доступ вошедшего обходчика — пометки снимаем только с его
+    // записей: у чужих свой доступ, и отправлять их всё равно не нам.
     for (final entry in scanBox.toMap().entries) {
       final scan = entry.value;
+      if (!isMine(scan.ownerUuid)) continue;
       // «Оборудование не найдено» — тоже про доступ (на сервере до `06b145f`
       // — чужое подразделение без флага «Осмотр без QR»). Флаг, роль и
       // выкладка `06b145f` меняют версию доступа.
@@ -420,20 +506,23 @@ extension DataProviderOutbox on DataProvider {
     }
     for (final entry in scanUsageBox.toMap().entries) {
       final usage = entry.value;
+      if (!isMine(usage.ownerUuid)) continue;
       if (!isNoRightsReason(usage.lastError)) continue;
       usage.lastError = null;
       await scanUsageBox.put(entry.key, usage);
       cleared++;
     }
     for (final draft in pendingRepairBox.values.toList()) {
+      if (!isMine(draft.ownerUuid)) continue;
       if (!isRepairNoRightsMessage(draft.lastError)) continue;
       await pendingRepairBox.put(draft.localId, draft.clearRejection());
       cleared++;
     }
     for (final update in pendingRepairUpdateBox.values.toList()) {
+      if (!isMine(update.ownerUuid)) continue;
       if (!isRepairNoRightsMessage(update.lastError)) continue;
       await pendingRepairUpdateBox.put(
-          update.repairUuid, update.clearRejection());
+          updateKeyOf(update), update.clearRejection());
       cleared++;
     }
     // Отказ заявки — не «нет прав», а «оборудование не видно», но от смены
@@ -459,7 +548,7 @@ extension DataProviderOutbox on DataProvider {
   Future<int> retryRejectedProblemReports() async {
     var cleared = 0;
     for (final entry in periodicTaskBox.toMap().entries) {
-      if (!entry.value.isRejected) continue;
+      if (!entry.value.isRejected || !isMine(entry.value.ownerUuid)) continue;
       await periodicTaskBox.put(entry.key, entry.value.withRejection(null));
       cleared++;
     }
@@ -499,12 +588,25 @@ extension DataProviderOutbox on DataProvider {
   Future<int> _syncPendingRepairUpdatesImpl() async {
     var sent = 0;
     for (var update in pendingRepairUpdateBox.values.toList()) {
+      // Правка другого обходчика с его токеном не уходит (п. 1.5 отчёта).
+      if (!isMine(update.ownerUuid)) continue;
+      // Сессия и поколение кэша — сразу за проверкой владельца, до первого
+      // `await` (снятие устаревшей пометки ниже — уже ожидание): запомни мы их
+      // позже, за это ожидание мог бы войти B, и проверка ниже приняла бы его
+      // сессию за свою. Снимки и PATCH — несколько запросов подряд, и сменись
+      // аккаунт посреди, следующий ушёл бы с токеном нового обходчика, а
+      // ответ лёг бы в его кэш. Номер сессии — ради обычного выхода (см.
+      // черновики).
+      final session = _accessSession;
+      final generation = cacheGeneration;
+      bool switched() =>
+          isStaleCacheGeneration(generation) || session != _accessSession;
       if (update.isRejected) {
         if (!_noRightsRejectionIsStale(update)) continue;
         // «Нет прав» устарело — сервер уже разрешает работу по ремонту.
         // Снимаем пометку и отправляем этим же проходом.
         update = update.clearRejection();
-        await pendingRepairUpdateBox.put(update.repairUuid, update);
+        await pendingRepairUpdateBox.put(updateKeyOf(update), update);
       }
       // Ремонт, пока правка лежала в очереди, перенесли на будущее (бэкенд
       // `7be3756`): работа по запланированному обходчику не положена, сервер
@@ -516,23 +618,26 @@ extension DataProviderOutbox on DataProvider {
       // попасть объект с уже вычеркнутыми снимками и удалениями, а не
       // исходный — иначе следующая попытка проделает ту же работу заново.
       var current = update;
-      final session = _accessSession;
       try {
         // Фотографии — до PATCH, а не после. PATCH может перевести ремонт в
         // «На рассмотрении», и после этого сервер снимки уже не примет.
         if (current.hasPhotoWork) {
-          final photosLeft =
-              await _uploadPhotos(current.repairUuid, current.photoPaths);
+          final photosLeft = await _uploadPhotos(
+            current.repairUuid,
+            current.photoPaths,
+            stop: switched,
+          );
           final deletesLeft = await _deletePhotos(
             current.repairUuid,
             current.deletedPhotoUuids,
+            stop: switched,
           );
           current = current.copyWith(
             photoPaths: photosLeft,
             deletedPhotoUuids: deletesLeft,
           );
-          if (!pendingRepairUpdateBox.containsKey(current.repairUuid)) continue;
-          await pendingRepairUpdateBox.put(current.repairUuid, current);
+          if (!_isQueued(current)) continue;
+          await pendingRepairUpdateBox.put(updateKeyOf(current), current);
           if (current.hasPhotoWork) {
             // Связь пропала на фотографиях — поля отправим следующим проходом,
             // вместе с оставшимися снимками.
@@ -543,9 +648,9 @@ extension DataProviderOutbox on DataProvider {
         // запись после отправки удаляется, и расход пропал бы. Держим с
         // причиной «нет прав» (см. [SectionAccess.consumptionsBlocked]).
         if (sectionAccess.consumptionsBlocked(current.consumptions)) {
-          if (!pendingRepairUpdateBox.containsKey(current.repairUuid)) continue;
+          if (!_isQueued(current)) continue;
           await pendingRepairUpdateBox.put(
-            current.repairUuid,
+            updateKeyOf(current),
             current.markRejected(
               reason: repairNoRightsMessage,
               conflictKind: RepairConflictKind.other.code,
@@ -553,22 +658,62 @@ extension DataProviderOutbox on DataProvider {
           );
           continue;
         }
+        if (switched()) continue;
         final repair = await api.updateRepair(
           current.repairUuid,
           comment: current.comment,
           consumptions: sectionAccess.consumptionsToSend(current.consumptions),
           submitForReview: current.submitForReview,
         );
-        await upsertRepair(repair);
-        await deletePendingRepairUpdate(current.repairUuid);
+        await upsertRepair(repair, generation: generation);
+        await deletePendingRepairUpdate(
+          current.repairUuid,
+          key: updateKeyOf(current),
+        );
         _authExpiredFlag.set(false, requestSession: session);
         sent++;
       } catch (e) {
+        // Аккаунт сменился, пока шёл запрос: отказ мог прийти на токен
+        // нового обходчика — правку прежнего не помечаем и не разбираем.
+        if (switched()) continue;
         if (e is AuthExpiredException) {
           _authExpiredFlag.set(true, requestSession: session);
           continue;
         }
         if (isRetryableRepairError(e)) continue;
+        // Ремонт ушёл из «Открыт» — 409 `repair_not_open` со статусом
+        // (бэкенд `8a88247`). Причина известна из ответа, угадывать её по
+        // 403 и перечитанному ремонту ([_checkDenied]) не нужно.
+        if (e is RepairNotOpenException) {
+          if (e.isScheduled) {
+            // Перенесли на будущее — правка ждёт начала, без пометки.
+            // Ремонт перечитываем один раз: кэш ещё считает его открытым, и
+            // без этого каждый проход слал бы PATCH заново (см. проверку
+            // `isScheduled` в начале цикла).
+            await _checkDenied(current.repairUuid);
+            continue;
+          }
+          // Снова открыт (успели вернуть на доработку) — следующий проход.
+          if (e.status == RepairStatuses.open) continue;
+          if (!_isQueued(current)) continue;
+          await pendingRepairUpdateBox.put(
+            updateKeyOf(current),
+            current.markRejected(
+              reason: repairNotOpenMessage(e.status),
+              serverStatus: e.status,
+              conflictKind: e.status == RepairStatuses.closed
+                  ? RepairConflictKind.repairClosed.code
+                  : RepairConflictKind.other.code,
+            ),
+          );
+          _outboxLog.severe(
+              'правка ремонта ${current.repairUuid} отклонена: ремонт '
+              '«${e.status}»: $e');
+          continue;
+        }
+        // Сервер прошлой версии заголовка `X-Repair-Conflict-Format` не знает
+        // и на то же самое отвечает 403 — для него обход ниже остаётся.
+        //
         // У роли нет права на это действие с ремонтом. Ремонт перечитывать
         // незачем — дело не в нём, и без права сервер его, скорее всего, и
         // не отдаст, а ответ «нет доступа к ремонту» превратился бы в
@@ -586,10 +731,13 @@ extension DataProviderOutbox on DataProvider {
           // конфликт состояния: помечаем так же, как прочий отказ ниже.
           final (check, fresh) = await _checkDenied(current.repairUuid);
           if (check == _DeniedCheck.wait) continue;
-          if (!pendingRepairUpdateBox.containsKey(current.repairUuid)) continue;
+          // Перечитывание — ещё один запрос: вышли или сменился аккаунт за
+          // него — GET упал бы без токена, а пометка легла бы на правку A.
+          if (switched()) continue;
+          if (!_isQueued(current)) continue;
           final changed = check == _DeniedCheck.stateChanged ? fresh : null;
           await pendingRepairUpdateBox.put(
-            current.repairUuid,
+            updateKeyOf(current),
             current.markRejected(
               reason: changed != null
                   ? repairErrorMessage(e)
@@ -616,7 +764,7 @@ extension DataProviderOutbox on DataProvider {
         try {
           final fresh = await api.getRepair(current.repairUuid);
           serverStatus = fresh.status;
-          await upsertRepair(fresh);
+          await upsertRepair(fresh, generation: generation);
           kind = _conflictKindOf(fresh);
         } catch (readError) {
           // Доступа к ремонту больше нет — верный признак передачи другому
@@ -627,11 +775,13 @@ extension DataProviderOutbox on DataProvider {
           // Иначе связь пропала сразу после отказа: вид останется «прочее»,
           // экран разрешения это переживёт.
         }
+        // Как в ветке 403: за перечитывание могли выйти или сменить аккаунт.
+        if (switched()) continue;
         // Правку могли удалить с экрана, пока запрос был в полёте, —
         // возвращать её в бокс нельзя.
-        if (!pendingRepairUpdateBox.containsKey(current.repairUuid)) continue;
+        if (!_isQueued(current)) continue;
         await pendingRepairUpdateBox.put(
-          current.repairUuid,
+          updateKeyOf(current),
           current.markRejected(
             reason: repairErrorMessage(e),
             serverStatus: serverStatus,
@@ -710,9 +860,12 @@ extension DataProviderOutbox on DataProvider {
 
   /// Повторить отправку правки после разбора конфликта.
   Future<void> retryPendingRepairUpdate(String repairUuid) async {
-    final update = pendingRepairUpdateBox.get(repairUuid);
+    final update = pendingUpdateFor(repairUuid);
     if (update == null) return;
-    await pendingRepairUpdateBox.put(repairUuid, update.clearRejection());
+    await pendingRepairUpdateBox.put(
+      updateKeyOf(update),
+      update.clearRejection(),
+    );
     await syncPendingRepairUpdates();
   }
 
@@ -743,6 +896,8 @@ extension DataProviderOutbox on DataProvider {
 
   Future<void> _syncUsageScansImpl() async {
     for (final usage in scanUsageBox.values.toList()) {
+      // Наработка другого обходчика с его токеном не уходит (п. 1.5 отчёта).
+      if (!isMine(usage.ownerUuid)) continue;
       // Отклонённые не долбим на каждом проходе: причина сама не изменится,
       // решение за обходчиком — повторить или выбросить.
       if (usage.isRejected) continue;
@@ -758,6 +913,12 @@ extension DataProviderOutbox on DataProvider {
         continue;
       }
       final session = _accessSession;
+      // Поколение и сессия — до первого `await`: перекладка в «в полёте» — это
+      // ожидание, и сменись за него аккаунт, наработка A ушла бы с токеном B,
+      // а отказ на него пометил бы её. Сверяемся перед запросом и в `catch`.
+      final generation = cacheGeneration;
+      bool switched() =>
+          isStaleCacheGeneration(generation) || session != _accessSession;
       try {
         // Переносим «сначала положить, потом убрать» — на всех переходах.
         // Наоборот между двумя шагами записи не было бы ни в одном боксе, и
@@ -767,6 +928,11 @@ extension DataProviderOutbox on DataProvider {
         // безвреден: проверка ищет её в любом.
         await scanUsagePendingBox.put(key, usage);
         await scanUsageBox.delete(key);
+        if (switched()) {
+          // Без пометки — уйдёт, когда войдёт её владелец.
+          await _returnUsageToQueue(key, usage);
+          continue;
+        }
         if (await api.updateUsageParameter(usage)) {
           // Принята — только теперь её нет нигде.
           await scanUsagePendingBox.delete(key);
@@ -776,6 +942,12 @@ extension DataProviderOutbox on DataProvider {
           await _returnUsageToQueue(key, usage);
         }
       } catch (e) {
+        // Аккаунт сменился или вышли, пока шёл запрос: отказ мог прийти на
+        // чужой токен — наработку не помечаем.
+        if (switched()) {
+          await _returnUsageToQueue(key, usage);
+          continue;
+        }
         if (e is AuthExpiredException) {
           // Токен протух — наработка не виновата. Возвращаем без пометки:
           // после повторного входа уйдёт сама.
@@ -850,6 +1022,9 @@ extension DataProviderOutbox on DataProvider {
     // Обрабатываем сканы из scanBox
     final scans = scanBox.values.toList();
     for (final scan in scans) {
+      // Осмотр другого обходчика с его токеном не уходит: ждёт, пока тот
+      // снова войдёт на этом телефоне (п. 1.5 отчёта).
+      if (!isMine(scan.ownerUuid)) continue;
       // Отклонённые сервером не долбим на каждом проходе: причина сама не
       // изменится («Недостаточно ЗИП на складе»), а обходчик увидит её на
       // главной и решит — повторить или сбросить. Тот же приём, что у
@@ -915,12 +1090,32 @@ extension DataProviderOutbox on DataProvider {
       if (!scanBox.containsKey(scan.key())) continue;
       final timestampKey = 'scan_pending_${scan.key()}';
       final session = _accessSession;
+      // Поколение и сессия — до первого `await`, как у наработки: сменись
+      // аккаунт за перекладку, осмотр A ушёл бы с токеном B, а отказ на него
+      // пометил бы осмотр. Сверяемся перед запросом и в `catch`.
+      final generation = cacheGeneration;
+      bool switched() =>
+          isStaleCacheGeneration(generation) || session != _accessSession;
+      // Обратно в очередь без пометки — уйдёт, когда войдёт владелец.
+      // Удалённый, пока шёл запрос («Сбросить осмотры»), не воскрешаем.
+      Future<void> returnToQueue() async {
+        if (scanPendingBox.containsKey(scan.key())) {
+          await _moveScan(scan, from: scanPendingBox, to: scanBox);
+        }
+        await stringBox.delete(timestampKey);
+      }
+
       try {
         // Перемещаем скан в pending перед отправкой
         await _moveScan(scan, from: scanBox, to: scanPendingBox);
 
         // Сохраняем timestamp текущей попытки
         await stringBox.put(timestampKey, now.toString());
+
+        if (switched()) {
+          await returnToQueue();
+          continue;
+        }
 
         // Пытаемся отправить
         if (await api.sendScan(scan)) {
@@ -939,7 +1134,10 @@ extension DataProviderOutbox on DataProvider {
           // Кроме доработки: там сервер списывает или возвращает только
           // разницу с прежним расходом, и вычесть весь расход было бы
           // ошибкой — остатки поправит синхронизация каталога.
-          if (!scan.isRework) {
+          //
+          // И только если аккаунт не сменился, пока шёл запрос: иначе
+          // списание A вычлось бы из каталога B — это уже другой кэш.
+          if (!scan.isRework && !switched()) {
             await applyLocalStockWriteOff(scan.actualConsumptions);
           }
         } else {
@@ -947,6 +1145,12 @@ extension DataProviderOutbox on DataProvider {
           // Ничего не делаем, скан уже в scanPendingBox с timestamp
         }
       } catch (e) {
+        // Аккаунт сменился или вышли, пока шёл запрос: отказ мог прийти на
+        // чужой токен — осмотр не помечаем.
+        if (switched()) {
+          await returnToQueue();
+          continue;
+        }
         if (e is AuthExpiredException) {
           // Токен протух. Осмотр не виноват: возвращаем его в основной бокс
           // без пометки об отказе — после повторного входа уйдёт сам.
@@ -968,8 +1172,9 @@ extension DataProviderOutbox on DataProvider {
             await stringBox.delete('maintenance_task_${scan.taskUuid}');
           }
           // Наш прошлый запрос дошёл — значит списание сервер выполнил, а мы
-          // об этом не узнали. Остатки уменьшаем так же, как при успехе.
-          if (!scan.isRework) {
+          // об этом не узнали. Остатки уменьшаем так же, как при успехе — и с
+          // той же проверкой смены аккаунта.
+          if (!scan.isRework && !switched()) {
             await applyLocalStockWriteOff(scan.actualConsumptions);
           }
           continue;
@@ -1025,11 +1230,16 @@ extension DataProviderOutbox on DataProvider {
   /// что не принято сервером: отдельная наработка и осмотры с наработкой
   /// внутри, в основных боксах и «в полёте», кроме отклонённых и самой
   /// записи [exceptKey] (при переносе она на миг лежит в двух боксах).
+  ///
+  /// Записи другого обходчика не в счёт: они ждут его входа и могли бы
+  /// держать показания вошедшего сколько угодно долго.
   bool isUsageOrderBlocked(UsageOrderEntry entry, {required String exceptKey}) {
     final others = <UsageOrderEntry>[
       for (final box in [scanUsageBox, scanUsagePendingBox])
         for (final item in box.toMap().entries)
-          if (item.key != exceptKey && !item.value.isRejected)
+          if (item.key != exceptKey &&
+              !item.value.isRejected &&
+              isMine(item.value.ownerUuid))
             (
               equipmentUuid: item.value.equipmentUuid,
               createdAt: item.value.createdAt,
@@ -1038,7 +1248,8 @@ extension DataProviderOutbox on DataProvider {
         for (final item in box.toMap().entries)
           if (item.key != exceptKey &&
               item.value.usageUpdates != null &&
-              !item.value.isRejected)
+              !item.value.isRejected &&
+              isMine(item.value.ownerUuid))
             (
               equipmentUuid: item.value.equipmentUuid,
               createdAt: item.value.createdAt,
@@ -1169,6 +1380,8 @@ extension DataProviderOutbox on DataProvider {
     // Обрабатываем задачи из periodicTaskBox
     final tasks = periodicTaskBox.values.toList();
     for (final task in tasks) {
+      // Заявка другого обходчика с его токеном не уходит (п. 1.5 отчёта).
+      if (!isMine(task.ownerUuid)) continue;
       // Снимок мог устареть, пока шёл проход, — как у осмотров.
       if (!periodicTaskBox.containsKey(task.key())) continue;
       // Отклонённую фон не повторяет: ответ был бы тем же. Пометку снимают
@@ -1180,6 +1393,15 @@ extension DataProviderOutbox on DataProvider {
       // создал бы задачу заново вместо того, чтобы догрузить снимки.
       var current = task;
       final timestampKey = 'periodic_task_pending_${task.key()}';
+      // Поколение кэша — до запросов, как у ремонтов: создание и снимки —
+      // два запроса, токен в `API` общий, и сменись аккаунт между ними,
+      // снимки A ушли бы с токеном B, а отказ на них удалил бы заявку A.
+      // Номер сессии — ради обычного «Выйти»: поколение он не трогает, а
+      // снимки без токена получили бы отказ, и запись была бы удалена.
+      final generation = cacheGeneration;
+      final session = _accessSession;
+      bool switched() =>
+          isStaleCacheGeneration(generation) || session != _accessSession;
       try {
         // Перемещаем задачу в pending перед отправкой
         await periodicTaskBox.delete(task.key());
@@ -1188,6 +1410,10 @@ extension DataProviderOutbox on DataProvider {
         // Сохраняем timestamp текущей попытки
         await stringBox.put(timestampKey, now.toString());
 
+        // Перекладка — три ожидания: сменись за них аккаунт, задача A
+        // создалась бы от имени B. Заявка уже «в полёте» с отметкой — вернётся
+        // в очередь как обычно, и отправит её A.
+        if (switched()) continue;
         if (current.serverUuid == null) {
           final uuid = await api.createPeriodicTask(current);
           // Успех без uuid — оставляем в pending, вернётся через 120 секунд;
@@ -1204,6 +1430,10 @@ extension DataProviderOutbox on DataProvider {
           await periodicTaskPendingBox.put(task.key(), current);
         }
 
+        // Сменился аккаунт — снимки не шлём: заявка остаётся «в полёте» с
+        // uuid созданной задачи и вернётся в очередь как обычно; дошлёт её
+        // A, когда войдёт, — сразу к снимкам, без второй задачи.
+        if (switched()) continue;
         await api.uploadPeriodicTaskPhotos(
           current.serverUuid!,
           current.photos ?? const <String>[],
@@ -1213,6 +1443,14 @@ extension DataProviderOutbox on DataProvider {
         await stringBox.delete(timestampKey);
       } catch (e) {
         final created = current.serverUuid != null;
+        // Аккаунт сменился, пока шёл запрос: отказ мог прийти на токен B —
+        // заявку A не удаляем и не помечаем. Возвращаем «в полёт» с тем, что
+        // уже сделано (uuid созданной задачи).
+        if (switched()) {
+          await periodicTaskPendingBox.put(task.key(), current);
+          await stringBox.put(timestampKey, now.toString());
+          continue;
+        }
         // Заявка доставлена, а снимки сервер не примет уже никогда (задачу
         // взяли в работу, нет права) — или создание отклонено так, что
         // повтор ответит тем же (задачу по ключу удалили, такая уже есть).

@@ -389,6 +389,17 @@ class NotificationsTaskHandler extends TaskHandler {
       } catch (_) {}
       return;
     }
+    // `equipment_changed` — тот же технический сигнал (состояние
+    // оборудования), пуш не показываем: справочник обновит main-изолят.
+    if (event == 'equipment_changed') {
+      try {
+        FlutterForegroundTask.sendDataToMain({
+          'type': 'equipment_changed',
+          'data': jsonDecode(dataStr),
+        });
+      } catch (_) {}
+      return;
+    }
     if (event != 'notification') return;
     Map<String, dynamic> data = const {};
     try {

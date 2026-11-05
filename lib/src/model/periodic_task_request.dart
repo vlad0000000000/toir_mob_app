@@ -33,16 +33,37 @@ class PeriodicTaskRequest {
   /// снимают пометку и пробуют снова. `null` — не отклонена.
   final String? rejectedReason;
 
+  /// Обходчик, поставивший заявку в очередь, — см. [Scan.ownerUuid]. Не
+  /// `final`: перенос старых записей ставит его на месте. В [key] и [toJson]
+  /// не входит.
+  String? ownerUuid;
+
   bool get isRejected => rejectedReason != null;
 
   /// Ключ создания задачи. Сервер сверяет с ним и само тело запроса, поэтому
   /// [toJson] обязан давать одно и то же при каждом повторе.
-  String get createIdempotencyKey => eventId ?? 'problem-report-${key()}';
+  ///
+  /// Без [eventId] (заявка прошлой версии) — от содержимого **без** владельца:
+  /// ключ в боксе с владельцем стал другим ([key]), а этот обязан остаться
+  /// прежним — иначе повтор после потерянного ответа создал бы на сервере
+  /// вторую задачу.
+  String get createIdempotencyKey =>
+      eventId ?? 'problem-report-${_digest(withOwner: false)}';
 
   /// Ключ загрузки снимков — свой: у сервера это отдельная операция.
   String get photosIdempotencyKey => '$createIdempotencyKey:photos';
 
-  String key() {
+  /// Ключ записи в боксе. Владелец — в ключе, как у [Scan.key]: одинаковая
+  /// заявка другого обходчика не должна лечь на место этой. Только если
+  /// задан — у записей без владельца ключ прежний.
+  String key() => _digest(withOwner: true);
+
+  /// Ключ до привязки очередей к аккаунту — без владельца, см.
+  /// [Scan.legacyKey].
+  String legacyKey() => _digest(withOwner: false);
+
+  String _digest({required bool withOwner}) {
+    final owner = ownerUuid;
     return GlobalState.digest(jsonEncode({
       'equipment_uuid': equipmentUuid,
       'node': node,
@@ -53,6 +74,7 @@ class PeriodicTaskRequest {
       'next_due_at': nextDueAt,
       'params': params,
       'photos': photos,
+      if (withOwner && owner != null && owner.isNotEmpty) 'owner_uuid': owner,
     }));
   }
 
@@ -74,6 +96,7 @@ class PeriodicTaskRequest {
     this.eventId,
     this.serverUuid,
     this.rejectedReason,
+    this.ownerUuid,
   });
 
   /// Та же заявка, уже созданная на сервере под [uuid].
@@ -90,6 +113,7 @@ class PeriodicTaskRequest {
         eventId: eventId,
         serverUuid: uuid,
         rejectedReason: rejectedReason,
+        ownerUuid: ownerUuid,
       );
 
   /// Та же заявка с пометкой отказа [reason]; `null` — пометка снята.
@@ -106,6 +130,7 @@ class PeriodicTaskRequest {
         eventId: eventId,
         serverUuid: serverUuid,
         rejectedReason: reason,
+        ownerUuid: ownerUuid,
       );
 
   // "equipment_uuid": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
@@ -156,6 +181,7 @@ class PeriodicTaskRequestAdapter extends TypeAdapter<PeriodicTaskRequest> {
       serverUuid: reader.availableBytes > 0 ? reader.read() as String? : null,
       rejectedReason:
           reader.availableBytes > 0 ? reader.read() as String? : null,
+      ownerUuid: reader.availableBytes > 0 ? reader.read() as String? : null,
     );
   }
 
@@ -173,5 +199,6 @@ class PeriodicTaskRequestAdapter extends TypeAdapter<PeriodicTaskRequest> {
     writer.write(obj.eventId);
     writer.write(obj.serverUuid);
     writer.write(obj.rejectedReason);
+    writer.write(obj.ownerUuid);
   }
 }

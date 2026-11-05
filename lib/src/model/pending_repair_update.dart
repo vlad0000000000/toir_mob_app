@@ -59,6 +59,10 @@ class PendingRepairUpdate {
   /// лежат на сервере, локально их нет.
   final List<String> deletedPhotoUuids;
 
+  /// Обходчик, поставивший правку в очередь, — см. [Scan.ownerUuid]. Не
+  /// `final`: перенос старых записей ставит его на месте.
+  String? ownerUuid;
+
   PendingRepairUpdate({
     required this.repairUuid,
     required this.repairId,
@@ -73,6 +77,7 @@ class PendingRepairUpdate {
     this.conflictKind,
     this.photoPaths = const [],
     this.deletedPhotoUuids = const [],
+    this.ownerUuid,
   });
 
   RepairConflictKind get kind => RepairConflictKind.fromCode(conflictKind);
@@ -117,6 +122,7 @@ class PendingRepairUpdate {
       conflictKind: conflictKind,
       photoPaths: photoPaths ?? this.photoPaths,
       deletedPhotoUuids: deletedPhotoUuids ?? this.deletedPhotoUuids,
+      ownerUuid: ownerUuid,
     );
   }
 
@@ -142,6 +148,7 @@ class PendingRepairUpdate {
       conflictKind: conflictKind,
       photoPaths: photoPaths,
       deletedPhotoUuids: deletedPhotoUuids,
+      ownerUuid: ownerUuid,
     );
   }
 
@@ -161,6 +168,7 @@ class PendingRepairUpdate {
       conflictKind: null,
       photoPaths: photoPaths,
       deletedPhotoUuids: deletedPhotoUuids,
+      ownerUuid: ownerUuid,
     );
   }
 }
@@ -191,6 +199,8 @@ class PendingRepairUpdateAdapter extends TypeAdapter<PendingRepairUpdate> {
           _readTrailing<List<dynamic>>(reader)?.cast<String>() ?? const [],
       deletedPhotoUuids:
           _readTrailing<List<dynamic>>(reader)?.cast<String>() ?? const [],
+      // Владелец — у правок до привязки очередей к аккаунту его нет.
+      ownerUuid: _readTrailing<String>(reader),
     );
   }
 
@@ -217,5 +227,6 @@ class PendingRepairUpdateAdapter extends TypeAdapter<PendingRepairUpdate> {
     writer.write(obj.conflictKind);
     writer.write(obj.photoPaths);
     writer.write(obj.deletedPhotoUuids);
+    writer.write(obj.ownerUuid);
   }
 }
