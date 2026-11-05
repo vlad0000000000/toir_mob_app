@@ -66,6 +66,7 @@ void main() {
         ),
       ],
       ownerUuid: 'user-1',
+      ownerServer: 'https://a.example',
     );
 
     final box = await Hive.openBox<PendingRepair>('pending_repairs_test');
@@ -91,6 +92,7 @@ void main() {
     expect(stored.photoPaths, ['a.jpg', 'b.jpg']);
     expect(stored.submitForReview, isTrue);
     expect(stored.ownerUuid, 'user-1');
+    expect(stored.ownerServer, 'https://a.example');
 
     expect(stored.consumptions, hasLength(1));
     expect(stored.consumptions.single.sparePartUuid, 'sp-1');

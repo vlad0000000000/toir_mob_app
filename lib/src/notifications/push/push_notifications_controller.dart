@@ -2,12 +2,31 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import '../../../global_state.dart';
 import '../../../settings.dart';
+import '../../http/api.dart';
 import 'notifications_task_handler.dart';
+
+/// Работающий сервис нужно перезапустить: он держит SSE не с тем адресом
+/// ([savedUrl]) или не с тем токеном ([savedJwt]), что у вошедшего сейчас.
+///
+/// Так бывает после обновления сборки: Android сам поднимает сервис
+/// (`autoRunOnMyPackageReplaced`, после перезагрузки — `autoRunOnBoot`) с
+/// данными, сохранёнными прошлой сборкой, — адресом прошлого сервера и его
+/// токеном. Раньше [PushNotificationsController.ensureRunning] видел «сервис
+/// работает» и ничего не делал, и пуши о новых задачах шли со старого сервера
+/// или не шли вовсе (стенд 05.11: `Failed host lookup` на адрес dev-сервера,
+/// хотя приложение работало с локальным стендом).
+bool pushServiceNeedsRestart({
+  required String? savedUrl,
+  required String? savedJwt,
+  required String currentUrl,
+  required String currentJwt,
+}) =>
+    (savedUrl ?? '').trim() != currentUrl.trim() ||
+    (savedJwt ?? '').trim() != currentJwt.trim();
 
 class PushNotificationsController {
   PushNotificationsController._();
@@ -104,8 +123,10 @@ class PushNotificationsController {
       return false;
     }
 
-    final baseUrl = dotenv.env['API_ENDPOINT'];
-    if (baseUrl == null || baseUrl.isEmpty) {
+    // Адрес — тот же, что у всех запросов приложения: без завершающего слеша.
+    // Сырой `API_ENDPOINT` со слешем дал бы сервису `//v1/...` и 404.
+    final baseUrl = API.baseUrl;
+    if (baseUrl.isEmpty) {
       debugPrint('[Push] start aborted: no API_ENDPOINT');
       return false;
     }
@@ -173,6 +194,23 @@ class PushNotificationsController {
       if (!running) {
         debugPrint('[Push] ensureRunning: service is down, restarting');
         await start();
+        return;
+      }
+      // Работает — но с теми ли адресом и токеном: после обновления сборки
+      // Android поднимает его сам, с данными прошлой ([pushServiceNeedsRestart]).
+      final stale = pushServiceNeedsRestart(
+        savedUrl: await FlutterForegroundTask.getData<String>(
+          key: 'sse_base_url',
+        ),
+        savedJwt: await FlutterForegroundTask.getData<String>(key: 'sse_jwt'),
+        currentUrl: API.baseUrl,
+        currentJwt: GlobalState.authUser?.JWTToken ?? '',
+      );
+      if (stale) {
+        debugPrint('[Push] ensureRunning: stale url or token, restarting');
+        // Не поднялся с новыми (пуши выключены, нет разрешения) — гасим:
+        // со старыми адресом и токеном он только стучится в чужой сервер.
+        if (!await start()) await stop();
       } else {
         _ensureWatchdog();
       }

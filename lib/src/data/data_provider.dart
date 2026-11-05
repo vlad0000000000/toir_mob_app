@@ -29,6 +29,7 @@ import '../../src/model/equipment_state.dart';
 import '../../src/model/periodic_task_request.dart';
 import '../../src/model/consumption_norm.dart';
 import '../../src/model/ppr.dart';
+import '../model/queue_owned.dart';
 import '../model/usage_update.dart';
 import '../exceptions/app_exceptions.dart';
 import '../../strings.dart';
@@ -42,6 +43,7 @@ import 'cache_commit_queue.dart';
 import 'generation_pass.dart';
 import 'repair_photo_files.dart';
 import 'section_access.dart';
+import 'session_server.dart';
 import 'sync_report.dart';
 import 'sync_schedule.dart';
 import 'subscription_blocks.dart';
@@ -96,20 +98,56 @@ bool shouldResetCacheForAccount({
 /// * [userUuid] пуст — вошёл неизвестно кто (офлайн-вход по локальной записи
 ///   без uuid, см. [shouldResetCacheForAccount]): чужим не считаем ничего,
 ///   иначе обходчик остался бы без собственных неотправленных записей.
-/// Ключ правки ремонта в `pendingRepairUpdateBox`: ремонт **и** владелец.
 ///
-/// Раньше ключом был один uuid ремонта, и правка B по ремонту, где лежала
-/// неотправленная правка A, затирала её. Без владельца (запись прошлой
-/// версии, вход без uuid) — прежний ключ, uuid ремонта.
-String pendingRepairUpdateKey(String repairUuid, String? ownerUuid) =>
-    ownerUuid == null || ownerUuid.isEmpty
-        ? repairUuid
-        : '$repairUuid@$ownerUuid';
-
-bool isQueueOwner(String? owner, String? userUuid) {
+/// Сервер — проверка **первой и строже**: запись для сервера [ownerServer]
+/// не своя на другом сервере [currentServer], даже у того же uuid и даже без
+/// владельца. Базы стендов бывают копиями друг друга (dev — копия прода), и
+/// uuid обходчика на обоих совпадает: осмотр, сделанный для A, после
+/// пересборки под B ушёл бы на B и пропал из очереди. Такие записи ждут
+/// возврата приложения на свой сервер. Сервера нет у записи (прошлая версия,
+/// его проставляют на старте) или текущий неизвестен — по серверу не судим.
+bool isQueueOwner(
+  String? owner,
+  String? userUuid, {
+  String? ownerServer,
+  String? currentServer,
+}) {
+  if (!isQueueRecordForServer(ownerServer, currentServer)) return false;
   if (owner == null || owner.isEmpty) return true;
   if (userUuid == null || userUuid.isEmpty) return true;
   return owner == userUuid;
+}
+
+/// Запись очереди для сервера [ownerServer] относится к текущему серверу
+/// [currentServer] — без оглядки на владельца. Половина [isQueueOwner] для
+/// мест, где чужие записи того же сервера учитываются намеренно (задача,
+/// закрытая неотправленным осмотром коллеги, скрыта и у вошедшего), а записи
+/// другого сервера — нет: там свои задачи, хоть uuid и совпал у копии базы.
+/// Сервер у записи не проставлен или текущий неизвестен — относится.
+bool isQueueRecordForServer(String? ownerServer, String? currentServer) {
+  if (ownerServer == null || ownerServer.isEmpty) return true;
+  if (currentServer == null || currentServer.isEmpty) return true;
+  return isSameServer(stored: ownerServer, current: currentServer);
+}
+
+/// Ключ правки ремонта в `pendingRepairUpdateBox`: ремонт, владелец и сервер.
+///
+/// Раньше ключом был один uuid ремонта, и правка B по ремонту, где лежала
+/// неотправленная правка A, затирала её. Без владельца (запись прошлой
+/// версии, вход без uuid) — прежний ключ, uuid ремонта. Сервер — отпечатком
+/// адреса: у копии базы uuid ремонта и обходчика совпадают, и правка для
+/// сервера B легла бы на место правки для A.
+String pendingRepairUpdateKey(
+  String repairUuid,
+  String? ownerUuid, [
+  String? ownerServer,
+]) {
+  if (ownerUuid == null || ownerUuid.isEmpty) return repairUuid;
+  if (ownerServer == null || ownerServer.isEmpty) {
+    return '$repairUuid@$ownerUuid';
+  }
+  final server = GlobalState.digest(normalizeServerAddress(ownerServer));
+  return '$repairUuid@$ownerUuid@$server';
 }
 
 /// Хранилище приложения (Hive-боксы + in-memory кэш). Сетевые загрузки,
@@ -480,36 +518,59 @@ class DataProvider {
   /// Тот же пользователь — не трогаем ничего: кэш для того и нужен, чтобы
   /// обходчик, вошедший заново, сразу видел свои задачи и остатки даже без
   /// связи.
+  ///
+  /// Кэш принадлежит паре «сервер + пользователь»: если база стенда —
+  /// копия другого, uuid обходчика на обоих совпадает, и после пересборки
+  /// под другой сервер он видел бы справочники и задачи прежнего. Сервер
+  /// кэша — `account_scope_server`; у кэша прошлой версии его нет — кэш
+  /// считается кэшем текущего сервера (иначе обновление обнулило бы всех).
   Future<bool> ensureAccountScope(String? userUuid) async {
     final scope = (userUuid ?? '').trim();
     final previous = stringBox.get(_accountScopeKey) ?? '';
-    if (!shouldResetCacheForAccount(stored: previous, incoming: scope)) {
+    final previousServer = stringBox.get(_accountServerKey);
+    final serverChanged = scope.isNotEmpty &&
+        !isSameServer(stored: previousServer, current: API.baseUrl);
+    if (!serverChanged &&
+        !shouldResetCacheForAccount(stored: previous, incoming: scope)) {
+      if (scope.isNotEmpty && previousServer == null) {
+        await stringBox.put(_accountServerKey, API.baseUrl);
+      }
       return false;
     }
     await clearCachedData();
     await stringBox.put(_accountScopeKey, scope);
+    await stringBox.put(_accountServerKey, API.baseUrl);
     return previous.isNotEmpty;
   }
 
-  /// Запись очереди отправки принадлежит вошедшему обходчику — см.
-  /// [isQueueOwner].
+  /// Сервер, чей кэш лежит в боксах, — вторая половина [_accountScopeKey].
+  /// По нему же на старте получают сервер записи очередей прошлой версии
+  /// ([assignQueueOwners]).
+  static const String _accountServerKey = 'account_scope_server';
+
+  /// Запись очереди отправки принадлежит вошедшему обходчику на текущем
+  /// сервере — см. [isQueueOwner].
   ///
   /// Вошедшего берём из своего же `userBox`, а не через `GlobalState`: тот
   /// читает то же самое, но [DataProvider] ещё не присвоен ему, пока идёт
   /// конструктор, — а счётчики плашек считаются уже там.
-  bool isMine(String? owner) => isQueueOwner(owner, _currentUserUuid);
+  bool isMine(QueueOwned record) => isQueueOwner(
+        record.ownerUuid,
+        _currentUserUuid,
+        ownerServer: record.ownerServer,
+        currentServer: API.baseUrl,
+      );
 
   /// Uuid вошедшего обходчика — для владельца записей очередей.
   String? get _currentUserUuid => userBox.get('auth_user')?.uuid;
 
   /// Сколько записей [values] — мои ([isMine]). Для строк состояния очередей.
-  int countMine<T>(Iterable<T> values, String? Function(T) ownerOf) =>
-      values.where((value) => isMine(ownerOf(value))).length;
+  int countMine<T extends QueueOwned>(Iterable<T> values) =>
+      values.where(isMine).length;
 
   /// Неотправленные осмотры вошедшего обходчика — вместе с «в полёте».
   int get myQueuedScansCount =>
-      countMine(scanBox.values, (Scan s) => s.ownerUuid) +
-      countMine(scanPendingBox.values, (Scan s) => s.ownerUuid);
+      countMine(scanBox.values) + countMine(scanPendingBox.values);
 
   /// «Сбросить осмотры»: удаляет неотправленные осмотры вошедшего обходчика —
   /// и в основном боксе, и «в полёте». Чужие остаются: это работа другого
@@ -518,73 +579,99 @@ class DataProvider {
     for (final box in [scanBox, scanPendingBox]) {
       final mine = [
         for (final entry in box.toMap().entries)
-          if (isMine(entry.value.ownerUuid)) entry.key,
+          if (isMine(entry.value)) entry.key,
       ];
       if (mine.isNotEmpty) await box.deleteAll(mine);
     }
   }
 
   /// Неотправленная наработка вошедшего обходчика (без «в полёте»).
-  int get myQueuedUsageCount =>
-      countMine(scanUsageBox.values, (UsageUpdate u) => u.ownerUuid);
+  int get myQueuedUsageCount => countMine(scanUsageBox.values);
 
   /// Неотправленные правки ремонтов вошедшего обходчика.
-  int get myQueuedRepairEditsCount => countMine(
-      pendingRepairUpdateBox.values, (PendingRepairUpdate u) => u.ownerUuid);
+  int get myQueuedRepairEditsCount => countMine(pendingRepairUpdateBox.values);
 
   /// Заявки «Проблема» вошедшего обходчика — вместе с «в полёте» и
   /// отклонёнными.
   int get myQueuedProblemReportsCount =>
-      countMine(periodicTaskBox.values, (PeriodicTaskRequest t) => t.ownerUuid) +
-      countMine(
-          periodicTaskPendingBox.values, (PeriodicTaskRequest t) => t.ownerUuid);
+      countMine(periodicTaskBox.values) +
+      countMine(periodicTaskPendingBox.values);
 
-  /// Проставляет владельца записям очередей прошлых версий (`ownerUuid ==
-  /// null`) — аккаунт, под которым приложение работало последним
-  /// (`account_scope`): записи создавались под ним.
+  /// Проставляет владельца и сервер записям очередей прошлых версий
+  /// (`ownerUuid` / `ownerServer == null`) — аккаунт и сервер, под которыми
+  /// приложение работало последним (`account_scope`, `account_scope_server`):
+  /// записи создавались под ними.
   ///
   /// Один раз на холодном старте, **до** входа и до первого прохода очередей:
   /// вход другим обходчиком перезапишет `account_scope` ([ensureAccountScope]),
-  /// и записи A получили бы владельцем B. Ключа нет (приложение ни разу не
-  /// входило с ним) — записи остаются без владельца и считаются своими у
-  /// любого, кто войдёт: так прежде и было, и работа не теряется.
+  /// и записи A получили бы владельцем B. Ключа владельца нет (приложение ни
+  /// разу не входило с ним) — записи остаются без владельца и считаются
+  /// своими у любого, кто войдёт: так прежде и было, и работа не теряется.
+  /// Сервера кэша нет (прошлая версия) — записи получают текущий сервер:
+  /// другого источника нет, а без сервера они ушли бы на любой.
   Future<void> assignQueueOwners() async {
     final owner = (stringBox.get(_accountScopeKey) ?? '').trim();
-    if (owner.isEmpty) return;
-    await _assignOwners(owner);
-    // Ключи записей с владельцем — другие (владелец входит в ключ, см.
+    if (owner.isNotEmpty) await _assignOwners(owner);
+    final server = (stringBox.get(_accountServerKey) ?? '').trim();
+    await _assignOwnerServers(server.isNotEmpty ? server : API.baseUrl);
+    // Ключи записей с владельцем и сервером — другие (оба входят в ключ, см.
     // [Scan.key]): переносим записи под них.
     await _rekeyQueues();
   }
 
-  Future<void> _assignOwners(String owner) async {
-    Future<void> assign<T>(
-      Box<T> box,
-      String? Function(T) ownerOf,
-      void Function(T, String) setOwner,
-    ) async {
+  /// Проставляет значение полю записей очередей, где его ещё нет, — во всех
+  /// восьми боксах пяти очередей.
+  Future<void> _assignQueueField(
+    String value,
+    String? Function(QueueOwned) read,
+    void Function(QueueOwned, String) write,
+  ) async {
+    Future<void> assign<T extends QueueOwned>(Box<T> box) async {
       for (final entry in box.toMap().entries) {
-        if (ownerOf(entry.value) != null) continue;
-        setOwner(entry.value, owner);
+        if (read(entry.value) != null) continue;
+        write(entry.value, value);
         await box.put(entry.key, entry.value);
       }
     }
 
-    await assign<Scan>(scanBox, (s) => s.ownerUuid, (s, o) => s.ownerUuid = o);
-    await assign<Scan>(
-        scanPendingBox, (s) => s.ownerUuid, (s, o) => s.ownerUuid = o);
-    await assign<UsageUpdate>(
-        scanUsageBox, (u) => u.ownerUuid, (u, o) => u.ownerUuid = o);
-    await assign<UsageUpdate>(
-        scanUsagePendingBox, (u) => u.ownerUuid, (u, o) => u.ownerUuid = o);
-    await assign<PeriodicTaskRequest>(
-        periodicTaskBox, (t) => t.ownerUuid, (t, o) => t.ownerUuid = o);
-    await assign<PeriodicTaskRequest>(
-        periodicTaskPendingBox, (t) => t.ownerUuid, (t, o) => t.ownerUuid = o);
-    await assign<PendingRepair>(
-        pendingRepairBox, (d) => d.ownerUuid, (d, o) => d.ownerUuid = o);
-    await assign<PendingRepairUpdate>(
-        pendingRepairUpdateBox, (u) => u.ownerUuid, (u, o) => u.ownerUuid = o);
+    await assign<Scan>(scanBox);
+    await assign<Scan>(scanPendingBox);
+    await assign<UsageUpdate>(scanUsageBox);
+    await assign<UsageUpdate>(scanUsagePendingBox);
+    await assign<PeriodicTaskRequest>(periodicTaskBox);
+    await assign<PeriodicTaskRequest>(periodicTaskPendingBox);
+    await assign<PendingRepair>(pendingRepairBox);
+    await assign<PendingRepairUpdate>(pendingRepairUpdateBox);
+  }
+
+  Future<void> _assignOwners(String owner) => _assignQueueField(
+        owner,
+        (r) => r.ownerUuid,
+        (r, v) => _setOwner(r, v, server: false),
+      );
+
+  Future<void> _assignOwnerServers(String server) => _assignQueueField(
+        server,
+        (r) => r.ownerServer,
+        (r, v) => _setOwner(r, v, server: true),
+      );
+
+  /// Поля владельца у пяти моделей объявлены по отдельности — общий
+  /// интерфейс [QueueOwned] даёт только чтение.
+  static void _setOwner(QueueOwned record, String value,
+      {required bool server}) {
+    switch (record) {
+      case Scan scan:
+        server ? scan.ownerServer = value : scan.ownerUuid = value;
+      case UsageUpdate usage:
+        server ? usage.ownerServer = value : usage.ownerUuid = value;
+      case PeriodicTaskRequest task:
+        server ? task.ownerServer = value : task.ownerUuid = value;
+      case PendingRepair draft:
+        server ? draft.ownerServer = value : draft.ownerUuid = value;
+      case PendingRepairUpdate update:
+        server ? update.ownerServer = value : update.ownerUuid = value;
+    }
   }
 
   /// Переносит записи очередей под ключи с владельцем — у каждой ключ в
@@ -669,12 +756,19 @@ class DataProvider {
   /// ([UsageUpdate.legacyKey]) того же владельца → текущий. Идемпотентно:
   /// ссылка, уже указывающая на текущий ключ, не меняется.
   Future<void> _relinkUsageKeys() async {
+    // Владелец и сервер — в ключе карты: ссылка осмотра ведёт только на
+    // наработку того же обходчика для того же сервера.
+    String owned(QueueOwned record, String key) =>
+        '${record.ownerUuid}|${record.ownerServer}|$key';
     final current = <String, String>{};
     for (final box in [scanUsageBox, scanUsagePendingBox]) {
       for (final usage in box.values) {
-        final legacy = usage.legacyKey();
         final key = usage.key();
-        if (legacy != key) current['${usage.ownerUuid}|$legacy'] = key;
+        // Прежние ключи: без владельца (до привязки к аккаунту) и без
+        // сервера (до привязки к серверу).
+        for (final previous in {usage.legacyKey(), usage.ownerOnlyKey()}) {
+          if (previous != key) current[owned(usage, previous)] = key;
+        }
       }
     }
     if (current.isEmpty) return;
@@ -684,7 +778,7 @@ class DataProvider {
         final keys = scan.usageKeys;
         if (keys == null) continue;
         final relinked = [
-          for (final key in keys) current['${scan.ownerUuid}|$key'] ?? key,
+          for (final key in keys) current[owned(scan, key)] ?? key,
         ];
         if (listEquals(relinked, keys)) continue;
         // Ключ осмотра от ссылок на наработку не зависит — место то же.
@@ -899,10 +993,13 @@ class DataProvider {
   /// Тот же приём, что у счётчика непрочитанных в `NotificationsService`.
   final ValueNotifier<int> activeRepairsCount = ValueNotifier<int>(0);
 
-  /// Очередь упёрлась в истёкший токен.
+  /// Сервер не принимает токен — «Сессия истекла».
   ///
-  /// Очередь работает в фоне, вне экранов, поэтому сама показать диалог не
-  /// может — вместо этого поднимает флаг, а список ремонтов и раздел
+  /// Поднимает его 401 на любой запрос текущей сессии ([handleAuthResponse];
+  /// очереди отправки поднимают его и сами), снимает только новая сессия —
+  /// вход или выход: поздний успешный ответ старого запроса не должен гасить
+  /// свежий отказ ([raisesAuthExpired]). Синхронизация и очередь работают в фоне, вне экранов, поэтому
+  /// сами показать диалог не могут — вместо этого флаг, а экраны и раздел
   /// «Сервис» его показывают. Данные при этом не трогаются: после повторного
   /// входа отправка продолжится с того же места.
   final ValueNotifier<bool> authExpired = ValueNotifier<bool>(false);
@@ -913,6 +1010,32 @@ class DataProvider {
   /// после нового входа (см. [SessionGuardedFlag]).
   late final SessionGuardedFlag _authExpiredFlag =
       SessionGuardedFlag(authExpired, () => _accessSession);
+
+  /// Сколько экранов-форм сейчас открыто ([HoldsSessionSignOut]). Пока
+  /// больше нуля, выход по истёкшей сессии ждёт — введённое в форме не
+  /// пропадёт (правило — [shouldSignOutExpiredSession]). Слушает `main.dart`.
+  ///
+  /// Меняется из `initState`/`dispose`, поэтому строить по нему виджеты
+  /// нельзя: перестройка посреди сборки дерева уронит кадр.
+  final ValueNotifier<int> sessionSignOutHolds = ValueNotifier<int>(0);
+
+  /// Обходчика вывели на вход без его участия — сессия истекла или выдана
+  /// другим сервером: экран входа покажет окно с причиной и подставит логин.
+  /// Показал — сбрасывает; удачный вход тоже сбрасывает.
+  SessionEndNotice? pendingSessionNotice;
+
+  /// Сервер, выдавший вход пользователю [username] (`null` — не знаем:
+  /// запись прошлой версии). См. `data/session_server.dart`.
+  String? userServer(String username) =>
+      stringBox.get(userServerKey(username));
+
+  /// Запомнить, что [username] вошёл на текущем сервере ([API.baseUrl]).
+  Future<void> rememberUserServer(String username) =>
+      stringBox.put(userServerKey(username), API.baseUrl);
+
+  /// Вход [username] выдан текущим сервером — или неизвестно каким.
+  bool isUserOfThisServer(String username) =>
+      isSameServer(stored: userServer(username), current: API.baseUrl);
 
   /// Блокировки по тарифу на этом телефоне — по компании, чтобы офлайн-вход
   /// их не обходил (правило — [SubscriptionBlocks]). В `stringBox`,
@@ -1127,6 +1250,30 @@ class DataProvider {
     refreshAccess();
   }
 
+  /// Ответ с кодом [statusCode] на запрос с токеном [requestToken],
+  /// отправленный в сессии [requestSession]. Зовётся из общего HTTP-клиента
+  /// ([API.onAuthResponse]) на каждом ответе.
+  ///
+  /// 401 поднимает «Сессия истекла» — только у живой сессии (правило —
+  /// [raisesAuthExpired]); снимает её новый вход. Так флаг видит и синхронизация,
+  /// а не только очереди отправки: раньше при пустых очередях 401 на каждом
+  /// запросе синхронизации оставался незамеченным.
+  void handleAuthResponse(
+    int statusCode,
+    String? requestToken,
+    int requestSession,
+  ) {
+    if (raisesAuthExpired(
+      statusCode: statusCode,
+      requestToken: requestToken,
+      currentToken: GlobalState.authUser?.JWTToken,
+      requestSession: requestSession,
+      currentSession: _accessSession,
+    )) {
+      authExpired.value = true;
+    }
+  }
+
   /// Отложенное перечитывание доступа: на смену версии приходит не один ответ,
   /// а все запросы, летевшие в этот момент, и каждый сообщает о ней.
   Timer? _accessRefreshTimer;
@@ -1217,7 +1364,7 @@ class DataProvider {
 
   /// Отклонённые осмотры — для полосы на главной и диалога с причинами.
   List<Scan> get rejectedScans => scanBox.values
-      .where((scan) => scan.isRejected && isMine(scan.ownerUuid))
+      .where((scan) => scan.isRejected && isMine(scan))
       .toList();
 
   void refreshRejectedScansCount() {
@@ -1234,7 +1381,7 @@ class DataProvider {
 
   /// Отклонённая наработка — для полосы на главной и списка причин.
   List<UsageUpdate> get rejectedUsage => scanUsageBox.values
-      .where((usage) => usage.isRejected && isMine(usage.ownerUuid))
+      .where((usage) => usage.isRejected && isMine(usage))
       .toList();
 
   void refreshRejectedUsageCount() {
@@ -1249,7 +1396,7 @@ class DataProvider {
 
   /// Отклонённые заявки — для полосы на главной и листа с причинами.
   List<PeriodicTaskRequest> get rejectedProblemReports => periodicTaskBox.values
-      .where((task) => task.isRejected && isMine(task.ownerUuid))
+      .where((task) => task.isRejected && isMine(task))
       .toList();
 
   void refreshRejectedProblemReportsCount() {
@@ -1353,7 +1500,7 @@ class DataProvider {
     // работы по нему ещё нет.
     final now = DateTime.now();
     final drafts = pendingRepairBox.values.where((draft) {
-      if (!isMine(draft.ownerUuid)) return false;
+      if (!isMine(draft)) return false;
       if (draft.isScheduledAt(now)) return false;
       final uuid = draft.serverUuid;
       return uuid == null || !known.contains(uuid);
@@ -1369,7 +1516,7 @@ class DataProvider {
   /// списке ремонтов.
   List<PendingRepair> get pendingRepairs {
     final drafts = pendingRepairBox.values
-        .where((draft) => isMine(draft.ownerUuid))
+        .where((draft) => isMine(draft))
         .toList();
     drafts.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return drafts;
@@ -1385,7 +1532,7 @@ class DataProvider {
     return pendingRepairBox.values.any(
       (draft) =>
           draft.equipmentUuid == uuid &&
-          isMine(draft.ownerUuid) &&
+          isMine(draft) &&
           !draft.isScheduledAt(now),
     );
   }
@@ -1414,6 +1561,7 @@ class DataProvider {
   /// запись, а не плодит вторую.
   Future<void> addPendingRepair(PendingRepair draft) async {
     draft.ownerUuid ??= _currentUserUuid;
+    draft.ownerServer ??= API.baseUrl;
     await pendingRepairBox.put(draft.localId, draft);
     _refreshActiveRepairsCount();
   }
@@ -1439,16 +1587,28 @@ class DataProvider {
   String? _myUpdateKey(String repairUuid) {
     final me = _currentUserUuid;
     if (me != null && me.isNotEmpty) {
-      final own = pendingRepairUpdateKey(repairUuid, me);
+      final own = pendingRepairUpdateKey(repairUuid, me, API.baseUrl);
       if (pendingRepairUpdateBox.containsKey(own)) return own;
     }
-    final plain = pendingRepairUpdateBox.get(repairUuid);
-    return plain != null && isMine(plain.ownerUuid) ? repairUuid : null;
+    // Прежние ключи — без сервера и без владельца. Перенос на старте их
+    // переводит, но запись под ними своя, только если она моя и для моего
+    // сервера.
+    for (final key in {
+      if (me != null && me.isNotEmpty) pendingRepairUpdateKey(repairUuid, me),
+      repairUuid,
+    }) {
+      final update = pendingRepairUpdateBox.get(key);
+      if (update != null && isMine(update)) return key;
+    }
+    return null;
   }
 
-  /// Ключ записи [update] в боксе — по её ремонту и владельцу.
-  String updateKeyOf(PendingRepairUpdate update) =>
-      pendingRepairUpdateKey(update.repairUuid, update.ownerUuid);
+  /// Ключ записи [update] в боксе — по её ремонту, владельцу и серверу.
+  String updateKeyOf(PendingRepairUpdate update) => pendingRepairUpdateKey(
+        update.repairUuid,
+        update.ownerUuid,
+        update.ownerServer,
+      );
 
   /// Черновик, из которого создан этот ремонт, если он ещё в очереди.
   ///
@@ -1459,7 +1619,7 @@ class DataProvider {
   PendingRepair? draftForRepair(String repairUuid) {
     if (repairUuid.isEmpty) return null;
     for (final draft in pendingRepairBox.values) {
-      if (draft.serverUuid == repairUuid && isMine(draft.ownerUuid)) {
+      if (draft.serverUuid == repairUuid && isMine(draft)) {
         return draft;
       }
     }
@@ -1471,6 +1631,7 @@ class DataProvider {
   /// повторное сохранение накрывает его прежнюю, а чужую не трогает.
   Future<void> savePendingRepairUpdate(PendingRepairUpdate update) async {
     update.ownerUuid ??= _currentUserUuid;
+    update.ownerServer ??= API.baseUrl;
     final key = updateKeyOf(update);
     // Моя правка могла лежать под прежним ключом (без владельца) — переносим,
     // иначе у ремонта оказалось бы две мои правки.
@@ -1936,6 +2097,7 @@ class DataProvider {
 
   addScan(Scan scan) async {
     scan.ownerUuid ??= _currentUserUuid;
+    scan.ownerServer ??= API.baseUrl;
     await scanBox.put(scan.key(), scan);
     invalidateScanTaskCache();
     if (scan.taskUuid != null) {
@@ -1974,11 +2136,13 @@ class DataProvider {
 
   addUsageScan(UsageUpdate scan) async {
     scan.ownerUuid ??= _currentUserUuid;
+    scan.ownerServer ??= API.baseUrl;
     await scanUsageBox.put(scan.key(), scan);
   }
 
   addPeriodicTask(PeriodicTaskRequest taskRequest) async {
     taskRequest.ownerUuid ??= _currentUserUuid;
+    taskRequest.ownerServer ??= API.baseUrl;
     await periodicTaskBox.put(taskRequest.key(), taskRequest);
   }
 
@@ -2284,15 +2448,27 @@ class DataProvider {
   /// сам через [invalidateScanTaskCache] перед проходом. Ловить каждую запись
   /// в очередь было бы хрупко: мест много, и забытое дало бы задачу-призрак,
   /// которая не исчезает после снятого осмотра.
+  ///
+  /// Осмотры других обходчиков **этого** сервера учитываются намеренно:
+  /// задачу, закрытую неотправленным осмотром коллеги, иначе закрыли бы
+  /// дважды. Осмотры **другого** сервера — нет ([isQueueRecordForServer]): у
+  /// копии базы uuid задач совпадают, и неотправленный осмотр стенда A прятал
+  /// бы ту же задачу на B, хотя там её никто не выполнял.
+  @visibleForTesting
+  Set<String> get scannedTaskUuids => {
+        for (final uuid in _scannedTaskUuids().values)
+          if (uuid != null) uuid,
+      };
+
   Map<String, String?> _scannedTaskUuids() {
     final cached = _scanTaskUuidsCache;
     if (cached != null) return cached;
     final Map<String, String?> tasksInScans = {};
-    for (var scan in scanBox.values.toList()) {
-      tasksInScans[scan.taskUuid ?? ''] = scan.taskUuid;
-    }
-    for (var scan in scanPendingBox.values.toList()) {
-      tasksInScans[scan.taskUuid ?? ''] = scan.taskUuid;
+    for (final box in [scanBox, scanPendingBox]) {
+      for (final scan in box.values) {
+        if (!isQueueRecordForServer(scan.ownerServer, API.baseUrl)) continue;
+        tasksInScans[scan.taskUuid ?? ''] = scan.taskUuid;
+      }
     }
     _scanTaskUuidsCache = tasksInScans;
     return tasksInScans;

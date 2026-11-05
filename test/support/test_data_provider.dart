@@ -1,3 +1,4 @@
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:qr_scan_industry/src/data/data_provider.dart';
 import 'package:qr_scan_industry/src/http/api.dart';
@@ -19,10 +20,18 @@ import 'package:qr_scan_industry/src/model/usage_unit.dart';
 import 'package:qr_scan_industry/src/model/usage_update.dart';
 import 'package:qr_scan_industry/src/model/user.dart';
 
+/// Адрес сервера, под которым тесты ставят записи в очередь.
+const String testServer = 'http://test.local:8000';
+
 /// Настоящий `DataProvider` на боксах во временном каталоге (`Hive.init` —
 /// за тестом). Адаптеры регистрирует тест: нужны только тем боксам, в
 /// которые он сам пишет, — остальные пусты и ничего не читают.
 Future<DataProvider> testDataProvider() async {
+  // Записи очередей привязаны к серверу (`API.baseUrl` из `.env`), а `.env`
+  // в тестах не читается — подставляем адрес тестового сервера.
+  if (!dotenv.isInitialized) {
+    dotenv.testLoad(fileInput: 'API_ENDPOINT=$testServer');
+  }
   Future<Box<T>> open<T>(String name) => Hive.openBox<T>(name);
   return DataProvider(
     api: API(),

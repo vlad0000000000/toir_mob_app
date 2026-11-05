@@ -2,8 +2,9 @@ import 'dart:convert';
 
 import 'package:hive_ce/hive.dart';
 import '../../global_state.dart';
+import 'queue_owned.dart';
 
-class PeriodicTaskRequest {
+class PeriodicTaskRequest implements QueueOwned {
   final String equipmentUuid;
   final String? node;
   final String title;
@@ -36,7 +37,14 @@ class PeriodicTaskRequest {
   /// Обходчик, поставивший заявку в очередь, — см. [Scan.ownerUuid]. Не
   /// `final`: перенос старых записей ставит его на месте. В [key] и [toJson]
   /// не входит.
+  @override
   String? ownerUuid;
+
+  /// Сервер, на который заявка должна уйти, — см. [Scan.ownerServer]. Не
+  /// `final`: перенос старых записей ставит его на месте. Входит в [key], но
+  /// не в [createIdempotencyKey].
+  @override
+  String? ownerServer;
 
   bool get isRejected => rejectedReason != null;
 
@@ -64,6 +72,7 @@ class PeriodicTaskRequest {
 
   String _digest({required bool withOwner}) {
     final owner = ownerUuid;
+    final server = ownerServer;
     return GlobalState.digest(jsonEncode({
       'equipment_uuid': equipmentUuid,
       'node': node,
@@ -75,6 +84,8 @@ class PeriodicTaskRequest {
       'params': params,
       'photos': photos,
       if (withOwner && owner != null && owner.isNotEmpty) 'owner_uuid': owner,
+      if (withOwner && server != null && server.isNotEmpty)
+        'owner_server': server,
     }));
   }
 
@@ -97,6 +108,7 @@ class PeriodicTaskRequest {
     this.serverUuid,
     this.rejectedReason,
     this.ownerUuid,
+    this.ownerServer,
   });
 
   /// Та же заявка, уже созданная на сервере под [uuid].
@@ -114,6 +126,7 @@ class PeriodicTaskRequest {
         serverUuid: uuid,
         rejectedReason: rejectedReason,
         ownerUuid: ownerUuid,
+        ownerServer: ownerServer,
       );
 
   /// Та же заявка с пометкой отказа [reason]; `null` — пометка снята.
@@ -131,6 +144,7 @@ class PeriodicTaskRequest {
         serverUuid: serverUuid,
         rejectedReason: reason,
         ownerUuid: ownerUuid,
+        ownerServer: ownerServer,
       );
 
   // "equipment_uuid": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
@@ -182,6 +196,7 @@ class PeriodicTaskRequestAdapter extends TypeAdapter<PeriodicTaskRequest> {
       rejectedReason:
           reader.availableBytes > 0 ? reader.read() as String? : null,
       ownerUuid: reader.availableBytes > 0 ? reader.read() as String? : null,
+      ownerServer: reader.availableBytes > 0 ? reader.read() as String? : null,
     );
   }
 
@@ -200,5 +215,6 @@ class PeriodicTaskRequestAdapter extends TypeAdapter<PeriodicTaskRequest> {
     writer.write(obj.serverUuid);
     writer.write(obj.rejectedReason);
     writer.write(obj.ownerUuid);
+    writer.write(obj.ownerServer);
   }
 }

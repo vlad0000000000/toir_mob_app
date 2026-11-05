@@ -461,7 +461,7 @@ extension DataProviderSync on DataProvider {
         final keep = {for (final repair in fresh) repair.uuid};
         for (final draft in pendingRepairBox.values) {
           // Ремонт чужого черновика — тоже чужая работа.
-          if (!isMine(draft.ownerUuid)) continue;
+          if (!isMine(draft)) continue;
           final uuid = draft.serverUuid;
           if (uuid == null || uuid.isEmpty) continue;
           // Только пока ремонт не закрыт: если администратор успел его
@@ -1088,7 +1088,7 @@ extension DataProviderSync on DataProvider {
   int get _myScansAndUsageCount =>
       myQueuedScansCount +
       myQueuedUsageCount +
-      countMine(scanUsagePendingBox.values, (u) => u.ownerUuid);
+      countMine(scanUsagePendingBox.values);
 
   /// Задержки цикла отправки: обычная и те, на которые он отходит, пока
   /// сервер недоступен.
@@ -1240,13 +1240,13 @@ extension DataProviderSync on DataProvider {
   Future<void> _flushUsageAndScans() async {
     int unsent() =>
         scanBox.values
-            .where((scan) => !scan.isRejected && isMine(scan.ownerUuid))
+            .where((scan) => !scan.isRejected && isMine(scan))
             .length +
-        countMine(scanPendingBox.values, (s) => s.ownerUuid) +
+        countMine(scanPendingBox.values) +
         scanUsageBox.values
-            .where((usage) => !usage.isRejected && isMine(usage.ownerUuid))
+            .where((usage) => !usage.isRejected && isMine(usage))
             .length +
-        countMine(scanUsagePendingBox.values, (u) => u.ownerUuid);
+        countMine(scanUsagePendingBox.values);
     for (var round = 0; round < 3; round++) {
       final before = unsent();
       await syncUsageScansFresh();

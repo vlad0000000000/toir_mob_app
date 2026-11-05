@@ -3,8 +3,9 @@ import 'dart:math';
 
 import 'package:hive_ce/hive.dart';
 import '../../global_state.dart';
+import 'queue_owned.dart';
 
-class Scan {
+class Scan implements QueueOwned {
   final List<String>? files;
   final String? periodicTaskUuid;
   final String? equipmentUuid;
@@ -127,7 +128,22 @@ class Scan {
   /// `null` — запись прошлой версии, владельца ей проставляют один раз на
   /// старте ([DataProvider.assignQueueOwners]); не вышло — считается своей.
   /// Не `final`: тот же перенос ставит его на месте. В [key] не входит.
+  @override
   String? ownerUuid;
+
+  /// Сервер, на который запись должна уйти (`API.baseUrl` при постановке в
+  /// очередь).
+  ///
+  /// Одного [ownerUuid] мало: если база одного сервера скопирована с другого
+  /// (dev — копия прода), uuid обходчика на обоих совпадает, и осмотр,
+  /// сделанный для сервера A, после пересборки приложения под сервер B ушёл
+  /// бы на B и пропал из очереди. Записи другого сервера ждут, пока
+  /// приложение вернут на их сервер (`isQueueOwner`).
+  ///
+  /// `null` — запись прошлой версии: сервер ей проставляют на старте
+  /// ([DataProvider.assignQueueOwners]). Входит в [key] вместе с владельцем.
+  @override
+  String? ownerServer;
 
   /// Повторная сдача возвращённого результата ([reviewRevision]).
   bool get isRework => reviewRevision != null;
@@ -184,6 +200,7 @@ class Scan {
       usageUpdates: usageUpdates,
       reviewRevision: reviewRevision,
       ownerUuid: ownerUuid,
+      ownerServer: ownerServer,
     );
   }
 
@@ -216,6 +233,7 @@ class Scan {
         usageUpdates: usageUpdates,
         reviewRevision: reviewRevision,
         ownerUuid: ownerUuid,
+        ownerServer: ownerServer,
       );
 
   /// Ключ, под которым запись лежала до привязки очередей к аккаунту, — без
@@ -224,6 +242,7 @@ class Scan {
 
   String _digest({required bool withOwner}) {
     final owner = ownerUuid;
+    final server = ownerServer;
     return GlobalState.digest(jsonEncode({
       'files': files,
       'periodic_task_uuid': periodicTaskUuid,
@@ -234,6 +253,10 @@ class Scan {
       'task_uuid': taskUuid,
       'priority': priority,
       if (withOwner && owner != null && owner.isNotEmpty) 'owner_uuid': owner,
+      // Сервер — тоже: такой же осмотр того же обходчика для другого сервера
+      // лёг бы на место этого.
+      if (withOwner && server != null && server.isNotEmpty)
+        'owner_server': server,
     }));
   }
   // Расход ЗИП в ключ намеренно не входит. Ключ — это идентификатор записи в
@@ -268,7 +291,8 @@ class Scan {
       this.usageKeys,
       this.usageUpdates,
       this.reviewRevision,
-      this.ownerUuid});
+      this.ownerUuid,
+      this.ownerServer});
 
   Map<String, dynamic> toJson() {
     var result = <String, dynamic>{
@@ -376,6 +400,12 @@ class ScanAdapter extends TypeAdapter<Scan> {
     } catch (_) {
       ownerUuid = null; // записи до привязки очередей к аккаунту
     }
+    String? ownerServer;
+    try {
+      ownerServer = reader.read() as String?;
+    } catch (_) {
+      ownerServer = null; // записи до привязки очередей к серверу
+    }
     return Scan(
       files: files,
       periodicTaskUuid: periodicTaskUuid,
@@ -397,6 +427,7 @@ class ScanAdapter extends TypeAdapter<Scan> {
       usageUpdates: usageUpdates,
       reviewRevision: reviewRevision,
       ownerUuid: ownerUuid,
+      ownerServer: ownerServer,
     );
   }
 
@@ -423,5 +454,6 @@ class ScanAdapter extends TypeAdapter<Scan> {
     writer.write(obj.usageUpdates);
     writer.write(obj.reviewRevision);
     writer.write(obj.ownerUuid);
+    writer.write(obj.ownerServer);
   }
 }

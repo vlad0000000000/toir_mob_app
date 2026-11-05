@@ -29,6 +29,7 @@ import '../utils/any_controller.dart';
 import '../utils/offline_error.dart';
 import '../utils/quantity_format.dart';
 import '../widgets/no_access.dart';
+import '../widgets/session_sign_out_hold.dart';
 import '../../src/onboarding/demo_equipment.dart';
 import '../repairs/repair_unfinished.dart';
 import 'result_controls.dart';
@@ -47,7 +48,8 @@ class QRResultScreen extends StatefulWidget {
   State<QRResultScreen> createState() => _QRResultScreenState();
 }
 
-class _QRResultScreenState extends State<QRResultScreen> {
+class _QRResultScreenState extends State<QRResultScreen>
+    with HoldsSessionSignOut<QRResultScreen> {
   final descController = TextEditingController();
   final imageData1Controller = SelectImageButtonController();
   final imageData2Controller = SelectImageButtonController();

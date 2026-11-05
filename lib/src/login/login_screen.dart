@@ -3,6 +3,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../global_state.dart';
+import '../../src/data/access_session.dart';
 import '../../src/data/data_provider.dart';
 import '../../src/http/api.dart';
 import '../../src/widgets/help_link.dart';
@@ -56,10 +57,38 @@ class _LoginScreenState extends State<LoginScreen> {
   /// Показывает причину блокировки, если её ещё не показали, — один раз.
   void _showPendingNotice() {
     final provider = GlobalState.dataProvider;
+    if (!mounted) return;
     final blocked = provider.pendingAccessNotice;
-    if (blocked == null || !mounted) return;
-    provider.pendingAccessNotice = null;
-    _showAccessBlocked(blocked);
+    if (blocked != null) {
+      provider.pendingAccessNotice = null;
+      provider.pendingSessionNotice = null;
+      _showAccessBlocked(blocked);
+      return;
+    }
+    final notice = provider.pendingSessionNotice;
+    if (notice == null) return;
+    provider.pendingSessionNotice = null;
+    _showSessionEnded(notice);
+  }
+
+  /// Сессию закрыли без участия обходчика: сервер перестал принимать вход
+  /// (401) или сессию выдал другой сервер. Логин подставляем: войти нужно
+  /// тем же аккаунтом, чтобы ушли его неотправленные записи.
+  void _showSessionEnded(SessionEndNotice notice) {
+    if (notice.login.isNotEmpty) loginController.text = notice.login;
+    final serverChanged = notice.reason == SessionEndReason.serverChanged;
+    showInfoDialog(
+      context,
+      icon: serverChanged ? Icons.dns_rounded : Icons.lock_clock_rounded,
+      tone: DialogTone.warning,
+      title: serverChanged
+          ? SessionStrings.serverChangedTitle
+          : SessionStrings.title,
+      body: serverChanged
+          ? SessionStrings.serverChangedBody
+          : SessionStrings.body,
+      note: SessionStrings.note,
+    );
   }
 
   void _showAccessBlocked(AccessBlockedException blocked) {

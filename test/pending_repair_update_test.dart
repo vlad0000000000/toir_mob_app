@@ -23,6 +23,7 @@ void main() {
         photoPaths: const ['a.jpg'],
         deletedPhotoUuids: const ['p-1'],
         ownerUuid: 'user-1',
+        ownerServer: 'https://a.example',
       );
 
   group('copyWith', () {
@@ -36,6 +37,7 @@ void main() {
       expect(next.photoPaths, ['a.jpg', 'b.jpg']);
       expect(next.deletedPhotoUuids, ['p-1']);
       expect(next.ownerUuid, 'user-1');
+      expect(next.ownerServer, 'https://a.example');
     });
 
     test('не трогает то, что не передали', () {
@@ -59,6 +61,7 @@ void main() {
       expect(next.kind, RepairConflictKind.repairReassigned);
       expect(next.photoPaths, ['a.jpg']);
       expect(next.ownerUuid, 'user-1');
+      expect(next.ownerServer, 'https://a.example');
     });
   });
 

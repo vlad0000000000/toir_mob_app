@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:hive_ce/hive.dart';
 import '../../global_state.dart';
+import 'queue_owned.dart';
 
 /// Значение наработки до сотых — точность колонки на сервере
 /// (`Numeric(15, 2)`).
@@ -33,7 +34,7 @@ String? usageUpdatesPayload(Iterable<UsageUpdate> updates) {
   ]);
 }
 
-class UsageUpdate {
+class UsageUpdate implements QueueOwned {
   final String? usageParameterUuid;
   final double? usageParameterValue;
   final String? equipmentUuid;
@@ -71,7 +72,13 @@ class UsageUpdate {
   /// Обходчик, поставивший запись в очередь, — см. [Scan.ownerUuid]. Не
   /// `final`: перенос старых записей ставит его на месте. В [key] и [toJson]
   /// не входит.
+  @override
   String? ownerUuid;
+
+  /// Сервер, на который запись должна уйти, — см. [Scan.ownerServer]. Не
+  /// `final`: перенос старых записей ставит его на месте. Входит в [key].
+  @override
+  String? ownerServer;
 
   bool get isRejected => (lastError ?? '').isNotEmpty;
 
@@ -79,11 +86,20 @@ class UsageUpdate {
     return GlobalState.digest(jsonEncode(toJson()));
   }
 
-  /// Ключ до привязки очередей к аккаунту — без владельца, см.
+  /// Ключ до привязки очередей к аккаунту — без владельца и сервера, см.
   /// [Scan.legacyKey]. По нему на старте восстанавливаются ссылки осмотров
   /// на эту наработку ([Scan.usageKeys]).
   String legacyKey() {
-    return GlobalState.digest(jsonEncode(toJson()..remove('owner_uuid')));
+    return GlobalState.digest(jsonEncode(
+        toJson()
+          ..remove('owner_uuid')
+          ..remove('owner_server')));
+  }
+
+  /// Ключ до привязки очередей к серверу — с владельцем, без сервера. Для
+  /// того же переноса ссылок, что [legacyKey].
+  String ownerOnlyKey() {
+    return GlobalState.digest(jsonEncode(toJson()..remove('owner_server')));
   }
 
   @override
@@ -98,6 +114,7 @@ class UsageUpdate {
     this.lastError,
     this.createdAt,
     this.ownerUuid,
+    this.ownerServer,
   });
 
   Map<String, dynamic> toJson() {
@@ -108,6 +125,9 @@ class UsageUpdate {
       // Владелец — в ключе, как у [Scan.key]: одинаковое показание другого
       // обходчика не должно лечь на место этого. Только если задан.
       if (ownerUuid != null && ownerUuid!.isNotEmpty) 'owner_uuid': ownerUuid,
+      // И сервер: то же показание того же обходчика для другого сервера.
+      if (ownerServer != null && ownerServer!.isNotEmpty)
+        'owner_server': ownerServer,
     };
   }
 }
@@ -146,6 +166,12 @@ class UsageUpdateAdapter extends TypeAdapter<UsageUpdate> {
     } catch (_) {
       ownerUuid = null; // записи до привязки очередей к аккаунту
     }
+    String? ownerServer;
+    try {
+      ownerServer = reader.read() as String?;
+    } catch (_) {
+      ownerServer = null; // записи до привязки очередей к серверу
+    }
     return UsageUpdate(
       usageParameterUuid: usageParameterUuid,
       usageParameterValue: usageParameterValue,
@@ -153,6 +179,7 @@ class UsageUpdateAdapter extends TypeAdapter<UsageUpdate> {
       lastError: lastError,
       createdAt: createdAt,
       ownerUuid: ownerUuid,
+      ownerServer: ownerServer,
     );
   }
 
@@ -165,5 +192,6 @@ class UsageUpdateAdapter extends TypeAdapter<UsageUpdate> {
     writer.write(obj.lastError);
     writer.write(obj.createdAt);
     writer.write(obj.ownerUuid);
+    writer.write(obj.ownerServer);
   }
 }

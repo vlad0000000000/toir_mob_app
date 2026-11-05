@@ -12,6 +12,7 @@ import '../exceptions/app_exceptions.dart';
 import '../model/scan.dart';
 import '../repairs/repair_delete_dialog.dart';
 import '../repairs/spare_part_picker_sheet.dart';
+import '../widgets/session_sign_out_hold.dart';
 import '../widgets/spare_part_consumption.dart';
 import 'scan_error_messages.dart';
 
@@ -37,7 +38,8 @@ class ScanConflictScreen extends StatefulWidget {
   State<ScanConflictScreen> createState() => _ScanConflictScreenState();
 }
 
-class _ScanConflictScreenState extends State<ScanConflictScreen> {
+class _ScanConflictScreenState extends State<ScanConflictScreen>
+    with HoldsSessionSignOut<ScanConflictScreen> {
   bool _isBusy = false;
 
   /// Расход, который правит обходчик.

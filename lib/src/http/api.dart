@@ -106,6 +106,14 @@ class _OfflineAwareClient extends http.BaseClient {
       if (isOfflineError(error)) API.markServerUnreachable();
       rethrow;
     }
+    // Принял ли сервер токен — по каждому ответу, а не только в очередях:
+    // иначе синхронизация молча падала бы на 401, и «Сессия истекла» не
+    // загоралась, пока отправлять нечего (`raisesAuthExpired`).
+    API.onAuthResponse?.call(
+      response.statusCode,
+      _requestToken(request),
+      session,
+    );
     // Версия доступа приходит заголовком на каждом ответе, и на отказах тоже.
     // Поменялась — администратор изменил роль, права, направление или
     // подразделения: сервер уже отвечает по-новому, и приложение узнаёт об
@@ -216,6 +224,16 @@ class API {
     String? requestToken,
     int requestSession,
   )? onAccessVersion;
+
+  /// Сообщает код ответа на запрос с токеном [requestToken], отправленный в
+  /// сессии [requestSession], — на **каждом** ответе общего клиента. Ставит
+  /// `main.dart`: по 401 `DataProvider.handleAuthResponse` поднимает «Сессия
+  /// истекла» (снимает её только новый вход).
+  static void Function(
+    int statusCode,
+    String? requestToken,
+    int requestSession,
+  )? onAuthResponse;
 
   /// Номер текущей сессии входа (`DataProvider.startAccessSession`).
   /// Общий клиент запоминает его при отправке запроса и передаёт в

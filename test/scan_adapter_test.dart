@@ -102,6 +102,7 @@ void main() {
     expect(stored.isRework, isFalse);
     // Без владельца — его проставит перенос на старте (п. 1.5 отчёта).
     expect(stored.ownerUuid, isNull);
+    expect(stored.ownerServer, isNull);
   });
 
   test('доработка: версия результата переживает запись и уходит полем формы',

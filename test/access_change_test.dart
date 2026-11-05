@@ -250,20 +250,17 @@ void main() {
       final sentBefore = session;
       session = 3; // выход и новый вход, пока осмотр был в пути
 
-      flag.set(true, requestSession: sentBefore);
+      flag.raise(requestSession: sentBefore);
 
       expect(flag.flag.value, isFalse);
     });
 
-    test('401 на запрос текущей сессии — поднимает, успех — снимает', () {
+    test('401 на запрос текущей сессии — поднимает', () {
       var session = 2;
       final flag = SessionGuardedFlag(ValueNotifier(false), () => session);
 
-      flag.set(true, requestSession: session);
+      flag.raise(requestSession: session);
       expect(flag.flag.value, isTrue);
-
-      flag.set(false, requestSession: session);
-      expect(flag.flag.value, isFalse);
     });
   });
 }

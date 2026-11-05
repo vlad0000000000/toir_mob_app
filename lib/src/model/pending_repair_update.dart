@@ -1,5 +1,6 @@
 import 'package:hive_ce/hive.dart';
 
+import 'queue_owned.dart';
 import 'repair.dart';
 import 'repair_conflict.dart';
 
@@ -18,7 +19,7 @@ import 'repair_conflict.dart';
 /// Одному ремонту соответствует одна правка: ключ бокса — [repairUuid], и
 /// повторное сохранение накрывает предыдущее. Складывать историю правок
 /// незачем — отправляем всё равно последнее состояние формы целиком.
-class PendingRepairUpdate {
+class PendingRepairUpdate implements QueueOwned {
   final String repairUuid;
 
   /// Номер ремонта — только для списка и экрана конфликта, серверу не уходит.
@@ -61,7 +62,14 @@ class PendingRepairUpdate {
 
   /// Обходчик, поставивший правку в очередь, — см. [Scan.ownerUuid]. Не
   /// `final`: перенос старых записей ставит его на месте.
+  @override
   String? ownerUuid;
+
+  /// Сервер, на который правка должна уйти, — см. [Scan.ownerServer]. Не
+  /// `final`: перенос старых записей ставит его на месте. Входит в ключ
+  /// записи (`pendingRepairUpdateKey`).
+  @override
+  String? ownerServer;
 
   PendingRepairUpdate({
     required this.repairUuid,
@@ -78,6 +86,7 @@ class PendingRepairUpdate {
     this.photoPaths = const [],
     this.deletedPhotoUuids = const [],
     this.ownerUuid,
+    this.ownerServer,
   });
 
   RepairConflictKind get kind => RepairConflictKind.fromCode(conflictKind);
@@ -123,6 +132,7 @@ class PendingRepairUpdate {
       photoPaths: photoPaths ?? this.photoPaths,
       deletedPhotoUuids: deletedPhotoUuids ?? this.deletedPhotoUuids,
       ownerUuid: ownerUuid,
+      ownerServer: ownerServer,
     );
   }
 
@@ -149,6 +159,7 @@ class PendingRepairUpdate {
       photoPaths: photoPaths,
       deletedPhotoUuids: deletedPhotoUuids,
       ownerUuid: ownerUuid,
+      ownerServer: ownerServer,
     );
   }
 
@@ -169,6 +180,7 @@ class PendingRepairUpdate {
       photoPaths: photoPaths,
       deletedPhotoUuids: deletedPhotoUuids,
       ownerUuid: ownerUuid,
+      ownerServer: ownerServer,
     );
   }
 }
@@ -201,6 +213,8 @@ class PendingRepairUpdateAdapter extends TypeAdapter<PendingRepairUpdate> {
           _readTrailing<List<dynamic>>(reader)?.cast<String>() ?? const [],
       // Владелец — у правок до привязки очередей к аккаунту его нет.
       ownerUuid: _readTrailing<String>(reader),
+      // Сервер — у правок до привязки очередей к серверу его нет.
+      ownerServer: _readTrailing<String>(reader),
     );
   }
 
@@ -228,5 +242,6 @@ class PendingRepairUpdateAdapter extends TypeAdapter<PendingRepairUpdate> {
     writer.write(obj.photoPaths);
     writer.write(obj.deletedPhotoUuids);
     writer.write(obj.ownerUuid);
+    writer.write(obj.ownerServer);
   }
 }

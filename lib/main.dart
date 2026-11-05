@@ -56,11 +56,14 @@ import '../../src/tasks/tasks.dart';
 import '../../src/utils/dependent.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../src/widgets/empty_state.dart';
+import '../../src/widgets/session_expired_strip.dart';
 
 import 'global_state.dart';
 import 'src/app_lifecycle/app_lifecycle.dart';
+import 'src/data/access_session.dart';
 import 'src/data/data_provider.dart';
 import 'src/data/hive_storage_location.dart';
+import 'src/data/session_server.dart';
 import 'src/data/repair_photo_files.dart';
 import 'src/design/app_constants.dart';
 import 'src/design/app_theme.dart';
@@ -258,6 +261,26 @@ Future<void> main() async {
   GlobalState.dataProvider = dataProvider;
   Settings.dataProvider = dataProvider;
 
+  // Сохранённую сессию выдал другой сервер — приложение пересобрали или
+  // перенастроили на другой `API_ENDPOINT`. Её токен здесь не примут, и
+  // восстанавливать её нельзя: работа шла бы «вслепую», синхронизация падала
+  // на 401. Выходим до первого экрана — откроется вход с причиной и логином.
+  // Очереди не трогаем: у записей есть владелец, уйдут после входа.
+  // Сессия прошлой версии без отметки — своя: запоминаем ей текущий сервер.
+  final restoredUser = GlobalState.authUser;
+  if (restoredUser != null) {
+    final stored = dataProvider.userServer(restoredUser.username);
+    if (stored == null) {
+      await dataProvider.rememberUserServer(restoredUser.username);
+    } else if (!isSameServer(stored: stored, current: API.baseUrl)) {
+      await signOut();
+      dataProvider.pendingSessionNotice = SessionEndNotice(
+        SessionEndReason.serverChanged,
+        restoredUser.username,
+      );
+    }
+  }
+
   // Восстанавливаем выбранную тему из Hive (Settings.themeId → AppTheme).
   AppTheme.activeThemeId.value = Settings.themeId;
 
@@ -284,6 +307,10 @@ Future<void> main() async {
   // Роль, права или область поменяли во время работы — перечитываем доступ
   // и справочники сразу, по заголовку первого же ответа.
   API.onAccessVersion = dataProvider.handleAccessVersion;
+  // Токен не принимают (401) — «Сессия истекла» по любому запросу, а не
+  // только в очередях отправки: иначе синхронизация падала бы молча, и
+  // обходчик смотрел бы на старый кэш. Успешный ответ флаг снимает.
+  API.onAuthResponse = dataProvider.handleAuthResponse;
   // Каждая новая блокировка сессии — событие (счётчик), а не «залипающее»
   // значение.
   //
@@ -300,6 +327,37 @@ Future<void> main() async {
     dataProvider.accessNoticeEvents.value++;
     await stopping;
   });
+
+  // Сессия истекла — сервер не принимает токен (401): выводим на вход, но
+  // не посреди формы — введённое пропало бы. Открытая форма держит выход
+  // (`HoldsSessionSignOut`), ушёл с неё — срабатывает тот же слушатель.
+  //
+  // Не синхронно, а следующей задачей: держатель снимается из `dispose`, то
+  // есть посреди сборки кадра, и переход оттуда уронил бы его. Условие
+  // проверяем ещё раз — за это время могли войти заново или уйти в форму.
+  void signOutIfSessionExpired() {
+    bool due() => shouldSignOutExpiredSession(
+          expired: dataProvider.authExpired.value,
+          authorized: GlobalState.isAuthorized,
+          openForms: dataProvider.sessionSignOutHolds.value,
+        );
+    if (!due()) return;
+    Future(() async {
+      if (!due()) return;
+      final login = GlobalState.authUser?.username;
+      final stopping = signOut();
+      // Экран входа покажет «Сессия истекла» и подставит логин — по тому же
+      // событию «переход выполнен», что и причину блокировки.
+      dataProvider.pendingSessionNotice =
+          SessionEndNotice(SessionEndReason.expired, login ?? '');
+      MyApp._router.clearStackAndNavigate('/login');
+      dataProvider.accessNoticeEvents.value++;
+      await stopping;
+    });
+  }
+
+  dataProvider.authExpired.addListener(signOutIfSessionExpired);
+  dataProvider.sessionSignOutHolds.addListener(signOutIfSessionExpired);
 
   dataProvider.startSyncing();
   dataProvider.startScanSyncing();
@@ -644,10 +702,22 @@ class MyApp extends StatelessWidget {
               ),
             ],
             child: Builder(builder: (context) {
+              final easyLoading = EasyLoading.init();
               var app = ValueListenableBuilder<AppThemeId>(
                 valueListenable: AppTheme.activeThemeId,
                 builder: (context, _, __) => MaterialApp.router(
-                  builder: EasyLoading.init(),
+                  // Полоса «Сессия истекла» — над любым экраном: видна она
+                  // только над открытой формой, с остальных выход на вход
+                  // срабатывает сразу.
+                  builder: (context, child) => easyLoading(
+                    context,
+                    Column(
+                      children: [
+                        const SessionExpiredStrip(),
+                        Expanded(child: child ?? const SizedBox.shrink()),
+                      ],
+                    ),
+                  ),
                   title: dotenv.env["APP_TITLE"]!,
                   theme: AppTheme.lightTheme,
                   themeMode: ThemeMode.light,

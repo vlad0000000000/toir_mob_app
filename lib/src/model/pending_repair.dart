@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:hive_ce/hive.dart';
 
 import '../../global_state.dart';
+import 'queue_owned.dart';
 import 'repair.dart';
 
 /// Черновик ремонта — созданный обходчиком, но ещё не принятый сервером.
@@ -14,7 +15,7 @@ import 'repair.dart';
 /// [localId] уходит в заголовок `Idempotency-Key`: сервер помнит пару
 /// «компания + ключ» и на повтор возвращает тот же ремонт с кодом 200 вместо
 /// создания второго.
-class PendingRepair {
+class PendingRepair implements QueueOwned {
   /// Ключ бокса и он же `Idempotency-Key`. Считается один раз при создании
   /// черновика и больше не меняется — иначе повтор превратился бы в новый
   /// ремонт.
@@ -98,7 +99,14 @@ class PendingRepair {
   /// Обходчик, поставивший черновик в очередь, — см. [Scan.ownerUuid]. Не
   /// `final`: перенос старых записей ставит его на месте. В [localId] не
   /// входит.
+  @override
   String? ownerUuid;
+
+  /// Сервер, на котором черновик должен создать ремонт, — см.
+  /// [Scan.ownerServer]. Не `final`: перенос старых записей ставит его на
+  /// месте. В [localId] не входит: это `Idempotency-Key`, он не меняется.
+  @override
+  String? ownerServer;
 
   PendingRepair({
     required this.localId,
@@ -121,6 +129,7 @@ class PendingRepair {
     this.createNormUuid,
     this.schedule = false,
     this.ownerUuid,
+    this.ownerServer,
   });
 
   /// Тело создания уже зафиксировано — создание отправлялось.
@@ -166,6 +175,7 @@ class PendingRepair {
         createNormUuid: normUuid,
         schedule: schedule,
         ownerUuid: ownerUuid,
+        ownerServer: ownerServer,
       );
 
   /// Новый черновик: ключ идемпотентности выводим из содержимого плюс момента
@@ -282,6 +292,7 @@ class PendingRepair {
       createNormUuid: createNormUuid,
       schedule: schedule,
       ownerUuid: ownerUuid,
+      ownerServer: ownerServer,
     );
   }
 
@@ -313,6 +324,7 @@ class PendingRepair {
       createNormUuid: createNormUuid,
       schedule: schedule,
       ownerUuid: ownerUuid,
+      ownerServer: ownerServer,
     );
   }
 
@@ -340,6 +352,7 @@ class PendingRepair {
       createNormUuid: createNormUuid,
       schedule: schedule,
       ownerUuid: ownerUuid,
+      ownerServer: ownerServer,
     );
   }
 }
@@ -389,6 +402,8 @@ class PendingRepairAdapter extends TypeAdapter<PendingRepair> {
     final schedule = _readTrailing<bool>(reader) ?? false;
     // Владелец — у черновиков до привязки очередей к аккаунту его нет.
     final ownerUuid = _readTrailing<String>(reader);
+    // Сервер — у черновиков до привязки очередей к серверу его нет.
+    final ownerServer = _readTrailing<String>(reader);
     return PendingRepair(
       localId: localId,
       equipmentUuid: equipmentUuid,
@@ -410,6 +425,7 @@ class PendingRepairAdapter extends TypeAdapter<PendingRepair> {
       createNormUuid: createNormUuid,
       schedule: schedule,
       ownerUuid: ownerUuid,
+      ownerServer: ownerServer,
     );
   }
 
@@ -446,5 +462,6 @@ class PendingRepairAdapter extends TypeAdapter<PendingRepair> {
     writer.write(obj.createNormUuid);
     writer.write(obj.schedule);
     writer.write(obj.ownerUuid);
+    writer.write(obj.ownerServer);
   }
 }

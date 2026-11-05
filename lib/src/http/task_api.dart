@@ -60,8 +60,7 @@ extension TaskApi on API {
           .toList();
       return scheduled;
     } else {
-      throw Exception(
-          'Failed to load typical problems: ${response.statusCode}');
+      throw Exception('Failed to load open tasks: ${response.statusCode}');
     }
   }
 
@@ -163,7 +162,7 @@ extension TaskApi on API {
       return (tasks: scheduled, fetched: data.length);
     } else {
       throw Exception(
-          'Failed to load typical problems: ${response.statusCode}');
+          'Failed to load scheduled tasks: ${response.statusCode}');
     }
   }
 

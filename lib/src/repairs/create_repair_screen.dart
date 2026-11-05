@@ -18,6 +18,7 @@ import '../utils/go_router_ext.dart';
 import '../widgets/date_range_sheet.dart';
 import '../widgets/no_access.dart';
 import '../widgets/offline_banner.dart';
+import '../widgets/session_sign_out_hold.dart';
 import 'repair_error_messages.dart';
 import 'repair_unfinished.dart';
 
@@ -36,7 +37,8 @@ class CreateRepairScreen extends StatefulWidget {
   State<CreateRepairScreen> createState() => _CreateRepairScreenState();
 }
 
-class _CreateRepairScreenState extends State<CreateRepairScreen> {
+class _CreateRepairScreenState extends State<CreateRepairScreen>
+    with HoldsSessionSignOut<CreateRepairScreen> {
   static const int _commentLimit = 2000;
 
   final _commentController = TextEditingController();

@@ -26,6 +26,7 @@ import '../utils/go_router_ext.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/info_dialog.dart';
 import '../widgets/no_access.dart';
+import '../widgets/session_sign_out_hold.dart';
 import '../widgets/spare_part_consumption.dart';
 import 'repair_access.dart';
 import 'repair_clipboard.dart';
@@ -66,7 +67,8 @@ class RepairDetailScreen extends StatefulWidget {
   State<RepairDetailScreen> createState() => _RepairDetailScreenState();
 }
 
-class _RepairDetailScreenState extends State<RepairDetailScreen> {
+class _RepairDetailScreenState extends State<RepairDetailScreen>
+    with HoldsSessionSignOut<RepairDetailScreen> {
   static const int _commentLimit = 2000;
 
   /// Сколько времени тот же самый текст считается уже показанным. Чуть больше

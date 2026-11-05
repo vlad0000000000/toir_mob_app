@@ -63,7 +63,7 @@ extension DataProviderOutbox on DataProvider {
     for (final draft in pendingRepairBox.values.toList()) {
       // Черновик другого обходчика с его токеном не уходит: ждёт, пока тот
       // снова войдёт на этом телефоне (п. 1.5 отчёта).
-      if (!isMine(draft.ownerUuid)) continue;
+      if (!isMine(draft)) continue;
       // Отклонённые не долбим на каждом цикле: причина никуда не денется
       // сама («Для этого оборудования уже есть ремонт»), а обходчик увидит
       // её в списке и решит — повторить вручную или удалить черновик.
@@ -182,7 +182,6 @@ extension DataProviderOutbox on DataProvider {
             current.consumptions.isEmpty &&
             !current.submitForReview) {
           await deletePendingRepair(current.localId);
-          _authExpiredFlag.set(false, requestSession: session);
           sent++;
           continue;
         }
@@ -207,7 +206,6 @@ extension DataProviderOutbox on DataProvider {
         );
         await upsertRepair(finished, generation: generation);
         await deletePendingRepair(current.localId);
-        _authExpiredFlag.set(false, requestSession: session);
         sent++;
       } catch (e) {
         // Аккаунт сменился, пока шёл запрос: отказ мог прийти и на токен B —
@@ -217,7 +215,7 @@ extension DataProviderOutbox on DataProvider {
           // Токен протух. Черновик не виноват — оставляем как есть и поднимаем
           // пометку; после повторного входа отправка продолжится сама.
           // Отказ на запрос прошлой сессии пометку не поднимает.
-          _authExpiredFlag.set(true, requestSession: session);
+          _authExpiredFlag.raise(requestSession: session);
           continue;
         }
         if (isRetryableRepairError(e)) {
@@ -322,7 +320,7 @@ extension DataProviderOutbox on DataProvider {
         // следующая попытка просто пропустит.
         if (e is RepairNotOpenException) rethrow;
         if (e is AuthExpiredException) {
-          _authExpiredFlag.set(true, requestSession: session);
+          _authExpiredFlag.raise(requestSession: session);
         }
         failed = true;
         left.add(path);
@@ -361,7 +359,7 @@ extension DataProviderOutbox on DataProvider {
         // повтор удаления безвреден (404 — успех).
         if (e is RepairNotOpenException) rethrow;
         if (e is AuthExpiredException) {
-          _authExpiredFlag.set(true, requestSession: session);
+          _authExpiredFlag.raise(requestSession: session);
         }
         failed = true;
         left.add(uuid);
@@ -491,7 +489,7 @@ extension DataProviderOutbox on DataProvider {
     // записей: у чужих свой доступ, и отправлять их всё равно не нам.
     for (final entry in scanBox.toMap().entries) {
       final scan = entry.value;
-      if (!isMine(scan.ownerUuid)) continue;
+      if (!isMine(scan)) continue;
       // «Оборудование не найдено» — тоже про доступ (на сервере до `06b145f`
       // — чужое подразделение без флага «Осмотр без QR»). Флаг, роль и
       // выкладка `06b145f` меняют версию доступа.
@@ -506,20 +504,20 @@ extension DataProviderOutbox on DataProvider {
     }
     for (final entry in scanUsageBox.toMap().entries) {
       final usage = entry.value;
-      if (!isMine(usage.ownerUuid)) continue;
+      if (!isMine(usage)) continue;
       if (!isNoRightsReason(usage.lastError)) continue;
       usage.lastError = null;
       await scanUsageBox.put(entry.key, usage);
       cleared++;
     }
     for (final draft in pendingRepairBox.values.toList()) {
-      if (!isMine(draft.ownerUuid)) continue;
+      if (!isMine(draft)) continue;
       if (!isRepairNoRightsMessage(draft.lastError)) continue;
       await pendingRepairBox.put(draft.localId, draft.clearRejection());
       cleared++;
     }
     for (final update in pendingRepairUpdateBox.values.toList()) {
-      if (!isMine(update.ownerUuid)) continue;
+      if (!isMine(update)) continue;
       if (!isRepairNoRightsMessage(update.lastError)) continue;
       await pendingRepairUpdateBox.put(
           updateKeyOf(update), update.clearRejection());
@@ -548,7 +546,7 @@ extension DataProviderOutbox on DataProvider {
   Future<int> retryRejectedProblemReports() async {
     var cleared = 0;
     for (final entry in periodicTaskBox.toMap().entries) {
-      if (!entry.value.isRejected || !isMine(entry.value.ownerUuid)) continue;
+      if (!entry.value.isRejected || !isMine(entry.value)) continue;
       await periodicTaskBox.put(entry.key, entry.value.withRejection(null));
       cleared++;
     }
@@ -589,7 +587,7 @@ extension DataProviderOutbox on DataProvider {
     var sent = 0;
     for (var update in pendingRepairUpdateBox.values.toList()) {
       // Правка другого обходчика с его токеном не уходит (п. 1.5 отчёта).
-      if (!isMine(update.ownerUuid)) continue;
+      if (!isMine(update)) continue;
       // Сессия и поколение кэша — сразу за проверкой владельца, до первого
       // `await` (снятие устаревшей пометки ниже — уже ожидание): запомни мы их
       // позже, за это ожидание мог бы войти B, и проверка ниже приняла бы его
@@ -670,14 +668,13 @@ extension DataProviderOutbox on DataProvider {
           current.repairUuid,
           key: updateKeyOf(current),
         );
-        _authExpiredFlag.set(false, requestSession: session);
         sent++;
       } catch (e) {
         // Аккаунт сменился, пока шёл запрос: отказ мог прийти на токен
         // нового обходчика — правку прежнего не помечаем и не разбираем.
         if (switched()) continue;
         if (e is AuthExpiredException) {
-          _authExpiredFlag.set(true, requestSession: session);
+          _authExpiredFlag.raise(requestSession: session);
           continue;
         }
         if (isRetryableRepairError(e)) continue;
@@ -897,7 +894,7 @@ extension DataProviderOutbox on DataProvider {
   Future<void> _syncUsageScansImpl() async {
     for (final usage in scanUsageBox.values.toList()) {
       // Наработка другого обходчика с его токеном не уходит (п. 1.5 отчёта).
-      if (!isMine(usage.ownerUuid)) continue;
+      if (!isMine(usage)) continue;
       // Отклонённые не долбим на каждом проходе: причина сама не изменится,
       // решение за обходчиком — повторить или выбросить.
       if (usage.isRejected) continue;
@@ -936,8 +933,6 @@ extension DataProviderOutbox on DataProvider {
         if (await api.updateUsageParameter(usage)) {
           // Принята — только теперь её нет нигде.
           await scanUsagePendingBox.delete(key);
-          // Сервер принял запрос этой сессии — токен живой.
-          _authExpiredFlag.set(false, requestSession: session);
         } else {
           await _returnUsageToQueue(key, usage);
         }
@@ -952,7 +947,7 @@ extension DataProviderOutbox on DataProvider {
           // Токен протух — наработка не виновата. Возвращаем без пометки:
           // после повторного входа уйдёт сама.
           await _returnUsageToQueue(key, usage);
-          _authExpiredFlag.set(true, requestSession: session);
+          _authExpiredFlag.raise(requestSession: session);
           continue;
         }
         if (isRetryableScanError(e)) {
@@ -1024,7 +1019,7 @@ extension DataProviderOutbox on DataProvider {
     for (final scan in scans) {
       // Осмотр другого обходчика с его токеном не уходит: ждёт, пока тот
       // снова войдёт на этом телефоне (п. 1.5 отчёта).
-      if (!isMine(scan.ownerUuid)) continue;
+      if (!isMine(scan)) continue;
       // Отклонённые сервером не долбим на каждом проходе: причина сама не
       // изменится («Недостаточно ЗИП на складе»), а обходчик увидит её на
       // главной и решит — повторить или сбросить. Тот же приём, что у
@@ -1060,14 +1055,19 @@ extension DataProviderOutbox on DataProvider {
         // Отклонённую наработку не ждём: она уже не уедет сама, и ждать её —
         // значит не отправить осмотр ТО никогда. Пометка о ней висит на
         // главной, разбирать её обходчику; закрытие задачи и списание ЗИП это
-        // держать не должно.
+        // держать не должно. Чужую — тоже, как и правило порядка ниже:
+        // наработка другого обходчика или другого сервера (у копии базы
+        // uuid оборудования совпадает) уйдёт не раньше входа её владельца
+        // на её сервере, и ТО ждало бы её вечно.
         final hasPendingUsage = scanUsageBox.values.any(
               (usage) =>
                   usage.equipmentUuid == scan.equipmentUuid &&
-                  !usage.isRejected,
+                  !usage.isRejected &&
+                  isMine(usage),
             ) ||
             scanUsagePendingBox.values.any(
-              (usage) => usage.equipmentUuid == scan.equipmentUuid,
+              (usage) =>
+                  usage.equipmentUuid == scan.equipmentUuid && isMine(usage),
             ) ||
             // Более раннее показание может лежать и в очереди осмотров —
             // внутри осмотра «только наработка» или другого ТО
@@ -1122,9 +1122,6 @@ extension DataProviderOutbox on DataProvider {
           // Успешно - удаляем из всех хранилищ
           await scanPendingBox.delete(scan.key());
           await stringBox.delete(timestampKey);
-          // Сервер принял запрос этой сессии — токен живой, пометка «сессия
-          // истекла» (если её успел поднять другой запрос) уже неправда.
-          _authExpiredFlag.set(false, requestSession: session);
           if (scan.taskUuid != null) {
             await stringBox.delete('maintenance_task_${scan.taskUuid}');
           }
@@ -1158,7 +1155,7 @@ extension DataProviderOutbox on DataProvider {
           await stringBox.delete(timestampKey);
           // Ответ на запрос прошлой сессии (выход и новый вход, пока осмотр
           // был в пути) пометку не поднимает: новый вход живой.
-          _authExpiredFlag.set(true, requestSession: session);
+          _authExpiredFlag.raise(requestSession: session);
           continue;
         }
         if (isScanAlreadyDelivered(e)) {
@@ -1239,7 +1236,7 @@ extension DataProviderOutbox on DataProvider {
         for (final item in box.toMap().entries)
           if (item.key != exceptKey &&
               !item.value.isRejected &&
-              isMine(item.value.ownerUuid))
+              isMine(item.value))
             (
               equipmentUuid: item.value.equipmentUuid,
               createdAt: item.value.createdAt,
@@ -1249,7 +1246,7 @@ extension DataProviderOutbox on DataProvider {
           if (item.key != exceptKey &&
               item.value.usageUpdates != null &&
               !item.value.isRejected &&
-              isMine(item.value.ownerUuid))
+              isMine(item.value))
             (
               equipmentUuid: item.value.equipmentUuid,
               createdAt: item.value.createdAt,
@@ -1381,7 +1378,7 @@ extension DataProviderOutbox on DataProvider {
     final tasks = periodicTaskBox.values.toList();
     for (final task in tasks) {
       // Заявка другого обходчика с его токеном не уходит (п. 1.5 отчёта).
-      if (!isMine(task.ownerUuid)) continue;
+      if (!isMine(task)) continue;
       // Снимок мог устареть, пока шёл проход, — как у осмотров.
       if (!periodicTaskBox.containsKey(task.key())) continue;
       // Отклонённую фон не повторяет: ответ был бы тем же. Пометку снимают

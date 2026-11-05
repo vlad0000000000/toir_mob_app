@@ -265,6 +265,11 @@ extension DataProviderRemote on DataProvider {
       }
       for (var user in users) {
         if (user.username == login && user.password == password) {
+          // Запись другого сервера (прошлая сборка, другой стенд): её токен
+          // этот сервер не примет, а справочники в кэше — того сервера.
+          // Решение продукта — не пускать: без связи «нет связи», со связью
+          // — обычный онлайн-вход. Запись прошлой версии без отметки — своя.
+          if (!isUserOfThisServer(user.username)) continue;
           currentUser = user;
           break;
         }
@@ -324,6 +329,7 @@ extension DataProviderRemote on DataProvider {
       // секунду (токен совпадёт: время в нём с точностью до секунды) оставил
       // бы следующую блокировку без реакции.
       pendingAccessNotice = null;
+      pendingSessionNotice = null;
       _blockedSessionToken = null;
       // И ответы профиля, запрошенные прежней сессией, — тоже к ней: ни один
       // не должен лечь поверх профиля, который вход сохранит ниже, даже при
@@ -352,6 +358,9 @@ extension DataProviderRemote on DataProvider {
 
       // Сохраняем данные логина только при успешном завершении
       await addUser(currentUser);
+      // Чей это вход — чтобы после смены сервера не восстановить сессию и не
+      // пустить офлайн по записи прошлого (`data/session_server.dart`).
+      if (!apiLoginFailed) await rememberUserServer(currentUser.username);
       GlobalState.authUser = currentUser;
     }
     return currentUser;
