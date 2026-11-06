@@ -12,6 +12,7 @@ import '../model/unfinished_repair_hint.dart';
 import '../utils/offline_error.dart';
 import 'repair_error_messages.dart';
 import 'repair_status_pill.dart';
+import '../utils/company_time.dart';
 
 /// Незакрытые ремонты одного оборудования — подсказка «уже есть ремонты» на
 /// форме создания (макет 14b) и на экране скана (14h).
@@ -314,7 +315,7 @@ Future<_DetailsResult> _fetchDetails(String uuid) async {
 
 /// Время вводится с точностью до минуты, поэтому и сравниваем по ней.
 String _minute(DateTime value) =>
-    DateFormat('yyyy-MM-dd HH:mm').format(value.toLocal());
+    DateFormat('yyyy-MM-dd HH:mm').format(CompanyTime.of(value));
 
 /// Ремонты (всех служб), начинающиеся в ту же минуту, что [start].
 List<UnfinishedRepairHint> sameStartRepairs(
@@ -450,7 +451,7 @@ class _UnfinishedRepairRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final start = DateFormat('dd.MM HH:mm').format(hint.startedAt.toLocal());
+    final start = DateFormat('dd.MM HH:mm').format(CompanyTime.of(hint.startedAt));
     final direction = hint.responsibleRoleName;
     final person = (hint.responsibleUserFullname ?? '').trim();
     final who = [
@@ -486,7 +487,7 @@ class _UnfinishedDraftRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final start = DateFormat('dd.MM HH:mm').format(draft.startedAt.toLocal());
+    final start = DateFormat('dd.MM HH:mm').format(CompanyTime.of(draft.startedAt));
     return _UnfinishedRow(
       pill: const RepairDraftPill(),
       title: RepairStrings.unfinishedDraftStart(

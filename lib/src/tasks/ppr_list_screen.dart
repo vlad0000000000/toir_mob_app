@@ -8,6 +8,7 @@ import '../design/app_constants.dart';
 import '../widgets/empty_state.dart';
 import 'equipment_detail_screen.dart' show pprGroupColor;
 import 'periodic_task_card.dart';
+import 'task_deadline.dart';
 
 /// Список актуальных ППР: каждый ППР — сворачиваемый блок (по аналогии с
 /// группами задач оборудования), внутри — задачи именно этого ППР.
@@ -282,6 +283,7 @@ class _PprTaskItem extends StatelessWidget {
                               ?.copyWith(color: cs.onSurfaceVariant),
                         ),
                       ],
+                      TaskDeadlineLine(task: task),
                     ],
                   ),
                 ),

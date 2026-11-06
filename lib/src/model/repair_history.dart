@@ -2,6 +2,7 @@ import 'package:intl/intl.dart';
 
 import '../../strings.dart';
 import 'repair.dart';
+import '../utils/company_time.dart';
 
 /// Запись истории ремонта — `GET /v1/repairs/{uuid}/history` (бэкенд
 /// `7be3756`): создание, перенос даты начала, смена статуса, удаление.
@@ -143,7 +144,7 @@ class RepairHistoryEntry {
   }
 
   static String formatDateTime(DateTime value) =>
-      DateFormat('dd.MM.yyyy HH:mm').format(value.toLocal());
+      DateFormat('dd.MM.yyyy HH:mm').format(CompanyTime.of(value));
 
   /// «Сидоров Алексей Иванович» → «Сидоров А. И.».
   static String shortName(String fullname) {

@@ -12,8 +12,9 @@ import '../model/inventory_record.dart';
 /// Как определяем:
 /// 1. по подразделению оборудования ([InventoryRecord.divisionUuid]) — сервер
 ///    присылает его в `division`; сравниваем с подразделениями роли
-///    ([AccessProfile.divisions]). `division: null` — не своё: оборудование
-///    без подразделения сервер ни к одному не относит;
+///    ([AccessProfile.divisions]). `division: null` — не своё, кроме общего
+///    помещения ([InventoryRecord.sharedLocation], бэкенд `65ef960`): обычное
+///    помещение без подразделения сервер считает доступным всем;
 /// 2. если поля нет (сервер прошлой версии или запись до полной сверки) — как
 ///    раньше, через помещение: подразделение оборудования — это подразделение
 ///    его помещения (`equipment_ids` в `backend/security/policies/divisions.py`),
@@ -36,6 +37,7 @@ bool isMyEquipment(
   required Set<String>? myLocationUuids,
 }) {
   if (profile == null || profile.allDivisions) return true;
+  if (equipment.sharedLocation) return true;
   final division = equipment.divisionUuid;
   if (division != null) {
     if (division.isEmpty) return false;

@@ -83,6 +83,57 @@ void main() {
     });
   });
 
+  group('что осталось после создания', () {
+    PendingRepair created({
+      String comment = 'течь',
+      String? createComment = 'течь',
+      List<String> photos = const [],
+      List<RepairConsumption> consumptions = const [],
+      bool submit = false,
+    }) =>
+        PendingRepair(
+          localId: 'local-3',
+          equipmentUuid: 'eq-1',
+          equipmentName: 'Насос',
+          startedAt: DateTime.utc(2026, 11, 30, 11),
+          createdAt: DateTime.utc(2026, 11, 6, 11),
+          comment: comment,
+          createComment: createComment,
+          photoPaths: photos,
+          consumptions: consumptions,
+          submitForReview: submit,
+          schedule: true,
+          serverUuid: 'srv-1',
+        );
+
+    test('только создание — черновик выполнен, начала ждать незачем', () {
+      expect(created().hasWorkAfterCreate, isFalse);
+    });
+
+    test('снимки, расход или отправка на рассмотрение ещё впереди', () {
+      expect(created(photos: const ['a.jpg']).hasWorkAfterCreate, isTrue);
+      expect(created(submit: true).hasWorkAfterCreate, isTrue);
+      expect(
+        created(consumptions: [
+          RepairConsumption(
+            sparePartUuid: 'sp-1',
+            sparePartName: 'Сальник',
+            quantity: 1,
+          ),
+        ]).hasWorkAfterCreate,
+        isTrue,
+      );
+    });
+
+    test('комментарий поправили после создания — ещё есть что отправить', () {
+      expect(created(comment: 'заменил').hasWorkAfterCreate, isTrue);
+    });
+
+    test('черновик прошлой версии: исходный комментарий неизвестен', () {
+      expect(created(createComment: null).hasWorkAfterCreate, isTrue);
+    });
+  });
+
   group('тело создания', () {
     PendingRepair fresh() => PendingRepair(
           localId: 'local-2',

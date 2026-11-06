@@ -32,6 +32,11 @@ class Task {
   /// ближайшей синхронизации поле появится.
   final TaskAccess? access;
 
+  /// Срок выданного задания (`deadline_at`, бэкенд `fd3f703`): сервер заморозил
+  /// его при выдаче, и смена расписания шаблона его не двигает. `null` — срока
+  /// нет: разовая задача, ТО, заявка или сервер прошлой версии.
+  final DateTime? deadlineAt;
+
   Task({
     required this.uuid,
     required this.resultStatus,
@@ -45,6 +50,7 @@ class Task {
     this.photos = const [],
     this.sparePartUsage,
     this.access,
+    this.deadlineAt,
   });
 
   /// Проверяющий вернул результат на доработку. Статус при этом `closed` —
@@ -52,6 +58,15 @@ class Task {
   /// прежний, сданный результат.
   bool get isReturnedForRework =>
       resultStatus == 'closed' && (access?.returned ?? false);
+
+  /// Срок задания [deadlineAt] уже прошёл. Сервер выданные задания сам не
+  /// закрывает, и обходчик видит все незакрытые экземпляры — эта пометка
+  /// отличает старые от текущего. Доработку не помечаем: срок относится к
+  /// первой сдаче, а её ждут в отдельной группе.
+  bool isOverdueAt(DateTime now) {
+    final deadline = deadlineAt;
+    return deadline != null && !isReturnedForRework && now.isAfter(deadline);
+  }
 
   /// Комментарий осмотра. Сервер отдаёт его либо строкой (старый формат),
   /// либо объектом `{text, timestamp}` — принимаем оба, иначе разбор задачи
@@ -98,6 +113,7 @@ class Task {
               json['spare_part_usage'] as Map<String, dynamic>)
           : null,
       access: TaskAccess.fromServer(json),
+      deadlineAt: DateTime.tryParse(json['deadline_at'] as String? ?? ''),
     );
   }
 
@@ -150,6 +166,13 @@ class TaskAdapter extends TypeAdapter<Task> {
     } catch (_) {
       access = null;
     }
+    // Срок — последним, у записей прошлых версий его нет.
+    DateTime? deadlineAt;
+    try {
+      deadlineAt = reader.read() as DateTime?;
+    } catch (_) {
+      deadlineAt = null;
+    }
     return Task(
       uuid: uuid,
       resultStatus: resultStatus,
@@ -163,6 +186,7 @@ class TaskAdapter extends TypeAdapter<Task> {
       photos: photos,
       sparePartUsage: sparePartUsage,
       access: access,
+      deadlineAt: deadlineAt,
     );
   }
 
@@ -186,5 +210,7 @@ class TaskAdapter extends TypeAdapter<Task> {
         : jsonEncode(obj.sparePartUsage!.toJson()));
     // Последним — см. чтение. Тоже строкой JSON и по той же причине.
     writer.write(obj.access?.encode());
+    // Срок — ещё дальше в конец, по тому же правилу.
+    writer.write(obj.deadlineAt);
   }
 }

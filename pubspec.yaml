@@ -25,6 +25,9 @@ dependencies:
   mime: ^1.0.5
   cherry_toast: ^1.10.1
   flutter_easyloading: ^3.0.5
+  # Время по поясу компании (utils/company_time.dart). Уже приходила транзитивно
+  # через flutter_local_notifications, но импортируется напрямую.
+  timezone: ^0.9.4
   url_launcher: ^6.3.0
   package_info_plus: ^8.0.0
   dio: ^5.4.3+1
@@ -69,6 +72,9 @@ flutter:
   assets:
     - assets/images/
     - assets/onboarding/
+    # Свежая база поясов IANA (из timezone 0.11.2, база 2026e): встроенная в
+    # timezone 0.9.4 — 2024a. Грузит utils/company_time.dart.
+    - assets/timezone/latest_all.tzf
     - .env
     - shorebird.yaml
 

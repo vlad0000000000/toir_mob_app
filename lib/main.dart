@@ -53,6 +53,7 @@ import '../../src/splash/splash_screen.dart';
 import '../../src/style/snack_bar.dart';
 import '../../src/app_bar/app_bar.dart';
 import '../../src/tasks/tasks.dart';
+import '../../src/utils/company_time.dart';
 import '../../src/utils/dependent.dart';
 import '../../src/utils/go_router_ext.dart';
 import '../../src/widgets/empty_state.dart';
@@ -260,6 +261,12 @@ Future<void> main() async {
 
   GlobalState.dataProvider = dataProvider;
   Settings.dataProvider = dataProvider;
+
+  // Пояс компании из прошлой синхронизации: время на экранах — по нему и без
+  // сети, и до первого ответа сервера. Свежая база поясов — только байты
+  // файла, разбор ленивый (см. [CompanyTime.bundledDatabase]).
+  await CompanyTime.loadBundledDatabase(rootBundle.load);
+  CompanyTime.configure(dataProvider.companyTimezone);
 
   // Сохранённую сессию выдал другой сервер — приложение пересобрали или
   // перенастроили на другой `API_ENDPOINT`. Её токен здесь не примут, и

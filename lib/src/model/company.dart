@@ -61,11 +61,16 @@ class CompanyFlags {
   final bool allowRequestsWithoutQr;
   final bool allowMultipleTasksPerQrScan;
 
+  /// Часовой пояс компании (IANA, бэкенд `71e3243`). `null` — сервер прошлой
+  /// версии.
+  final String? timezone;
+
   const CompanyFlags({
     required this.name,
     this.logoUrl,
     required this.allowRequestsWithoutQr,
     required this.allowMultipleTasksPerQrScan,
+    this.timezone,
   });
 
   /// Блок `company` из ответа `/user/me`. `null` — блока нет (сервер прошлой
@@ -79,11 +84,13 @@ class CompanyFlags {
     if (withoutQr is! bool || multipleTasks is! bool) return null;
     final name = company['name'];
     final logoUrl = company['logo_url'];
+    final timezone = company['timezone'];
     return CompanyFlags(
       name: name is String ? name : '',
       logoUrl: logoUrl is String ? logoUrl : null,
       allowRequestsWithoutQr: withoutQr,
       allowMultipleTasksPerQrScan: multipleTasks,
+      timezone: timezone is String && timezone.isNotEmpty ? timezone : null,
     );
   }
 

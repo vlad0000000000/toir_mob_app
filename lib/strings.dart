@@ -1,3 +1,4 @@
+import 'src/utils/company_time.dart';
 import 'src/utils/search_text.dart';
 
 class Strings {
@@ -328,11 +329,14 @@ class RepairStrings {
   static const String createSchedule = 'Запланировать';
   static const String createSubmitting = 'Создаём…';
 
-  /// Часовой пояс у даты начала. Время компании — МСК; если телефон в
-  /// другом поясе, показываем его реальный — иначе подпись бы врала:
-  /// мобилка показывает и отправляет время по часам телефона.
-  static String timeZone(Duration offset) {
-    if (offset == const Duration(hours: 3)) return 'МСК (UTC+3)';
+  /// Часовой пояс у даты начала — того времени, что на экране (`CompanyTime`):
+  /// [offset] и [zoneName] компании, без пояса компании — телефона. «МСК»
+  /// только у самой Москвы: тот же сдвиг бывает и у других поясов.
+  static String timeZone(Duration offset, {String? zoneName}) {
+    if (offset == const Duration(hours: 3) &&
+        (zoneName == null || zoneName == CompanyTime.moscow)) {
+      return 'МСК (UTC+3)';
+    }
     final sign = offset.isNegative ? '−' : '+';
     final abs = offset.abs();
     final hours = abs.inHours;
@@ -1047,6 +1051,29 @@ class SessionStrings {
   static const String formBanner =
       'Закончите или закройте форму — затем откроется вход. Отправленное '
       'сохранится на телефоне и уйдёт после входа.';
+}
+
+/// Пауза новых задач по оборудованию не в состоянии «В работе».
+class TaskPauseStrings {
+  TaskPauseStrings._();
+
+  static const String title = 'Новые задачи приостановлены';
+  static const String body =
+      'Пока оборудование не «В работе», новые задачи и ТО по нему не '
+      'создаются. Пропущенные плановые запуски потом не появятся. Выданные '
+      'задачи, заявки и ППР работают как обычно.';
+
+  /// Подсказка в окне выбора состояния.
+  static const String pickerHint =
+      'Новые задачи и ТО создаются только в состоянии «В работе».';
+}
+
+/// Срок выданного задания в строке задачи.
+class TaskDeadlineStrings {
+  TaskDeadlineStrings._();
+
+  static String due(String date) => 'Срок: $date';
+  static String overdue(String date) => 'Просрочено, срок $date';
 }
 
 /// Подписи к задаче в списке по её привязке к направлениям.

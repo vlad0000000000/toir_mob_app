@@ -1,5 +1,33 @@
 part of 'api.dart';
 
+/// Плановый осмотр из ответа сервера показывать обходчику.
+///
+/// Сервер с `ec225a5` присылает у осмотра блок `periodic_task.template_schedule`:
+/// выданное задание действует, пока его не выполнят, и вышедший срок его не
+/// отменяет (срок — `deadline_at`, старые показываем с пометкой «Просрочено»).
+/// Отбирать по времени на телефоне такому серверу незачем, а при отстающих
+/// часах телефона это ещё и прятало бы только что выданную задачу.
+///
+/// Сервер прошлой версии блока не присылает — для него прежнее окно времени:
+/// разовая задача видна всегда, задача без следующего запуска — после выдачи,
+/// периодическая — один период от выдачи.
+bool isCurrentScheduledTask(Map<String, dynamic> json, DateTime now) {
+  if (json['result_status'] != 'scheduled') return false;
+  final task = json['periodic_task'];
+  if (task is! Map) return false;
+  if (task.containsKey('template_schedule')) return true;
+  if (task['periodicity_rule'] == 'once') return true;
+  final lastRun = task['last_run_at'];
+  if (lastRun == null) return false;
+  final created = DateTime.parse(json['created_at'] as String);
+  if (!now.isAfter(created)) return false;
+  final nextDue = task['next_due_at'];
+  if (nextDue == null) return true;
+  final period = DateTime.parse(nextDue as String)
+      .difference(DateTime.parse(lastRun as String));
+  return now.isBefore(created.add(period));
+}
+
 extension TaskApi on API {
   /// Открытые задачи текущего обходчика — одним из двух видов назначения.
   ///
@@ -106,59 +134,15 @@ extension TaskApi on API {
     ).timeout(API._readTimeout);
 
     if (response.statusCode == 200 || response.statusCode == 201) {
-      var now = DateTime.now().toUtc();
+      final now = DateTime.now().toUtc();
       const utf8Decoder = Utf8Decoder(allowMalformed: true);
       final decodedBytes = utf8Decoder.convert(response.bodyBytes);
       final List<dynamic> data = jsonDecode(decodedBytes);
-      var scheduled = data
-          .where((json) {
-            return (json['result_status'] as String) == 'scheduled' &&
-                json['periodic_task'] != null &&
-                json['periodic_task']['next_due_at'] != null &&
-                json['periodic_task']['last_run_at'] != null;
-          })
-          .where((json) {
-            var a = (DateTime.parse(json['periodic_task']['last_run_at']));
-            var b = (DateTime.parse(json['periodic_task']['next_due_at']));
-            var len = b.difference(a);
-            var c = (DateTime.parse(json['created_at']));
-            var filteredA = now.compareTo(c);
-            var filteredB = now.compareTo(c.add(len));
-            return filteredA == 1 && filteredB == -1;
-          })
-          .map((json) => Task.fromJson(json))
-          .toList();
-
-      var once = data
-          .where((json) {
-            return (json['result_status'] as String) == 'scheduled' &&
-                json['periodic_task'] != null &&
-                json['periodic_task']['periodicity_rule'] == 'once';
-          })
-          .map((json) => Task.fromJson(json))
-          .toList();
-      for (var task in once) {
-        scheduled.add(task);
-      }
-
-      var to = data
-          .where((json) {
-            return (json['result_status'] as String) == 'scheduled' &&
-                json['periodic_task'] != null &&
-                json['periodic_task']['next_due_at'] == null &&
-                json['periodic_task']['last_run_at'] != null;
-          })
-          .where((json) {
-            var c = (DateTime.parse(json['created_at']));
-            var filteredA = now.compareTo(c);
-            return filteredA == 1;
-          })
-          .map((json) => Task.fromJson(json))
-          .toList();
-      for (var task in to) {
-        scheduled.add(task);
-      }
-
+      final scheduled = [
+        for (final json in data)
+          if (json is Map<String, dynamic> && isCurrentScheduledTask(json, now))
+            Task.fromJson(json),
+      ];
       return (tasks: scheduled, fetched: data.length);
     } else {
       throw Exception(

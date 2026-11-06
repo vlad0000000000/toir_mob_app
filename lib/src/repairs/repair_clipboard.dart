@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../../strings.dart';
 import '../model/repair.dart';
 import '../widgets/spare_part_row.dart';
+import '../utils/company_time.dart';
 
 /// Все данные ремонта одним текстом — для буфера обмена.
 ///
@@ -101,4 +102,4 @@ String _normLine(List<RepairNormItem> items) => items
 
 /// Дата в том же виде, что и на карточках ремонта.
 String formatRepairDateTime(DateTime value) =>
-    DateFormat('dd.MM.yyyy HH:mm').format(value.toLocal());
+    DateFormat('dd.MM.yyyy HH:mm').format(CompanyTime.of(value));

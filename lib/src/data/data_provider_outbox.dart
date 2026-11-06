@@ -109,6 +109,9 @@ extension DataProviderOutbox on DataProvider {
           // Фиксация тела — ожидание: сменись за него аккаунт, ремонт A
           // создался бы от имени B. Тело уже записано — повтор A совпадёт.
           if (switched()) continue;
+          // Номер — до запроса: о ремонте прав ответ запроса, начатого позже
+          // ([DataProvider.beginRepairRequest]).
+          final createSeq = beginRepairRequest();
           final repair = await api.createRepair(
             equipmentUuid: current.equipmentUuid,
             consumptionNormUuid: current.createNormUuid,
@@ -120,7 +123,11 @@ extension DataProviderOutbox on DataProvider {
             // сервер сам откроет ремонт сразу.
             schedule: current.schedule,
           );
-          await upsertRepair(repair, generation: generation);
+          await upsertRepair(
+            repair,
+            generation: generation,
+            requestSeq: createSeq,
+          );
           // Записываем uuid до загрузки снимков: если приложение убьют
           // посреди неё, следующий проход не создаст второй ремонт. И при
           // смене аккаунта тоже: черновик — запись A в общей очереди, и без
@@ -133,6 +140,16 @@ extension DataProviderOutbox on DataProvider {
           if (!pendingRepairBox.containsKey(current.localId)) continue;
           await pendingRepairBox.put(current.localId, current);
           if (switched()) continue;
+        }
+
+        // Ремонт создан, и отправлять больше нечего — черновик выполнен.
+        // Раньше ожидания начала ниже: иначе запланированный без снимков и
+        // расхода висел бы с пометкой «Не отправлено» до самой даты начала,
+        // хотя сервер его уже принял.
+        if (!current.hasWorkAfterCreate) {
+          await deletePendingRepair(current.localId);
+          sent++;
+          continue;
         }
 
         // Ремонт создан запланированным, а время ещё не пришло: снимки и
@@ -198,13 +215,18 @@ extension DataProviderOutbox on DataProvider {
         }
         // Последний шаг — с токеном того, чей черновик.
         if (switched()) continue;
+        final finishSeq = beginRepairRequest();
         final finished = await api.updateRepair(
           current.serverUuid!,
           comment: commentChanged ? current.comment : null,
           consumptions: sectionAccess.consumptionsToSend(current.consumptions),
           submitForReview: current.submitForReview,
         );
-        await upsertRepair(finished, generation: generation);
+        await upsertRepair(
+          finished,
+          generation: generation,
+          requestSeq: finishSeq,
+        );
         await deletePendingRepair(current.localId);
         sent++;
       } catch (e) {
@@ -418,9 +440,10 @@ extension DataProviderOutbox on DataProvider {
   /// Второе значение — свежий ремонт, если его удалось прочитать.
   Future<(_DeniedCheck, Repair?)> _checkDenied(String uuid) async {
     final generation = cacheGeneration;
+    final readSeq = beginRepairRequest();
     try {
       final fresh = await api.getRepair(uuid);
-      await upsertRepair(fresh, generation: generation);
+      await upsertRepair(fresh, generation: generation, requestSeq: readSeq);
       if (isStaleCacheGeneration(generation) || fresh.isScheduled) {
         return (_DeniedCheck.wait, fresh);
       }
@@ -657,13 +680,18 @@ extension DataProviderOutbox on DataProvider {
           continue;
         }
         if (switched()) continue;
+        final patchSeq = beginRepairRequest();
         final repair = await api.updateRepair(
           current.repairUuid,
           comment: current.comment,
           consumptions: sectionAccess.consumptionsToSend(current.consumptions),
           submitForReview: current.submitForReview,
         );
-        await upsertRepair(repair, generation: generation);
+        await upsertRepair(
+          repair,
+          generation: generation,
+          requestSeq: patchSeq,
+        );
         await deletePendingRepairUpdate(
           current.repairUuid,
           key: updateKeyOf(current),
@@ -758,10 +786,15 @@ extension DataProviderOutbox on DataProvider {
         // закрыл ремонт или передал его другому.
         String? serverStatus;
         var kind = RepairConflictKind.other;
+        final readSeq = beginRepairRequest();
         try {
           final fresh = await api.getRepair(current.repairUuid);
           serverStatus = fresh.status;
-          await upsertRepair(fresh, generation: generation);
+          await upsertRepair(
+            fresh,
+            generation: generation,
+            requestSeq: readSeq,
+          );
           kind = _conflictKindOf(fresh);
         } catch (readError) {
           // Доступа к ремонту больше нет — верный признак передачи другому

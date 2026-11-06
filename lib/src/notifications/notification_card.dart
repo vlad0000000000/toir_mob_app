@@ -5,6 +5,7 @@ import '../design/app_constants.dart';
 import '../design/app_theme.dart';
 import '../model/notification.dart';
 import 'notification_formatters.dart';
+import '../utils/company_time.dart';
 
 /// Карточка уведомления: тонкая вертикальная акцент-полоса слева (cтатус
 /// уведомления), компактный layout заголовок → описание → meta-чипы. Для
@@ -175,7 +176,7 @@ class NotificationCard extends StatelessWidget {
 
   String _executorOrCreated(AppNotification n) {
     final created =
-        DateFormat('dd.MM.yyyy HH:mm').format(n.createdAt.toLocal());
+        DateFormat('dd.MM.yyyy HH:mm').format(CompanyTime.of(n.createdAt));
     if (n.notificationType == NotificationTypes.summaryTask) {
       return created;
     }

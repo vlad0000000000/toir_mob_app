@@ -53,6 +53,14 @@ class InventoryRecord {
   /// Сервер прислал поле `division` ([divisionUuid] не `null`).
   bool get hasDivisionField => divisionUuid != null;
 
+  /// Оборудование в общем помещении: обычное помещение без подразделения
+  /// сервер считает доступным всем (бэкенд `65ef960`), и для обходчика оно
+  /// своё (`isMyEquipment`). Отдельным признаком, потому что `division: null`
+  /// бывает и у склада без подразделения, и у оборудования без помещения —
+  /// они общими не считаются. `false` и у записей прошлой версии: их поправит
+  /// разовая полная сверка справочника.
+  final bool sharedLocation;
+
   /// Незакрытые ремонты оборудования по статусам — по **всем** службам, без
   /// удалённых (`unfinished_repairs`, бэкенд `8a88247`; обновляется и
   /// событием `equipment_changed`). `null` — неизвестно: сервер прошлой
@@ -125,6 +133,7 @@ class InventoryRecord {
     this.unfinishedScheduled,
     this.unfinishedOpen,
     this.unfinishedUnderReview,
+    this.sharedLocation = false,
   });
 
   InventoryRecord copyWith({
@@ -147,6 +156,7 @@ class InventoryRecord {
     int? unfinishedScheduled,
     int? unfinishedOpen,
     int? unfinishedUnderReview,
+    bool? sharedLocation,
     // `state: null` значит «не менять» — снять состояние им нельзя. Снимает
     // этот флаг: событие `equipment_changed` с `state: null` после закрытия
     // последнего ремонта, когда прежнего состояния не было.
@@ -178,6 +188,7 @@ class InventoryRecord {
       unfinishedOpen: unfinishedOpen ?? this.unfinishedOpen,
       unfinishedUnderReview:
           unfinishedUnderReview ?? this.unfinishedUnderReview,
+      sharedLocation: sharedLocation ?? this.sharedLocation,
     );
   }
 
@@ -207,6 +218,16 @@ class InventoryRecord {
     if (counts is! Map) return null;
     final value = counts[status];
     return value is num ? value.toInt() : 0;
+  }
+
+  /// Элемент справочника — оборудование в общем помещении
+  /// ([sharedLocation]): поле `division` пришло пустым, а помещение есть и оно
+  /// не склад. То же условие у сервера — `Equipment.shared_location`, само
+  /// это поле в ответ не входит. Нет ключа `division` — сервер прошлой версии.
+  static bool isSharedLocation(Map<String, dynamic> json) {
+    if (!json.containsKey('division') || json['division'] != null) return false;
+    final location = json['location'];
+    return location is Map && location['location_type'] == 'standard';
   }
 
   factory InventoryRecord.fromJson(Map<String, dynamic> json) {
@@ -248,6 +269,7 @@ class InventoryRecord {
           unfinishedScheduled: unfinishedCount(json, 'scheduled'),
           unfinishedOpen: unfinishedCount(json, 'open'),
           unfinishedUnderReview: unfinishedCount(json, 'under_review'),
+          sharedLocation: isSharedLocation(json),
         ),
       _ => throw const FormatException('Failed to load InventoryRecord.'),
     };
@@ -283,6 +305,8 @@ class InventoryAdapter extends TypeAdapter<InventoryRecord> {
       unfinishedScheduled: _readTrailingInt(reader),
       unfinishedOpen: _readTrailingInt(reader),
       unfinishedUnderReview: _readTrailingInt(reader),
+      // Общее помещение — у записей до бэкенда `65ef960` признака нет.
+      sharedLocation: _readTrailingBool(reader),
     );
   }
 
@@ -334,6 +358,7 @@ class InventoryAdapter extends TypeAdapter<InventoryRecord> {
     writer.write(obj.unfinishedScheduled);
     writer.write(obj.unfinishedOpen);
     writer.write(obj.unfinishedUnderReview);
+    writer.write(obj.sharedLocation);
   }
 }
 

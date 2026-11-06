@@ -152,6 +152,15 @@ class PendingRepair implements QueueOwned {
   bool get commentChangedSinceCreate =>
       !isCreateFrozen || comment.trim() != createComment;
 
+  /// Ремонт создан — осталось ли после этого что-то отправлять: снимки, расход,
+  /// изменённый комментарий или перевод на рассмотрение. Нет — черновик
+  /// выполнен, держать его в очереди незачем.
+  bool get hasWorkAfterCreate =>
+      photoPaths.isNotEmpty ||
+      consumptions.isNotEmpty ||
+      submitForReview ||
+      commentChangedSinceCreate;
+
   /// Черновик с зафиксированным телом создания: комментарий — текущий,
   /// норма — [normUuid] (вызывающий решает, можно ли её отправить).
   PendingRepair freezeCreate({String? normUuid}) => PendingRepair(

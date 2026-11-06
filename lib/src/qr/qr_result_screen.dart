@@ -29,7 +29,9 @@ import '../utils/any_controller.dart';
 import '../utils/offline_error.dart';
 import '../utils/quantity_format.dart';
 import '../widgets/no_access.dart';
+import '../data/task_generation.dart';
 import '../widgets/session_sign_out_hold.dart';
+import '../widgets/task_pause_banner.dart';
 import '../../src/onboarding/demo_equipment.dart';
 import '../repairs/repair_unfinished.dart';
 import 'result_controls.dart';
@@ -357,6 +359,13 @@ class _QRResultScreenState extends State<QRResultScreen>
       // Запланированный черновик оборудование не держит — см.
       // [DataProvider.hasHoldingRepairDraft].
       GlobalState.dataProvider.hasHoldingRepairDraft(widget.machine.uuid);
+
+  /// Показать плашку паузы новых задач. По пилюле, а не по справочнику: так
+  /// плашка отвечает на выбор обходчика сразу, а при отказе сервера пилюля
+  /// откатится, и плашка вместе с ней.
+  bool get _isTaskGenerationPaused =>
+      GlobalState.dataProvider.taskPauseSupported &&
+      (_isLockedByRepair || isTaskGenerationPaused(stateController.value));
 
   /// Объясняет, почему состояние заблокировано. Молчаливо неактивная пилюля
   /// вернула бы ровно ту жалобу, с которой всё началось: «нажимаю — ничего
@@ -766,7 +775,33 @@ class _QRResultScreenState extends State<QRResultScreen>
         child: Column(
           spacing: 8,
           children: [
-            passport(),
+            // Плашка — в одном блоке с паспортом: когда её нет, лишнего
+            // отступа `spacing` между блоками не остаётся.
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                passport(),
+                // Обновляется сразу при смене состояния и появлении ремонта
+                // — обходчик видит последствия только что сделанного выбора.
+                ListenableBuilder(
+                  listenable: Listenable.merge([
+                    stateController.valueNotifier,
+                    dataProvider.activeRepairsCount,
+                  ]),
+                  builder: (context, _) => _isTaskGenerationPaused
+                      ? const Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            AppConstants.spacingSM,
+                            AppConstants.spacingSM,
+                            AppConstants.spacingSM,
+                            0,
+                          ),
+                          child: TaskPauseBanner(),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ],
+            ),
             // Незакрытые ремонты по оборудованию (макет 14h): кто и когда уже
             // работает. Нажатие открывает ремонт.
             if (!_unfinished.isEmpty)
@@ -1389,6 +1424,17 @@ class _StateChipState extends State<_StateChip> with ControllerListenerMixin {
                     ),
               ),
             ),
+            if (GlobalState.dataProvider.taskPauseSupported)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  TaskPauseStrings.pickerHint,
+                  style: Theme.of(ctx)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: cs.onSurfaceVariant),
+                ),
+              ),
             ListTile(
               leading: Icon(Icons.remove_circle_outline_rounded,
                   color: cs.onSurfaceVariant),

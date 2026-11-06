@@ -21,6 +21,7 @@ import '../widgets/offline_banner.dart';
 import '../widgets/session_sign_out_hold.dart';
 import 'repair_error_messages.dart';
 import 'repair_unfinished.dart';
+import '../utils/company_time.dart';
 
 /// Форма создания ремонта — по макету «Рисунок 11».
 ///
@@ -42,7 +43,9 @@ class _CreateRepairScreenState extends State<CreateRepairScreen>
   static const int _commentLimit = 2000;
 
   final _commentController = TextEditingController();
-  DateTime _startedAt = DateTime.now();
+  /// Цифры на форме — время компании ([CompanyTime]); моменты сравниваются как
+  /// обычно, а в черновик уходит обычный [DateTime] (`CompanyTime.plain`).
+  DateTime _startedAt = CompanyTime.now();
   ConsumptionNorm? _norm;
   bool _isSaving = false;
 
@@ -117,7 +120,7 @@ class _CreateRepairScreenState extends State<CreateRepairScreen>
   }
 
   Future<void> _pickDate() async {
-    final now = DateTime.now();
+    final now = CompanyTime.now();
     // Тот же календарь, что в фильтре периода карточки ЗИП, только панель
     // одна. Штатный showDatePicker не годится: без flutter_localizations он
     // английский, а поставить пакет нельзя — он ломает сборку (см. main.dart).
@@ -135,7 +138,7 @@ class _CreateRepairScreenState extends State<CreateRepairScreen>
     );
     if (picked == null || !mounted) return;
     setState(() {
-      _startedAt = DateTime(
+      _startedAt = CompanyTime.fromFields(
         picked.year,
         picked.month,
         picked.day,
@@ -162,7 +165,7 @@ class _CreateRepairScreenState extends State<CreateRepairScreen>
     setState(() {
       // Время тоже не зажимаем «не позже сейчас»: ремонт заводят и на будущее,
       // и подрезка превращала бы 09:00 завтрашнего дня в текущий момент.
-      _startedAt = DateTime(
+      _startedAt = CompanyTime.fromFields(
         _startedAt.year,
         _startedAt.month,
         _startedAt.day,
@@ -197,7 +200,7 @@ class _CreateRepairScreenState extends State<CreateRepairScreen>
     final draft = PendingRepair.create(
       equipmentUuid: widget.equipment.uuid,
       equipmentName: widget.equipment.name,
-      startedAt: _startedAt,
+      startedAt: CompanyTime.plain(_startedAt),
       consumptionNormUuid: _norm?.uuid,
       consumptionNormName: _norm?.name,
       comment: _commentController.text.trim(),
@@ -213,8 +216,10 @@ class _CreateRepairScreenState extends State<CreateRepairScreen>
       // телом. Норма здесь возможна только с правом на ЗИП: без него поле на
       // форме заперто.
     ).freezeCreate(normUuid: _norm?.uuid);
-    // Поколение кэша — до запроса, см. [DataProvider.upsertRepair].
+    // Поколение кэша и номер запроса — до запроса, см.
+    // [DataProvider.upsertRepair].
     final generation = GlobalState.dataProvider.cacheGeneration;
+    final requestSeq = GlobalState.dataProvider.beginRepairRequest();
     try {
       // Ключ идемпотентности берём у черновика с самого начала, даже когда
       // связь есть: если ответ потеряется по дороге, повтор из очереди уйдёт
@@ -228,8 +233,11 @@ class _CreateRepairScreenState extends State<CreateRepairScreen>
         idempotencyKey: draft.localId,
         schedule: draft.schedule,
       );
-      await GlobalState.dataProvider
-          .upsertRepair(repair, generation: generation);
+      await GlobalState.dataProvider.upsertRepair(
+        repair,
+        generation: generation,
+        requestSeq: requestSeq,
+      );
       if (!mounted) return;
       // Сразу открываем карточку, а не список: обходчик тут же заполняет
       // расход и отправляет. pushReplacement — форма своё отработала и в
@@ -446,7 +454,10 @@ class _CreateRepairScreenState extends State<CreateRepairScreen>
               Expanded(child: _Label(RepairStrings.labelStartedAt)),
               // Часовой пояс времени ниже — макет 14c.
               Text(
-                RepairStrings.timeZone(DateTime.now().timeZoneOffset),
+                RepairStrings.timeZone(
+                  CompanyTime.now().timeZoneOffset,
+                  zoneName: CompanyTime.zoneName,
+                ),
                 style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
               ),
             ],

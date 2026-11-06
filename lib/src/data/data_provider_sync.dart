@@ -442,14 +442,21 @@ extension DataProviderSync on DataProvider {
   /// цена этой страховки — один запрос при запуске.
   Future<void> syncMyRepairs() async {
     final generation = cacheGeneration;
+    // Номер начала прохода — как у точечного запроса
+    // ([DataProvider.beginRepairRequest]): о ремонте прав тот ответ, чей
+    // запрос начался позже. Один раз на весь проход, включая откат с дельты
+    // на полный.
+    final from = beginRepairRequest();
     final cursor = _repairsCursor;
     if (cursor != null && repairBox.isNotEmpty) {
-      return _syncMyRepairsIncremental(cursor, generation);
+      return _syncMyRepairsIncremental(cursor, generation, from);
     }
-    return _syncMyRepairsFull(generation);
+    return _syncMyRepairsFull(generation, from);
   }
 
-  Future<void> _syncMyRepairsFull(int generation) async {
+  ///
+  /// [from] — номер начала прохода, см. [syncMyRepairs].
+  Future<void> _syncMyRepairsFull(int generation, int from) async {
     _isLoading = true;
 
     try {
@@ -470,6 +477,16 @@ extension DataProviderSync on DataProvider {
           final cached = repairBox.get(uuid);
           if (cached != null && cached.isUnfinished) keep.add(uuid);
         }
+        // О них в кэше данные запроса, начатого позже прохода, — свежее его
+        // ответа. Так ремонт, который черновик создал и сразу удалился, не
+        // пропадает из кэша, а отправленный на рассмотрение не откатывается в
+        // «Открыт». Обратное тоже верно: поздний ответ карточки, запрошенной
+        // до прохода, проход перезапишет (номер у неё меньше).
+        final newer = {
+          for (final key in repairBox.keys)
+            if (_isRepairNewerThan(key as String, from)) key,
+        };
+        keep.addAll(newer);
         // Ключ — uuid, а не автоинкремент: так отдельный ремонт можно
         // обновить точечно (см. DataProvider.upsertRepair), не перекачивая
         // весь список.
@@ -477,12 +494,21 @@ extension DataProviderSync on DataProvider {
         // `withDetailsFrom` обязателен: список не отдаёт ни расхода, ни
         // комментария, ни фото, и без него запись из списка затирала бы
         // карточку, прочитанную целиком.
-        await repairBox.putAll({
+        final written = {
           for (final repair in fresh)
-            repair.uuid: repair.withDetailsFrom(repairBox.get(repair.uuid)),
-        });
+            if (!_isRepairNewerThan(repair.uuid, from))
+              repair.uuid: repair.withDetailsFrom(repairBox.get(repair.uuid)),
+        };
+        await repairBox.putAll(written);
+        for (final uuid in written.keys) {
+          _repairSeqOf[uuid] = from;
+        }
         for (final key in repairBox.keys.toList()) {
-          if (!keep.contains(key)) await repairBox.delete(key);
+          if (keep.contains(key)) continue;
+          await repairBox.delete(key);
+          // Удаление — тоже данные прохода: поздний ответ более раннего
+          // запроса ремонт не воскресит.
+          _repairSeqOf[key as String] = from;
         }
         _repairs = repairBox.values.toList();
         _refreshActiveRepairsCount();
@@ -565,6 +591,7 @@ extension DataProviderSync on DataProvider {
   Future<void> _syncMyRepairsIncremental(
     DateTime cursor,
     int generation,
+    int from,
   ) async {
     _isLoading = true;
     try {
@@ -587,7 +614,7 @@ extension DataProviderSync on DataProvider {
           // принадлежит новому обходчику. Запись полного прохода отбросит
           // его фиксация.
           if (!isStaleCacheGeneration(generation)) _repairsCursor = null;
-          return _syncMyRepairsFull(generation);
+          return _syncMyRepairsFull(generation, from);
         }
         until ??= page.syncUntil;
         changed.addAll(page.items);
@@ -598,6 +625,11 @@ extension DataProviderSync on DataProvider {
 
       await _commit(generation, 'Ремонты', () async {
         for (final repair in changed) {
+          // О нём в кэше данные запроса, начатого позже прохода, — ответ о
+          // нём устарел, см. полный проход. Удаления (`deleted`) ниже
+          // применяем всегда: это слово сервера, что ремонта больше нет.
+          if (_isRepairNewerThan(repair.uuid, from)) continue;
+          _repairSeqOf[repair.uuid] = from;
           // Незакрытые — с запланированными: раньше здесь стоял `isActive`, и
           // запланированный, приехав из окна, тут же выбрасывался из кэша.
           if (repair.isUnfinished) {
@@ -614,6 +646,9 @@ extension DataProviderSync on DataProvider {
           }
         }
         if (deleted.isNotEmpty) await repairBox.deleteAll(deleted);
+        for (final uuid in deleted) {
+          _repairSeqOf[uuid] = from;
+        }
 
         _repairs = repairBox.values.toList();
         _refreshActiveRepairsCount();
@@ -683,6 +718,7 @@ extension DataProviderSync on DataProvider {
             _company = company;
             await companyBox.put('company', company);
           }
+          await _saveCompanyTimezone(flags.timezone);
         }
         await saveAccessProfile(user.uuid, profile);
         if (profile.blockCode == null) await clearAccessBlock(user.uuid);

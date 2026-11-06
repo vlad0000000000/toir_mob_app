@@ -23,6 +23,7 @@ import '../widgets/filter_sheet.dart';
 import '../widgets/offline_banner.dart';
 import 'repair_delete_dialog.dart';
 import 'repair_status_pill.dart';
+import '../utils/company_time.dart';
 
 /// Статусы, по которым фильтруется список, — в порядке листа «Фильтры».
 /// Выбор множественный.
@@ -605,7 +606,7 @@ class _RepairTile extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     final started =
-        DateFormat('dd.MM HH:mm').format(repair.startedAt.toLocal());
+        DateFormat('dd.MM HH:mm').format(CompanyTime.of(repair.startedAt));
     final isFree = repair.isUnassigned && repair.isOpen;
     // Источника у пометки два — неотправленная правка и неотправленный
     // черновик, — а выглядит она одинаково: обходчику важно, что данные ещё
@@ -849,7 +850,7 @@ class _DraftTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    final date = DateFormat('dd.MM HH:mm').format(draft.startedAt.toLocal());
+    final date = DateFormat('dd.MM HH:mm').format(CompanyTime.of(draft.startedAt));
     // Запланированный черновик ничем не отличался от обычного — что ремонт
     // начнётся позже, было видно только в карточке.
     final started = draft.isScheduledAt(DateTime.now())

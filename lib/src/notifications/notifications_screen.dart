@@ -425,9 +425,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       if (pt.periodicityRuleDisplay.isNotEmpty) {
         widgets.add(_kv('Периодичность', pt.periodicityRuleDisplay));
       }
-      if (pt.nextDueAt != null) {
-        widgets.add(
-            _kv('Срок', NotificationFormatters.formatDateTime(pt.nextDueAt!)));
+      // Срок самого задания. `nextDueAt` у выданного задания сервер теперь
+      // обнуляет (бэкенд `ec225a5`) — он только для сервера прошлой версии.
+      final due = task.deadlineAt ?? pt.nextDueAt;
+      if (due != null) {
+        widgets.add(_kv('Срок', NotificationFormatters.formatDateTime(due)));
       }
       if (pt.node != null && pt.node!.isNotEmpty) {
         widgets.add(_kv('Узел', pt.node!));

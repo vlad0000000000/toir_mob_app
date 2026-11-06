@@ -11,6 +11,7 @@ InventoryRecord _equipment({
   String? locationUuid,
   String location = 'Цех №1',
   String? divisionUuid,
+  bool sharedLocation = false,
 }) =>
     InventoryRecord(
       id: 1,
@@ -21,6 +22,7 @@ InventoryRecord _equipment({
       location: location,
       locationUuid: locationUuid,
       divisionUuid: divisionUuid,
+      sharedLocation: sharedLocation,
     );
 
 AccessProfile _profile({bool allDivisions = false}) => AccessProfile(
@@ -159,6 +161,131 @@ void main() {
           isTrue,
         );
       });
+    });
+
+    group('общее помещение (бэкенд 65ef960)', () {
+      test('без подразделения, но общее — моё', () {
+        expect(
+          my(_equipment(
+            locationUuid: 'loc-9',
+            divisionUuid: '',
+            sharedLocation: true,
+          )),
+          isTrue,
+        );
+      });
+
+      test('помещения не нужны: признак решает сам', () {
+        expect(
+          my(_equipment(divisionUuid: '', sharedLocation: true),
+              locations: const {}),
+          isTrue,
+        );
+      });
+
+      test('без признака division: null остаётся не моим', () {
+        expect(
+            my(_equipment(locationUuid: 'loc-9', divisionUuid: '')), isFalse);
+      });
+    });
+  });
+
+  group('признак общего помещения из ответа', () {
+    bool shared(Map<String, dynamic> extra) => InventoryRecord.fromJson({
+          'id': 1,
+          'uuid': 'eq-1',
+          'name': 'Станок',
+          'type_model': null,
+          'serial_number': null,
+          ...extra,
+        }).sharedLocation;
+
+    Map<String, dynamic> room(String type) =>
+        {'uuid': 'loc-1', 'name': 'Цех', 'location_type': type};
+
+    test('обычное помещение без подразделения — общее', () {
+      expect(shared({'division': null, 'location': room('standard')}), isTrue);
+    });
+
+    test('склад без подразделения — не общее', () {
+      expect(
+          shared({'division': null, 'location': room('warehouse')}), isFalse);
+    });
+
+    test('без помещения — не общее', () {
+      expect(shared({'division': null, 'location': null}), isFalse);
+      expect(shared({'division': null}), isFalse);
+    });
+
+    test('подразделение есть — не общее', () {
+      expect(
+        shared({
+          'division': {'uuid': 'div-1', 'name': 'Производство'},
+          'location': room('standard'),
+        }),
+        isFalse,
+      );
+    });
+
+    test('сервер прошлой версии: ключа division нет — не общее', () {
+      expect(shared({'location': room('standard')}), isFalse);
+    });
+
+    test('неизвестный тип помещения — не общее', () {
+      expect(shared({'division': null, 'location': room('other')}), isFalse);
+      expect(
+        shared({
+          'division': null,
+          'location': {'uuid': 'loc-1', 'name': 'Цех'},
+        }),
+        isFalse,
+      );
+    });
+  });
+
+  group('признак общего помещения в кэше', () {
+    late Directory dir;
+
+    setUp(() async {
+      dir = await Directory.systemTemp.createTemp('shared_location');
+      Hive.init(dir.path);
+    });
+
+    tearDown(() async {
+      await Hive.close();
+      Hive.resetAdapters();
+      await dir.delete(recursive: true);
+    });
+
+    test('переживает запись и чтение', () async {
+      Hive.registerAdapter(InventoryAdapter(), override: true);
+      final box = await Hive.openBox<InventoryRecord>('inventory');
+      await box.put('a', _equipment(divisionUuid: '', sharedLocation: true));
+      await box.close();
+
+      final reopened = await Hive.openBox<InventoryRecord>('inventory');
+
+      expect(reopened.get('a')!.sharedLocation, isTrue);
+    });
+
+    test('запись прошлой версии читается без признака', () async {
+      Hive.registerAdapter(_LocationOnlyInventoryAdapter(), override: true);
+      final legacy = await Hive.openBox<InventoryRecord>('inventory');
+      await legacy.put('a', _equipment(locationUuid: 'loc-1'));
+      await legacy.close();
+
+      Hive.registerAdapter(InventoryAdapter(), override: true);
+      final stored =
+          (await Hive.openBox<InventoryRecord>('inventory')).get('a')!;
+
+      expect(stored.locationUuid, 'loc-1');
+      expect(stored.sharedLocation, isFalse);
+    });
+
+    test('копия записи признак не теряет', () {
+      final record = _equipment(divisionUuid: '', sharedLocation: true);
+
+      expect(record.copyWith(state: 'in_repair').sharedLocation, isTrue);
     });
   });
 

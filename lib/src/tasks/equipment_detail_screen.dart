@@ -11,9 +11,11 @@ import '../design/app_theme.dart';
 import '../utils/search_text.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/filter_sheet.dart';
+import '../widgets/task_pause_banner.dart';
 import 'task_models.dart';
 import 'equipment_detail_controller.dart';
 import 'periodic_task_card.dart';
+import 'task_deadline.dart';
 
 /// Имя группы ППР. Осмотры периодических задач, входящих в актуальный ППР,
 /// собираются под ним и показываются в самом верху списка.
@@ -265,7 +267,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     }
     List<Checklist> checklists = [];
     for (var periodName in byPeriod.keys) {
-      checklists.add(Checklist(periodName, byPeriod[periodName]!));
+      checklists.add(Checklist(
+        periodName,
+        byPeriod[periodName]!..sort(compareTasksByDeadline),
+      ));
     }
     checklists.sort((a, b) {
       final byOrder = _periodOrder(a.period).compareTo(_periodOrder(b.period));
@@ -438,6 +443,18 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             textAlign: TextAlign.center,
           ),
         ),
+        // В окне выбора задачи плашка не нужна: она есть на экране скана под ним.
+        if (!widget.isModal &&
+            GlobalState.dataProvider.isTaskGenerationPausedFor(widget.machine))
+          const Padding(
+            padding: EdgeInsets.fromLTRB(
+              AppConstants.spacingMD,
+              0,
+              AppConstants.spacingMD,
+              AppConstants.spacingSM,
+            ),
+            child: TaskPauseBanner(),
+          ),
         if (_isSelectionMode && widget.isModal && !_hintHidden)
           _buildSelectionHint(
             context,
@@ -518,6 +535,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
           ),
         ],
+        TaskDeadlineLine(task: task),
         // Задача и так в группе «На доработку», а причина — в карточке по
         // кнопке «i». Строкой она остаётся, только если карточки нет: у
         // задачи без периодической задачи кнопки «i» не бывает.

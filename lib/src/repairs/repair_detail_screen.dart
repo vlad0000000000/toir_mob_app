@@ -33,6 +33,7 @@ import 'repair_clipboard.dart';
 import 'repair_error_messages.dart';
 import 'repair_status_pill.dart';
 import 'spare_part_picker_sheet.dart';
+import '../utils/company_time.dart';
 
 /// Карточка ремонта — основной рабочий экран обходчика.
 ///
@@ -377,6 +378,7 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
     setState(() => _isSaving = true);
     // Поколение кэша — до запроса, см. [DataProvider.upsertRepair].
     final generation = GlobalState.dataProvider.cacheGeneration;
+    final requestSeq = GlobalState.dataProvider.beginRepairRequest();
     try {
       final updated = await API().updateRepair(
         repair.uuid,
@@ -385,8 +387,11 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
             .consumptionsToSend(_consumptions),
         submitForReview: submitForReview,
       );
-      await GlobalState.dataProvider
-          .upsertRepair(updated, generation: generation);
+      await GlobalState.dataProvider.upsertRepair(
+        updated,
+        generation: generation,
+        requestSeq: requestSeq,
+      );
       // Поля уехали — но снимки уходят отдельными запросами, и их очередь
       // может быть ещё не разобрана. Удалить запись целиком значило бы стереть
       // файлы кадров, которые сервер ни разу не видел: `deletePendingRepairUpdate`
@@ -532,10 +537,14 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
     }
     setState(() => _isClaiming = true);
     final generation = GlobalState.dataProvider.cacheGeneration;
+    final requestSeq = GlobalState.dataProvider.beginRepairRequest();
     try {
       final updated = await API().claimRepair(repair.uuid, userUuid);
-      await GlobalState.dataProvider
-          .upsertRepair(updated, generation: generation);
+      await GlobalState.dataProvider.upsertRepair(
+        updated,
+        generation: generation,
+        requestSeq: requestSeq,
+      );
       if (!mounted) return;
       setState(() {
         _applyRepair(updated);
@@ -859,9 +868,13 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
     final comment = _commentController.text;
     final consumptions = _consumptions;
     final generation = GlobalState.dataProvider.cacheGeneration;
+    final requestSeq = GlobalState.dataProvider.beginRepairRequest();
     final updated = await API().getRepair(widget.repairUuid);
-    await GlobalState.dataProvider
-        .upsertRepair(updated, generation: generation);
+    await GlobalState.dataProvider.upsertRepair(
+      updated,
+      generation: generation,
+      requestSeq: requestSeq,
+    );
     if (!mounted) return;
     setState(() {
       _repair = updated;
@@ -1402,7 +1415,7 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
                 ? RepairCardStrings.scheduledBusyByOther
                 : RepairCardStrings.scheduledOn(
                     DateFormat('dd.MM.yyyy HH:mm')
-                        .format(repair.startedAt.toLocal()),
+                        .format(CompanyTime.of(repair.startedAt)),
                   ),
           ),
         ],
@@ -1652,7 +1665,7 @@ class _DetailsGrid extends StatelessWidget {
   const _DetailsGrid({required this.repair});
 
   static String _formatDate(DateTime value) =>
-      DateFormat('dd.MM.yyyy HH:mm').format(value.toLocal());
+      DateFormat('dd.MM.yyyy HH:mm').format(CompanyTime.of(value));
 
   @override
   Widget build(BuildContext context) {
@@ -1746,7 +1759,7 @@ class _LockedStartDate extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    final start = repair.startedAt.toLocal();
+    final start = CompanyTime.of(repair.startedAt);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -1754,7 +1767,10 @@ class _LockedStartDate extends StatelessWidget {
         _SectionLabel(
           RepairCardStrings.labelStartedAt,
           trailing: Text(
-            RepairStrings.timeZone(DateTime.now().timeZoneOffset),
+            RepairStrings.timeZone(
+              CompanyTime.now().timeZoneOffset,
+              zoneName: CompanyTime.zoneName,
+            ),
             style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
           ),
         ),

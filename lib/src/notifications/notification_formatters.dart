@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../../global_state.dart';
 import '../design/app_theme.dart';
 import '../model/notification.dart';
+import '../utils/company_time.dart';
 
 /// Чистые форматтеры/стили уведомлений. Вынесены из `_NotificationsScreenState`,
 /// чтобы и экран, и `NotificationCard` использовали их без cross-class доступа
@@ -58,7 +59,7 @@ class NotificationFormatters {
   }
 
   static String formatDateTime(DateTime utc) {
-    final local = utc.toLocal();
+    final local = CompanyTime.of(utc);
     return DateFormat('dd.MM.yyyy HH:mm').format(local);
   }
 

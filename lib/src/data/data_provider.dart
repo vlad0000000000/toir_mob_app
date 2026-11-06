@@ -31,6 +31,7 @@ import '../../src/model/consumption_norm.dart';
 import '../../src/model/ppr.dart';
 import '../model/queue_owned.dart';
 import '../model/usage_update.dart';
+import '../utils/company_time.dart';
 import '../exceptions/app_exceptions.dart';
 import '../../strings.dart';
 import '../feature_flags.dart';
@@ -48,6 +49,7 @@ import 'sync_report.dart';
 import 'sync_schedule.dart';
 import 'subscription_blocks.dart';
 import 'sync_window.dart';
+import 'task_generation.dart';
 import 'task_visibility.dart';
 import 'usage_order.dart';
 
@@ -808,8 +810,9 @@ class DataProvider {
     // сразу; её поздний конец индикатор нового прохода не тронет.
     _manualSync.forget();
     manualSyncRunning.value = false;
-    // Отметки событий оборудования — прошлого аккаунта.
+    // Отметки событий оборудования и записей ремонтов — прошлого аккаунта.
     _equipmentEventSeqOf.clear();
+    _repairSeqOf.clear();
     // Сама очистка — в той же очереди, что и записи синхронизации. Запись,
     // которая уже идёт, доделается, и очистка сотрёт её результат; всё, что
     // встанет следом, увидит новое поколение и писать не станет. Без очереди
@@ -860,7 +863,10 @@ class DataProvider {
       // Помещения подразделений — того, кто вошёл: чужие сделали бы «своим»
       // не то оборудование.
       _myLocationsKey,
+      // Пояс — компании прошлого аккаунта или сервера.
+      _companyTimezoneKey,
     ]);
+    CompanyTime.configure(null);
     // Ключи с переменной частью — отметки закрытых задач и ожидания
     // наработки по ТО. Их имена содержат uuid, списком не перечислить.
     //
@@ -1217,6 +1223,43 @@ class DataProvider {
   void noteServerFeatures(User me) {
     if (returnsSupported == false) return;
     returnsSupported = me.companyFlags != null;
+  }
+
+  static const String _companyTimezoneKey = 'company_timezone';
+
+  /// Часовой пояс компании из `/user/me`. В `stringBox`: нужен и без сети.
+  /// `null` — не знаем: ещё не было синхронизации или сервер прошлой версии.
+  String? get companyTimezone => stringBox.get(_companyTimezoneKey);
+
+  Future<void> _saveCompanyTimezone(String? timezone) async {
+    CompanyTime.configure(timezone);
+    if (timezone == null) {
+      await stringBox.delete(_companyTimezoneKey);
+    } else {
+      await stringBox.put(_companyTimezoneKey, timezone);
+    }
+  }
+
+  /// Сервер не создаёт задачи вне состояния «В работе» (бэкенд `5e60312`).
+  /// Отдельного признака нет: пояс компании появился в той же выкладке, и у
+  /// сервера прошлой версии паузы нет — обещать её было бы неправдой.
+  bool get taskPauseSupported => companyTimezone != null;
+
+  /// Плашка паузы на экране оборудования [machine]: сервер паузу умеет и
+  /// оборудование не «В работе». Состояние — из справочника, он новее
+  /// переданной записи; ремонт и черновик держат оборудование, даже если
+  /// справочник об этом ещё не знает ([isEquipmentHeldByRepair]).
+  bool isTaskGenerationPausedFor(InventoryRecord machine) {
+    if (!taskPauseSupported) return false;
+    if (isEquipmentHeldByRepair(machine.uuid)) return true;
+    var state = machine.state;
+    for (final record in _inventoryRecords) {
+      if (record.uuid == machine.uuid) {
+        state = record.state;
+        break;
+      }
+    }
+    return isTaskGenerationPaused(state);
   }
 
   /// Порядок ответов `/user/me` в [syncAccessProfile]: запоздалый ответ
@@ -1792,17 +1835,27 @@ class DataProvider {
     };
   }
 
+  /// Момент последней синхронизации — миллисекундами, а не готовой строкой:
+  /// показывается он по поясу компании ([getLastSyncDate]), а пояс может
+  /// прийти и позже самой синхронизации.
   saveLastSyncDate() async {
-    final dateFormat = DateFormat('dd-MM-yyyy HH:mm:ss');
-    await stringBox.put('last_sync_date', dateFormat.format(DateTime.now()));
+    await stringBox.put(
+      'last_sync_date',
+      DateTime.now().millisecondsSinceEpoch.toString(),
+    );
   }
 
+  /// Время последней синхронизации для «Сервиса» — по поясу компании, как и
+  /// всё остальное время в приложении. Строка прошлой версии (уже готовая, по
+  /// часам телефона) — как есть, до следующей синхронизации.
   String getLastSyncDate() {
-    var date = stringBox.get('last_sync_date');
-    if (date == null) {
-      return '';
-    }
-    return date;
+    final date = stringBox.get('last_sync_date');
+    if (date == null) return '';
+    final ms = int.tryParse(date);
+    if (ms == null) return date;
+    return DateFormat('dd-MM-yyyy HH:mm:ss').format(
+      CompanyTime.of(DateTime.fromMillisecondsSinceEpoch(ms)),
+    );
   }
 
   /// Отдельная отметка времени для справочника ЗИП. Нужна, чтобы экран мог
@@ -1941,11 +1994,12 @@ class DataProvider {
   /// сверки фильтр «Моё оборудование» до трёх суток считал бы их по-старому.
   /// Сервер `06b145f` и сам просит полную сверку (`resync_required` после
   /// смены версии каталога доступа), но только если приложение обновили
-  /// раньше сервера. Ключ сменили вместе с форматом (был
-  /// `equipment_location_uuid_v1`) — поэтому справочник перечитается один
-  /// раз и у тех, кто уже прошёл прошлую сверку.
-  /// К аккаунту не относится: это формат хранения, а не данные.
-  static const String _equipmentFormatKey = 'equipment_division_uuid_v1';
+  /// раньше сервера. Ключ меняем вместе с форматом (были
+  /// `equipment_location_uuid_v1`, `equipment_division_uuid_v1`; последняя
+  /// смена — признак общего помещения, [InventoryRecord.sharedLocation]) —
+  /// поэтому справочник перечитается один раз и у тех, кто уже прошёл прошлую
+  /// сверку. К аккаунту не относится: это формат хранения, а не данные.
+  static const String _equipmentFormatKey = 'equipment_shared_location_v1';
 
   bool get isEquipmentFullResyncDue =>
       _isFullResyncDue(_equipmentFullSyncKey) ||
@@ -2076,9 +2130,10 @@ class DataProvider {
   ///
   /// `null` — справочник ни разу не выгружали.
   String? sparePartsFreshness() {
-    final at = getSparePartsSyncAt()?.toLocal();
-    if (at == null) return null;
-    final now = DateTime.now();
+    final syncedAt = getSparePartsSyncAt();
+    if (syncedAt == null) return null;
+    final at = CompanyTime.of(syncedAt);
+    final now = CompanyTime.now();
     final minutes = now.difference(at).inMinutes;
     if (minutes < 1) return SparePartStrings.freshnessJustNow;
     if (minutes < 60) return SparePartStrings.freshnessMinutes(minutes);
@@ -2157,21 +2212,62 @@ class DataProvider {
   /// запоминает поколение до запроса, и если за время запроса вошёл другой
   /// обходчик, чужой ремонт в его кэш не попадёт. Без него — запись сразу, как
   /// раньше (очередь отправки).
-  Future<void> upsertRepair(Repair repair, {int? generation}) async {
-    if (generation == null) return _writeRepair(repair);
-    await _commit(generation, 'Ремонт', () => _writeRepair(repair));
+  ///
+  /// [requestSeq] — номер, взятый [beginRepairRequest] **до** запроса, ответ
+  /// которого записываем: из двух ответов о ремонте прав тот, чей запрос
+  /// начался позже ([_writeRepair]). Без него — номер «сейчас», запись как
+  /// самая свежая.
+  Future<void> upsertRepair(
+    Repair repair, {
+    int? generation,
+    int? requestSeq,
+  }) async {
+    final seq = requestSeq ?? beginRepairRequest();
+    if (generation == null) return _writeRepair(repair, seq);
+    await _commit(generation, 'Ремонт', () => _writeRepair(repair, seq));
   }
 
-  Future<void> _writeRepair(Repair repair) async {
+  /// Пишет [repair] в кэш — если в кэше о нём не данные запроса, начатого
+  /// позже [seq].
+  ///
+  /// Номер — момент **начала** запроса, а не записи: поздний ответ карточки,
+  /// запрошенной до начала синхронизации, старше её ответа, даже если лёг
+  /// позже. По моменту записи он считался бы свежим, проход пропустил бы
+  /// верный статус, а сдвинутый курсор уже не вернул бы его до полного
+  /// прохода. Свежести ответа от сервера не взять: `updated_at` у ремонта нет.
+  Future<void> _writeRepair(Repair repair, int seq) async {
+    if (_isRepairNewerThan(repair.uuid, seq)) return;
     // Кэш держит незакрытые — с запланированными, см. [Repair.isUnfinished].
     if (repair.isUnfinished) {
       await repairBox.put(repair.uuid, repair);
     } else {
       await repairBox.delete(repair.uuid);
     }
+    _repairSeqOf[repair.uuid] = seq;
     _repairs = repairBox.values.toList();
     _refreshActiveRepairsCount();
   }
+
+  /// Счётчик начала запросов, чьи ответы ложатся в кэш ремонтов: точечных
+  /// (создание, правка, карточка) и проходов синхронизации.
+  int _repairRequestSeq = 0;
+
+  /// Номер для запроса, ответ которого ляжет в кэш ремонтов, — брать **до**
+  /// отправки, там же, где поколение кэша.
+  int beginRepairRequest() => ++_repairRequestSeq;
+
+  /// Ремонт → номер запроса, чьи данные о нём сейчас в кэше (или чьё
+  /// удаление). Ремонтов у обходчика единицы — таблица живёт до смены
+  /// аккаунта: чистить её по окончании проходов нельзя, иначе поздний ответ
+  /// старого запроса снова прошёл бы.
+  final Map<String, int> _repairSeqOf = {};
+
+  /// О ремонте [uuid] в кэше данные запроса, начатого позже [seq]: ответ с
+  /// номером [seq] о нём устарел — ни писать, ни удалять. Например, черновик
+  /// создал ремонт после начала полной выгрузки и сразу удалился, а выгрузка
+  /// о ремонте не знает.
+  bool _isRepairNewerThan(String uuid, int seq) =>
+      (_repairSeqOf[uuid] ?? 0) > seq;
 
   void updateInventoryRecords() async {
     _inventoryRecords = inventoryBox.values.toList();
