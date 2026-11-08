@@ -65,6 +65,39 @@ extension AuthApi on API {
     }
   }
 
+  /// Обменивает [refreshToken] на новую пару токенов (`POST /v1/auth/refresh`).
+  ///
+  /// `null` — окончательный отказ сервера: 401 «Invalid refresh token» (токен
+  /// не подходит), 401 `user_inactive` (учётка отключена), прочие 4xx.
+  /// Временный сбой — исключение: обрыв, таймаут, 5xx, 408, 429, неразборчивый
+  /// ответ;
+  /// [TokenRefresher] тогда сохраняет сессию (`RefreshUnavailable`). Сам этот
+  /// запрос обмен не запускает (`shouldRefreshOn401`).
+  Future<TokenPair?> refreshTokens(String refreshToken) async {
+    _guardOffline();
+    final response = await _client
+        .post(
+          Uri.parse('${API.baseUrl}/v1/auth/refresh'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'refresh_token': refreshToken}),
+        )
+        .timeout(API._readTimeout);
+    final code = response.statusCode;
+    // 408 и 429 — «попробуйте позже», а не отказ в токене.
+    if (code >= 400 && code < 500 && code != 408 && code != 429) return null;
+    if (code != 200) throw Exception('Refresh failed: $code');
+    final data = jsonDecode(utf8.decode(response.bodyBytes));
+    final access = data is Map ? data['access_token'] : null;
+    final refresh = data is Map ? data['refresh_token'] : null;
+    if (access is! String || access.isEmpty) {
+      throw const FormatException('Refresh response without access_token');
+    }
+    if (refresh is! String || refresh.isEmpty) {
+      throw const FormatException('Refresh response without refresh_token');
+    }
+    return TokenPair(access: access, refresh: refresh);
+  }
+
   Future<User> login(String username, String password) async {
     try {
       _guardOffline();
@@ -94,6 +127,7 @@ extension AuthApi on API {
         User user = User(role: responseData['role'], username: username);
         user.password = password;
         user.JWTToken = responseData['access_token'];
+        user.refreshToken = responseData['refresh_token'] as String?;
         return user;
       } else if (response.statusCode == 401 || response.statusCode == 403) {
         throw InvalidCredentialsException();

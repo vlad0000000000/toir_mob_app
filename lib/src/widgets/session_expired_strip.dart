@@ -31,33 +31,27 @@ class SessionExpiredStrip extends StatelessWidget {
               horizontal: AppConstants.spacingMD,
               vertical: AppConstants.spacingSM,
             ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.lock_clock_rounded, size: 20, color: cs.error),
-                const SizedBox(width: AppConstants.spacingSM),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        SessionStrings.title,
-                        style: tt.bodyMedium?.copyWith(
-                          color: cs.onErrorContainer,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        SessionStrings.formBanner,
-                        style:
-                            tt.bodySmall?.copyWith(color: cs.onErrorContainer),
-                      ),
-                    ],
+            // Без значка, текст во всю ширину — как у всех плашек-подсказок.
+            child: SizedBox(
+              width: double.infinity,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    SessionStrings.title,
+                    style: tt.bodyMedium?.copyWith(
+                      color: cs.onErrorContainer,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 2),
+                  Text(
+                    SessionStrings.formBanner,
+                    style: tt.bodySmall?.copyWith(color: cs.onErrorContainer),
+                  ),
+                ],
+              ),
             ),
           ),
         );

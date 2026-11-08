@@ -769,47 +769,39 @@ class _AuthExpiredBanner extends StatelessWidget {
             color: cs.errorContainer,
             borderRadius: BorderRadius.circular(AppConstants.radiusMD),
           ),
-          child: Row(
+          // Без значка, текст во всю ширину — как у всех плашек-подсказок.
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.lock_clock_rounded, size: 20, color: cs.error),
-              const SizedBox(width: AppConstants.spacingSM),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      RepairStrings.authExpiredTitle,
-                      style: tt.bodyMedium?.copyWith(
-                        color: cs.onErrorContainer,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      RepairStrings.authExpiredBody,
-                      style: tt.bodySmall?.copyWith(color: cs.onErrorContainer),
-                    ),
-                    const SizedBox(height: AppConstants.spacingSM),
-                    FilledButton(
-                      onPressed: () async {
-                        // Сохранённого пользователя снимаем сами: пока он в
-                        // хранилище, редирект в main.dart считает вход
-                        // выполненным и с '/login' уводит обратно. Через общий
-                        // выход: раньше здесь снимался только пользователь, а
-                        // уведомления, их недошедшие отметки, push-сервис и
-                        // запомненные фильтры оставались от прошлой сессии.
-                        // Пользователь снимается синхронно, остановку
-                        // push-сервиса ждём уже после перехода.
-                        final stopping = signOut();
-                        GoRouter.of(context).go('/login');
-                        await stopping;
-                      },
-                      child: const Text(RepairStrings.authExpiredAction),
-                    ),
-                  ],
+              Text(
+                RepairStrings.authExpiredTitle,
+                style: tt.bodyMedium?.copyWith(
+                  color: cs.onErrorContainer,
+                  fontWeight: FontWeight.w600,
                 ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                RepairStrings.authExpiredBody,
+                style: tt.bodySmall?.copyWith(color: cs.onErrorContainer),
+              ),
+              const SizedBox(height: AppConstants.spacingSM),
+              FilledButton(
+                onPressed: () async {
+                  // Сохранённого пользователя снимаем сами: пока он в
+                  // хранилище, редирект в main.dart считает вход
+                  // выполненным и с '/login' уводит обратно. Через общий
+                  // выход: раньше здесь снимался только пользователь, а
+                  // уведомления, их недошедшие отметки, push-сервис и
+                  // запомненные фильтры оставались от прошлой сессии.
+                  // Пользователь снимается синхронно, остановку
+                  // push-сервиса ждём уже после перехода.
+                  final stopping = signOut();
+                  GoRouter.of(context).go('/login');
+                  await stopping;
+                },
+                child: const Text(RepairStrings.authExpiredAction),
               ),
             ],
           ),

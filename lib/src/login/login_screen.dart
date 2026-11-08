@@ -145,15 +145,19 @@ class _LoginScreenState extends State<LoginScreen> {
           // продолжать вход (push-сервис, переход на главную) нельзя:
           // запустили бы сервис без пользователя. Причину покажет слушатель
           // блокировки этого же экрана.
+          //
+          // По номеру сессии, а не по токену: обмен refresh_token во время
+          // синхронизации меняет токен, не меняя сессию (`TokenRefresher`).
+          final session = dataProvider.accessSession;
           bool sessionAlive() =>
-              GlobalState.authUser?.JWTToken == currentUser.JWTToken;
+              GlobalState.isAuthorized && dataProvider.accessSession == session;
           await dataProvider.mainSync();
           if (!sessionAlive()) return;
           await dataProvider.syncCompany();
           if (!sessionAlive()) return;
           await GlobalState.updateDebug();
           NotificationsService.instance.bootstrap();
-          await PushNotificationsController.instance.start();
+          await PushNotificationsController.instance.start(askPermission: true);
           if (!mounted) return;
           if (!Settings.onboardingCompleted) {
             GoRouter.of(context).clearStackAndNavigate("/onboarding");

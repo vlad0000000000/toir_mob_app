@@ -15,6 +15,7 @@ import '../http/api.dart';
 import '../model/notification.dart';
 import '../model/notification_settings.dart';
 import '../utils/offline_error.dart';
+import 'pending_reads.dart';
 import 'push/push_notifications_controller.dart';
 import 'sse_line_parser.dart';
 
@@ -289,20 +290,20 @@ class NotificationsService {
   /// Раньше неудачная отметка просто терялась: карточка оставалась «Новой»
   /// и после повторного открытия, хотя обходчик её уже прочитал.
   ///
-  /// Дублируется на диск ([_persistPendingReads]) под логином пользователя:
-  /// закрой обходчик приложение до появления связи — отметки пропали бы.
-  /// После выхода очередь в памяти очищается, а на диске остаётся и
-  /// вернётся, когда войдёт тот же пользователь ([_restorePendingReads]).
+  /// Дублируется на диск ([_persistPendingReads]) под логином и сервером
+  /// ([pendingReadKey]): закрой обходчик приложение до появления связи —
+  /// отметки пропали бы. После выхода очередь в памяти очищается, а на диске
+  /// остаётся и вернётся, когда тот же пользователь войдёт на тот же сервер
+  /// ([_restorePendingReads]).
   final Set<String> _pendingRead = <String>{};
 
-  static const String _pendingReadKeyPrefix = 'notifications_pending_read:';
-
-  /// Ключ очереди отметок текущего пользователя. `null` — никто не вошёл.
+  /// Ключ очереди отметок текущего пользователя на текущем сервере
+  /// ([pendingReadKey]). `null` — никто не вошёл.
   String? get _pendingReadKey {
     final login = GlobalState.authUser?.username;
     return login == null || login.isEmpty
         ? null
-        : '$_pendingReadKeyPrefix$login';
+        : pendingReadKey(login, API.baseUrl);
   }
 
   /// Поднимает с диска недошедшие отметки текущего пользователя. Они же —

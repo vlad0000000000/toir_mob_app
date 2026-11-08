@@ -28,6 +28,22 @@ bool pushServiceNeedsRestart({
     (savedUrl ?? '').trim() != currentUrl.trim() ||
     (savedJwt ?? '').trim() != currentJwt.trim();
 
+/// Показывать ли системный запрос разрешения на уведомления.
+///
+/// Только по действию пользователя ([askPermission]: вход, переключатель и
+/// перезапуск в настройках) и только если разрешения ещё нет. Автоматические
+/// запуски ([PushNotificationsController.ensureRunning], watchdog) его лишь
+/// проверяют. Запрос из них зацикливался: системное окно переводит
+/// приложение в `inactive`, после ответа оно снова `resumed`, и
+/// `ensureRunning` спрашивал опять. Сканер на каждом круге гасил и поднимал
+/// камеру, превью мигало (отчёт тестирования ремонтов, п. 1.2). На Android 14
+/// после второго отказа окно уже не показывается, но цикл шёл дальше.
+bool shouldRequestNotificationPermission({
+  required NotificationPermission current,
+  required bool askPermission,
+}) =>
+    askPermission && current != NotificationPermission.granted;
+
 class PushNotificationsController {
   PushNotificationsController._();
 
@@ -107,9 +123,15 @@ class PushNotificationsController {
   /// В очереди с [stop] — см. [_lifecycle]. Проверки авторизации и токена
   /// выполняются уже в свой черёд, а не в момент вызова: к тому времени
   /// пользователь мог смениться.
-  Future<bool> start() => _serialized(_start);
+  ///
+  /// [askPermission] — показать запрос разрешения на уведомления, если его
+  /// нет. Только для вызовов по действию пользователя, см.
+  /// [shouldRequestNotificationPermission]. Без разрешения и без запроса
+  /// сервис не запускается.
+  Future<bool> start({bool askPermission = false}) =>
+      _serialized(() => _start(askPermission: askPermission));
 
-  Future<bool> _start() async {
+  Future<bool> _start({required bool askPermission}) async {
     if (kIsWeb || !Platform.isAndroid) return false;
     if (!GlobalState.isAuthorized) return false;
     // Пользователь мог отключить пуши в настройках — уважаем это.
@@ -137,8 +159,16 @@ class PushNotificationsController {
     // на Android 13+. Без него сервис стартует, но persistent-уведомление
     // не показывается и систем может прибить сервис.
     final notifPerm = await FlutterForegroundTask.checkNotificationPermission();
-    debugPrint('[Push] notification permission before request: $notifPerm');
+    debugPrint('[Push] notification permission: $notifPerm');
     if (notifPerm != NotificationPermission.granted) {
+      if (!shouldRequestNotificationPermission(
+        current: notifPerm,
+        askPermission: askPermission,
+      )) {
+        debugPrint('[Push] start skipped: no notification permission, '
+            'automatic start does not ask');
+        return false;
+      }
       final newPerm =
           await FlutterForegroundTask.requestNotificationPermission();
       debugPrint('[Push] notification permission after request: $newPerm');
@@ -183,6 +213,11 @@ class PushNotificationsController {
   /// Проверяет, что foreground-сервис жив, и поднимает его при необходимости.
   /// Безопасно вызывать на каждом resume — если сервис работает,
   /// никаких действий не делается.
+  ///
+  /// Разрешение на уведомления не запрашивает, только проверяет. Выданное
+  /// в настройках системы подхватится при возврате в приложение, а запрет
+  /// не превращается в бесконечный цикл запросов
+  /// ([shouldRequestNotificationPermission]).
   Future<void> ensureRunning() async {
     if (kIsWeb || !Platform.isAndroid) return;
     if (!GlobalState.isAuthorized || !Settings.pushEnabled) {

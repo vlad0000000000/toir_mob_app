@@ -29,6 +29,7 @@ import '../../src/model/equipment_state.dart';
 import '../../src/model/periodic_task_request.dart';
 import '../exceptions/app_exceptions.dart';
 import '../utils/offline_error.dart';
+import 'token_refresher.dart';
 
 part 'sync_page.dart';
 part 'auth_api.dart';
@@ -89,7 +90,7 @@ class _OfflineAwareClient extends http.BaseClient {
   _OfflineAwareClient(this._inner);
 
   @override
-  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+  Future<http.StreamedResponse> send(http.BaseRequest original) async {
     if (API.isServerKnownUnreachable) {
       // Тип тот же, что при реальном обрыве: вызывающий код уже кладёт данные
       // в очередь именно по нему, отдельная ветка не нужна.
@@ -98,14 +99,14 @@ class _OfflineAwareClient extends http.BaseClient {
     // Сессия — на момент отправки, не ответа: ответ может прийти уже после
     // выхода и нового входа, с тем же токеном.
     final session = API.accessSession();
-    final http.StreamedResponse response;
-    try {
-      response = await _inner.send(request);
-      API.markServerReachable();
-    } catch (error) {
-      if (isOfflineError(error)) API.markServerUnreachable();
-      rethrow;
-    }
+    // На 401 запрос один раз повторяется с обменянным токеном
+    // ([sendWithTokenRefresh]); дальше всё — по запросу, получившему ответ.
+    final (response, request) = await sendWithTokenRefresh(
+      await replayableRequest(original),
+      send: _sendOnce,
+      refresher: API.tokenRefresher,
+      session: session,
+    );
     // Принял ли сервер токен — по каждому ответу, а не только в очередях:
     // иначе синхронизация молча падала бы на 401, и «Сессия истекла» не
     // загоралась, пока отправлять нечего (`raisesAuthExpired`).
@@ -152,13 +153,25 @@ class _OfflineAwareClient extends http.BaseClient {
     );
   }
 
-  /// JWT, с которым ушёл запрос. `null` — запрос без токена (сам вход).
-  static String? _requestToken(http.BaseRequest request) {
-    final authorization = request.headers['Authorization'];
-    return authorization != null && authorization.startsWith('Bearer ')
-        ? authorization.substring('Bearer '.length)
-        : null;
+  /// Одна отправка: отметка о недоступности ставится и снимается здесь, в
+  /// том числе на повторе после обмена токена.
+  Future<http.StreamedResponse> _sendOnce(http.BaseRequest request) async {
+    if (API.isServerKnownUnreachable) {
+      throw const SocketException('Сервер не отвечает, попытка отложена');
+    }
+    try {
+      final response = await _inner.send(request);
+      API.markServerReachable();
+      return response;
+    } catch (error) {
+      if (isOfflineError(error)) API.markServerUnreachable();
+      rethrow;
+    }
   }
+
+  /// JWT, с которым ушёл запрос. `null` — запрос без токена (сам вход).
+  static String? _requestToken(http.BaseRequest request) =>
+      bearerToken(request);
 }
 
 /// Тонкое ядро HTTP-клиента. Методы по доменам вынесены в part-файлы
@@ -234,6 +247,10 @@ class API {
     String? requestToken,
     int requestSession,
   )? onAuthResponse;
+
+  /// Обмен `refresh_token` при 401 ([TokenRefresher]). Ставит `main.dart`;
+  /// без него 401 сразу ведёт в «Сессия истекла», как раньше.
+  static TokenRefresher? tokenRefresher;
 
   /// Номер текущей сессии входа (`DataProvider.startAccessSession`).
   /// Общий клиент запоминает его при отправке запроса и передаёт в

@@ -60,7 +60,7 @@ class _NotificationsSettingsScreenState
     Settings.pushEnabled = value;
     try {
       if (value) {
-        await PushNotificationsController.instance.start();
+        await PushNotificationsController.instance.start(askPermission: true);
       } else {
         await PushNotificationsController.instance.stop();
       }
@@ -364,22 +364,13 @@ class _NotificationsSettingsScreenState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.lightbulb_outline_rounded,
-                        size: 18, color: cs.onInfoContainer),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Уведомления не приходят, хотя разрешение выдано?',
-                        style: tt.bodyMedium?.copyWith(
-                          color: cs.onInfoContainer,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ],
+                // Без значка, во всю ширину — как у всех плашек-подсказок.
+                Text(
+                  'Уведомления не приходят, хотя разрешение выдано?',
+                  style: tt.bodyMedium?.copyWith(
+                    color: cs.onInfoContainer,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -429,7 +420,8 @@ class _NotificationsSettingsScreenState
 
   Future<void> _restartPush() async {
     await PushNotificationsController.instance.stop();
-    final ok = await PushNotificationsController.instance.start();
+    final ok =
+        await PushNotificationsController.instance.start(askPermission: true);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(ok ? 'Сервис перезапущен' : 'Сервис не стартовал'),

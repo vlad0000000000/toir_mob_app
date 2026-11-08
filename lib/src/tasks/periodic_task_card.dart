@@ -181,23 +181,14 @@ class _ReworkBlock extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.replay_rounded, size: 18, color: cs.warning),
-              const SizedBox(width: AppConstants.spacingXS),
-              // Expanded — чтобы при крупном шрифте на узком экране
-              // заголовок переносился, а не вылезал за край блока.
-              Expanded(
-                child: Text(
-                  ReworkStrings.sectionTitle,
-                  style: tt.labelLarge?.copyWith(
-                    color: cs.warning,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
+          // Без значка, во всю ширину — как у всех плашек-подсказок; при
+          // крупном шрифте заголовок переносится.
+          Text(
+            ReworkStrings.sectionTitle,
+            style: tt.labelLarge?.copyWith(
+              color: cs.warning,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: AppConstants.spacingSM),
           Text(

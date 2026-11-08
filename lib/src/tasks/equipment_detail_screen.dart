@@ -482,10 +482,10 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
         color: cs.primaryContainer,
         borderRadius: BorderRadius.circular(AppConstants.radiusMD),
       ),
+      // Без значка слева — как у всех плашек-подсказок; крестик закрытия
+      // остаётся справа.
       child: Row(
         children: [
-          Icon(Icons.info_outline_rounded, size: 18, color: cs.onPrimaryContainer),
-          const SizedBox(width: 8),
           Expanded(
             child: Text(
               hintText,

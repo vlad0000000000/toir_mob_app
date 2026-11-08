@@ -69,6 +69,7 @@ import 'src/data/repair_photo_files.dart';
 import 'src/design/app_constants.dart';
 import 'src/design/app_theme.dart';
 import 'src/http/api.dart';
+import 'src/http/token_refresher.dart';
 import 'src/login/sign_out.dart';
 import 'src/model/session.dart';
 import 'src/model/user.dart';
@@ -318,6 +319,20 @@ Future<void> main() async {
   // только в очередях отправки: иначе синхронизация падала бы молча, и
   // обходчик смотрел бы на старый кэш. Успешный ответ флаг снимает.
   API.onAuthResponse = dataProvider.handleAuthResponse;
+  // Перед «Сессия истекла» общий клиент один раз обменивает refresh_token и
+  // повторяет запрос. Новый токен нужен и фоновому сервису уведомлений: у
+  // него своя копия, и `ensureRunning` перезапустит его с новой
+  // (`pushServiceNeedsRestart`).
+  API.tokenRefresher = TokenRefresher(
+    currentAccess: () => GlobalState.authUser?.JWTToken,
+    currentRefresh: () => GlobalState.authUser?.refreshToken,
+    currentSession: () => dataProvider.accessSession,
+    exchange: dataProvider.api.refreshTokens,
+    save: (pair) async {
+      await dataProvider.saveRefreshedTokens(pair);
+      unawaited(PushNotificationsController.instance.ensureRunning());
+    },
+  );
   // Каждая новая блокировка сессии — событие (счётчик), а не «залипающее»
   // значение.
   //

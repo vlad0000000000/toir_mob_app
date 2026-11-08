@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'dart:io';
 import '../../global_state.dart';
 import '../../src/http/api.dart';
+import '../../src/http/token_refresher.dart';
 import '../../src/model/access_profile.dart';
 import '../../src/model/company.dart';
 import '../../src/model/inventory_record.dart';
@@ -52,6 +53,7 @@ import 'sync_window.dart';
 import 'task_generation.dart';
 import 'task_visibility.dart';
 import 'usage_order.dart';
+import '../notifications/pending_reads.dart';
 
 part 'data_provider_remote.dart';
 part 'data_provider_sync.dart';
@@ -616,6 +618,7 @@ class DataProvider {
     if (owner.isNotEmpty) await _assignOwners(owner);
     final server = (stringBox.get(_accountServerKey) ?? '').trim();
     await _assignOwnerServers(server.isNotEmpty ? server : API.baseUrl);
+    await _scopePendingReads(server.isNotEmpty ? server : API.baseUrl);
     // Ключи записей с владельцем и сервером — другие (оба входят в ключ, см.
     // [Scan.key]): переносим записи под них.
     await _rekeyQueues();
@@ -644,6 +647,23 @@ class DataProvider {
     await assign<PeriodicTaskRequest>(periodicTaskPendingBox);
     await assign<PendingRepair>(pendingRepairBox);
     await assign<PendingRepairUpdate>(pendingRepairUpdateBox);
+  }
+
+  /// Переносит очереди отметок прочтения уведомлений прошлой версии (ключ —
+  /// один логин) под ключ с сервером [server] ([pendingReadKey]) — тем же
+  /// правилом, что записи остальных очередей: сервер прошлой работы, иначе
+  /// текущий. Под новым ключом уже что-то есть — объединяем, отметки не
+  /// теряются. Повторяемо: сначала новый ключ, потом удаление старого.
+  Future<void> _scopePendingReads(String server) async {
+    for (final key in stringBox.keys.toList()) {
+      final login = legacyPendingReadLogin(key);
+      if (login == null) continue;
+      final target = pendingReadKey(login, server);
+      final merged =
+          mergePendingReads(stringBox.get(target), stringBox.get(key));
+      if (merged != null) await stringBox.put(target, merged);
+      await stringBox.delete(key);
+    }
   }
 
   Future<void> _assignOwners(String owner) => _assignQueueField(
@@ -2147,6 +2167,40 @@ class DataProvider {
 
   addUser(User user) async {
     await userBox.put(user.username, user);
+    _users = userBox.values.toList();
+  }
+
+  /// Сохраняет пару токенов после обмена `refresh_token` (`TokenRefresher`) —
+  /// вошедшему и в его запись логина (по ней офлайн-вход).
+  ///
+  /// Напрямую в бокс, **не** через `GlobalState.authUser = …`: сеттер начинает
+  /// новую сессию входа, и ответы запросов, летевших в момент обмена,
+  /// отбросились бы как запоздавшие ответы прошлой сессии.
+  Future<void> saveRefreshedTokens(TokenPair pair) async {
+    final user = userBox.get('auth_user');
+    if (user == null) return;
+    user
+      ..JWTToken = pair.access
+      ..refreshToken = pair.refresh;
+    await userBox.put('auth_user', user);
+    final record = userBox.get(user.username);
+    if (record != null) {
+      record
+        ..JWTToken = pair.access
+        ..refreshToken = pair.refresh;
+      await userBox.put(user.username, record);
+    }
+    _users = userBox.values.toList();
+  }
+
+  /// Стирает `refresh_token` из записи логина [username] — при выходе.
+  /// Офлайн-вход после выхода работает по-прежнему, только без обмена: его
+  /// 401 сразу ведёт в «Сессия истекла».
+  Future<void> forgetRefreshToken(String username) async {
+    final record = userBox.get(username);
+    if (record == null || record.refreshToken == null) return;
+    record.refreshToken = null;
+    await userBox.put(username, record);
     _users = userBox.values.toList();
   }
 

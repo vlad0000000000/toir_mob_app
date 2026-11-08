@@ -12,6 +12,12 @@ class User {
   String uuid = '';
   int customRoleId = -1;
 
+  /// `refresh_token` из ответа входа — для обмена на новый `access_token`
+  /// при 401 (`TokenRefresher`). Сервер выдаёт новый при каждом обмене.
+  /// `null` — запись прошлой версии или стёрт выходом: тогда 401 ведёт в
+  /// «Сессия истекла», как раньше.
+  String? refreshToken;
+
   /// Компания пользователя из `/user/me` (`access_scope.company_id`) — для
   /// блокировки офлайн-входа по компании (`SubscriptionBlocks`).
   ///
@@ -58,6 +64,13 @@ class UserAdapter extends TypeAdapter<User> {
     user.password = reader.read();
     user.JWTToken = reader.read();
     user.uuid = reader.read();
+    // Поле добавлено в конец; у записей прошлых версий его нет. `User` лежит
+    // в боксе сам по себе, так что лишнее чтение упирается в конец записи.
+    try {
+      user.refreshToken = reader.read() as String?;
+    } catch (_) {
+      user.refreshToken = null;
+    }
     return user;
   }
 
@@ -70,5 +83,6 @@ class UserAdapter extends TypeAdapter<User> {
     writer.write(obj.password);
     writer.write(obj.JWTToken);
     writer.write(obj.uuid);
+    writer.write(obj.refreshToken);
   }
 }

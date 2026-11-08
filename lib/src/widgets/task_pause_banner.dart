@@ -20,30 +20,23 @@ class TaskPauseBanner extends StatelessWidget {
         color: cs.warningContainer,
         borderRadius: BorderRadius.circular(AppConstants.radiusMD),
       ),
-      child: Row(
+      // Без значка, текст во всю ширину — как у всех плашек-подсказок
+      // (решение продукта 08.11, образец — «Нет связи»).
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.pause_circle_outline_rounded, size: 20, color: cs.warning),
-          const SizedBox(width: AppConstants.spacingSM),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  TaskPauseStrings.title,
-                  style: tt.bodyMedium?.copyWith(
-                    color: cs.onSurface,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  TaskPauseStrings.body,
-                  style: tt.bodySmall?.copyWith(color: cs.onSurface),
-                ),
-              ],
+          Text(
+            TaskPauseStrings.title,
+            style: tt.bodyMedium?.copyWith(
+              color: cs.onSurface,
+              fontWeight: FontWeight.w600,
             ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            TaskPauseStrings.body,
+            style: tt.bodySmall?.copyWith(color: cs.onSurface),
           ),
         ],
       ),

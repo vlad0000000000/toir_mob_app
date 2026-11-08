@@ -16,6 +16,38 @@ import 'foreign_equipment_dialog.dart';
 import 'scanner_button_widgets.dart';
 import 'scanner_error_widget.dart';
 
+/// Запускать ли камеру сканера, когда приложение вернулось на передний план.
+///
+/// Не запускаем, пока поверх сканера открыта карточка оборудования или
+/// предупреждение о чужом оборудовании ([navigating]). Перед переходом камеру
+/// специально гасят, и после возврата с карточки её поднимает сам сканер.
+/// Раньше после сворачивания и возврата камера включалась и работала под
+/// карточкой.
+bool shouldStartCameraOnResume({
+  required bool hasCameraPermission,
+  required bool navigating,
+}) =>
+    hasCameraPermission && !navigating;
+
+/// Запускать ли камеру, когда после «Отмена» в предупреждении о чужом
+/// оборудовании прошла пауза `_declinedCooldown`.
+///
+/// Пока окно было открыто, приложение могли свернуть: камеру тогда погасили,
+/// а при возврате не подняли, потому что поверх было окно
+/// ([shouldStartCameraOnResume]). Без запуска здесь камера оставалась
+/// выключенной до ухода со сканера.
+///
+/// Только на переднем плане ([lifecycle] `resumed`): если свернули уже во
+/// время паузы, запуск поднял бы камеру в фоне. Камеру тогда поднимет возврат
+/// в приложение — флаг окна к тому времени снят. `null` — состояние ещё не
+/// известно (так бывает только до первого кадра), считаем передним планом.
+bool shouldStartCameraAfterDecline({
+  required bool hasCameraPermission,
+  required AppLifecycleState? lifecycle,
+}) =>
+    hasCameraPermission &&
+    (lifecycle == null || lifecycle == AppLifecycleState.resumed);
+
 class BarcodeScannerWithController extends StatefulWidget {
   const BarcodeScannerWithController({super.key});
 
@@ -54,23 +86,63 @@ class _BarcodeScannerWithControllerState
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    unawaited(controller.start());
+    unawaited(_startCamera());
     if (_isOnboardingScanner) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _showDemoModal());
     }
   }
 
+  /// Хвост очереди запусков и остановок камеры.
+  ///
+  /// Запуск и остановка идут строго по одному, в порядке вызова. Иначе при
+  /// быстрой смене `inactive`/`resumed` остановка приходила, пока запуск ещё
+  /// не закончился. `MobileScannerController.stop()` в этот момент ничего не
+  /// делает (камера ещё не помечена работающей), и камера поднималась уже
+  /// после ухода приложения с переднего плана.
+  Future<void> _cameraQueue = Future<void>.value();
+
+  /// Выполняет [operation] после всех ранее поставленных запусков и
+  /// остановок камеры.
+  Future<void> _serializedCamera(Future<void> Function() operation) {
+    final previous = _cameraQueue;
+    final done = Completer<void>();
+    _cameraQueue = done.future;
+    return previous.then((_) => operation()).whenComplete(done.complete);
+  }
+
+  /// Запускает камеру, не роняя экран.
+  ///
+  /// [unlessNavigating] — не запускать, если к своей очереди поверх сканера
+  /// уже открывается карточка (см. [shouldStartCameraOnResume]).
+  Future<void> _startCamera({bool unlessNavigating = false}) =>
+      _serializedCamera(() async {
+        if (!mounted) return;
+        if (unlessNavigating &&
+            !shouldStartCameraOnResume(
+              hasCameraPermission: controller.value.hasCameraPermission,
+              navigating: _navigating,
+            )) {
+          return;
+        }
+        try {
+          await controller.start();
+        } catch (_) {
+          // Экран уже закрыт или камера занята: следующий возврат на
+          // передний план попробует снова.
+        }
+      });
+
   /// Останавливает камеру, не роняя экран.
   ///
   /// `stop()` бросает, если камера уже не работает, — а её мог погасить
   /// системный обработчик жизненного цикла ровно перед нашим вызовом.
-  Future<void> _stopCamera() async {
-    try {
-      await controller.stop();
-    } catch (_) {
-      // Уже остановлена — делать нечего.
-    }
-  }
+  Future<void> _stopCamera() => _serializedCamera(() async {
+        try {
+          await controller.stop();
+        } catch (_) {
+          // Уже остановлена — делать нечего.
+        }
+      });
 
   void _showDemoModal() {
     if (_demoModalShown) return;
@@ -101,9 +173,11 @@ class _BarcodeScannerWithControllerState
       case AppLifecycleState.paused:
         return;
       case AppLifecycleState.resumed:
-        unawaited(controller.start());
+        // Решение — в свой черёд в очереди: к тому времени поверх сканера
+        // могла открыться карточка.
+        unawaited(_startCamera(unlessNavigating: true));
       case AppLifecycleState.inactive:
-        unawaited(controller.stop());
+        unawaited(_stopCamera());
     }
   }
 
@@ -169,7 +243,19 @@ class _BarcodeScannerWithControllerState
                                     // Тот же QR всё ещё в объективе — без
                                     // паузы окно открылось бы снова сразу.
                                     Future.delayed(_declinedCooldown, () {
-                                      if (mounted) _navigating = false;
+                                      if (!mounted) return;
+                                      _navigating = false;
+                                      // См. [shouldStartCameraAfterDecline].
+                                      // Если камера работает, запуск ничего
+                                      // не делает.
+                                      if (shouldStartCameraAfterDecline(
+                                        hasCameraPermission: controller
+                                            .value.hasCameraPermission,
+                                        lifecycle: WidgetsBinding
+                                            .instance.lifecycleState,
+                                      )) {
+                                        unawaited(_startCamera());
+                                      }
                                     });
                                     return;
                                   }
@@ -185,7 +271,7 @@ class _BarcodeScannerWithControllerState
                                 await router.push('/qr_result', extra: machine);
                                 if (!mounted) return;
                                 _navigating = false;
-                                unawaited(controller.start());
+                                unawaited(_startCamera());
                                 return;
                               }
                             }
@@ -249,7 +335,9 @@ class _BarcodeScannerWithControllerState
   Future<void> dispose() async {
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
-    await controller.dispose();
+    // После запуска или остановки, которые ещё в очереди: освобождать камеру
+    // посреди её запуска нельзя.
+    await _serializedCamera(controller.dispose);
   }
 }
 

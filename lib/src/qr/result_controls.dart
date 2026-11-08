@@ -826,20 +826,14 @@ class _LockedFieldsHint extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.all(AppConstants.spacingMD),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.info_outline_rounded,
-                size: 20, color: cs.onSurfaceVariant),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Фото и комментарий недоступны при выборе нескольких задач. '
-                'Оставьте только одну задачу, чтобы их заполнить.',
-                style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
-              ),
-            ),
-          ],
+        // Без значка, текст во всю ширину — как у всех плашек-подсказок.
+        child: SizedBox(
+          width: double.infinity,
+          child: Text(
+            'Фото и комментарий недоступны при выборе нескольких задач. '
+            'Оставьте только одну задачу, чтобы их заполнить.',
+            style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+          ),
         ),
       ),
     );
