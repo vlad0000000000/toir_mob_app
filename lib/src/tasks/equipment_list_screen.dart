@@ -123,6 +123,10 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
     setState(() => _filter = filter);
   }
 
+  /// Удалённое оборудование из последнего [_base] — для пометки в строке и
+  /// перехода в карточку завершения.
+  Set<String> _removedUuids = const {};
+
   bool _isOwn(InventoryRecord equipment) =>
       !_hasScope || GlobalState.dataProvider.isOwnEquipment(equipment);
 
@@ -161,7 +165,14 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
     // Оборудование с задачами на доработку — первым: проверяющий ждёт
     // исправления, и в общем списке такую задачу легко пропустить. В
     // остальном порядок справочника, как и был.
-    return [...withRework, ...rest];
+    // Удалённое в вебе оборудование со взятыми задачами — последним, с
+    // пометкой: обходчик должен их завершить (`isTaskEquipmentShown`).
+    final removed = [
+      for (final item in provider.removedTaskEquipment)
+        (item, provider.getTasksForMachine(item.uuid).length),
+    ];
+    _removedUuids = {for (final (item, _) in removed) item.uuid};
+    return [...withRework, ...rest, ...removed];
   }
 
   List<InventoryRecord> _apply(
@@ -245,12 +256,18 @@ class _EquipmentListScreenState extends State<EquipmentListScreen> {
             equipment: equipment,
             taskCount: taskCounts[equipment.uuid] ?? 0,
             isProblems: isProblems,
+            removed: _removedUuids.contains(equipment.uuid),
             onTap: () {
               // push: список остаётся под карточкой, «назад» возвращает в него
               // вместе с прокруткой и фильтром.
               if (isProblems) {
                 GoRouter.of(context)
                     .push('/qr_result_problems', extra: equipment);
+              } else if (_removedUuids.contains(equipment.uuid)) {
+                // Оборудования нет в справочнике — сразу карточка завершения:
+                // экран задач оборудования и QR для него недоступны.
+                GoRouter.of(context)
+                    .push('/qr_result_removed', extra: equipment);
               } else {
                 GoRouter.of(context).push('/details/${equipment.id}');
               }
@@ -555,11 +572,16 @@ class _EquipmentTile extends StatelessWidget {
   final bool isProblems;
   final VoidCallback onTap;
 
+  /// Оборудование удалено в вебе, а взятые задачи по нему остались
+  /// (`isTaskEquipmentShown`): пометка в подписи, строка приглушена.
+  final bool removed;
+
   const _EquipmentTile({
     required this.equipment,
     required this.taskCount,
     required this.isProblems,
     required this.onTap,
+    this.removed = false,
   });
 
   /// Подпись в справочнике: «Литейный цех · В работе» — то, по чему
@@ -578,13 +600,16 @@ class _EquipmentTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    final hasTasks = !isProblems && taskCount > 0;
+    final hasTasks = !isProblems && taskCount > 0 && !removed;
 
+    final count = taskCount == 0
+        ? 'Нет активных задач'
+        : '$taskCount ${pluralRu(taskCount, 'активная задача', 'активные задачи', 'активных задач')}';
     final subtitle = isProblems
         ? _problemsSubtitle
-        : taskCount == 0
-            ? 'Нет активных задач'
-            : '$taskCount ${pluralRu(taskCount, 'активная задача', 'активные задачи', 'активных задач')}';
+        : removed
+            ? '${RemovedEquipmentStrings.label} · $count'
+            : count;
 
     return Card(
       child: InkWell(
@@ -627,7 +652,9 @@ class _EquipmentTile extends StatelessWidget {
                         style: tt.bodySmall?.copyWith(
                           color: hasTasks ? cs.primary : cs.onSurfaceVariant,
                         ),
-                        maxLines: 1,
+                        // «Оборудование удалено · N задач» в одну строку
+                        // обрезалось бы на телефоне средней ширины.
+                        maxLines: removed ? 2 : 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ],

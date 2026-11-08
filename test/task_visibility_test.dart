@@ -366,4 +366,51 @@ void main() {
       expect(task.photos.single, 'https://example.test/1.jpg');
     });
   });
+
+  group('isTaskEquipmentKnown', () {
+    const known = {'eq-1', 'eq-2'};
+
+    test('оборудование в справочнике — задачу показываем', () {
+      expect(isTaskEquipmentKnown('eq-1', known), isTrue);
+    });
+
+    test('оборудование удалили или списали — задачу не показываем', () {
+      expect(isTaskEquipmentKnown('eq-gone', known), isFalse);
+    });
+
+    test('справочник ещё пуст — не показываем ничего', () {
+      expect(isTaskEquipmentKnown('eq-1', const {}), isFalse);
+    });
+  });
+
+  /// Решение 08.11.2026: взятую задачу по удалённому оборудованию обходчик
+  /// должен иметь возможность завершить; невзятые не показываем.
+  group('isTaskEquipmentShown', () {
+    const known = {'eq-1'};
+    const removed = {'eq-gone'};
+
+    bool shown(String equipment, {required bool taken}) => isTaskEquipmentShown(
+          equipmentUuid: equipment,
+          knownEquipmentUuids: known,
+          confirmedRemoved: removed,
+          takenByMe: taken,
+        );
+
+    test('оборудование в справочнике — показываем, взята или нет', () {
+      expect(shown('eq-1', taken: false), isTrue);
+      expect(shown('eq-1', taken: true), isTrue);
+    });
+
+    test('удаление подтверждено, задача взята — показываем', () {
+      expect(shown('eq-gone', taken: true), isTrue);
+    });
+
+    test('удаление подтверждено, задача не взята — не показываем', () {
+      expect(shown('eq-gone', taken: false), isFalse);
+    });
+
+    test('нет в справочнике без подтверждения (права) — не показываем', () {
+      expect(shown('eq-out-of-scope', taken: true), isFalse);
+    });
+  });
 }

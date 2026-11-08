@@ -53,6 +53,7 @@ import 'sync_window.dart';
 import 'task_generation.dart';
 import 'task_visibility.dart';
 import 'usage_order.dart';
+import '../tasks/removed_equipment.dart';
 import '../notifications/pending_reads.dart';
 
 part 'data_provider_remote.dart';
@@ -874,6 +875,9 @@ class DataProvider {
       _equipmentCursorKey,
       _equipmentWriteKey,
       _equipmentFullSyncKey,
+      // Подтверждённо удалённое оборудование — компании прошлого аккаунта.
+      _removedEquipmentKey,
+      _archivedLoadedKey,
       _typicalProblemsCursorKey,
       _typicalProblemsWriteKey,
       _typicalProblemsFullSyncKey,
@@ -2179,10 +2183,17 @@ class DataProvider {
   Future<void> saveRefreshedTokens(TokenPair pair) async {
     final user = userBox.get('auth_user');
     if (user == null) return;
+    // Номер сессии — до первой записи: пока она идёт, обходчик может выйти.
+    final session = _accessSession;
     user
       ..JWTToken = pair.access
       ..refreshToken = pair.refresh;
     await userBox.put('auth_user', user);
+    // Вышел, пока шла запись: выход уже стёр `refresh_token` из записи логина
+    // ([forgetRefreshToken]), и дописать туда новую пару — вернуть токен,
+    // которым сессию можно продлевать без пароля. Вход другого или того же
+    // обходчика тоже сдвигает номер: его пара свежее нашей.
+    if (_accessSession != session) return;
     final record = userBox.get(user.username);
     if (record != null) {
       record
@@ -2323,6 +2334,24 @@ class DataProvider {
   bool _isRepairNewerThan(String uuid, int seq) =>
       (_repairSeqOf[uuid] ?? 0) > seq;
 
+  /// Uuid оборудования справочника — для [isTaskEquipmentKnown].
+  ///
+  /// Набор пересобирается, только когда список [_inventoryRecords] заменили:
+  /// фильтр задач зовётся на каждую задачу каждого прохода, а справочник
+  /// меняется редко.
+  Set<String> get _knownEquipmentUuids {
+    if (!identical(_knownEquipmentOf, _inventoryRecords)) {
+      _knownEquipmentOf = _inventoryRecords;
+      _knownEquipmentCache = {
+        for (final record in _inventoryRecords) record.uuid,
+      };
+    }
+    return _knownEquipmentCache;
+  }
+
+  List<InventoryRecord>? _knownEquipmentOf;
+  Set<String> _knownEquipmentCache = const {};
+
   void updateInventoryRecords() async {
     _inventoryRecords = inventoryBox.values.toList();
     inventoryRevision.value++;
@@ -2349,6 +2378,88 @@ class DataProvider {
     }
     return null;
   }
+
+  /// Удалённое в вебе оборудование, по которому у обходчика остались взятые
+  /// задачи ([isTaskEquipmentShown]) — записи для «Задач»
+  /// ([removedEquipmentRecords]). Кэш очередей сбрасывает вызывающий, как и
+  /// для [getTasksForMachine].
+  List<InventoryRecord> get removedTaskEquipment {
+    final tasksInScans = _scannedTaskUuids();
+    return removedEquipmentRecords(
+      taskBox.values.where((task) => _isTaskAvailable(task, tasksInScans)),
+      knownEquipment: _knownEquipmentUuids,
+    );
+  }
+
+  /// Запись [removedTaskEquipment] по uuid оборудования. `null` — такого нет.
+  InventoryRecord? removedTaskEquipmentByUuid(String uuid) {
+    invalidateScanTaskCache();
+    for (final record in removedTaskEquipment) {
+      if (record.uuid == uuid) return record;
+    }
+    return null;
+  }
+
+  /// Оборудование, удаление или списание которого подтвердил сервер:
+  /// `deleted` синхронизации справочника и список `archived=true`
+  /// (`DataProviderSync._loadArchivedEquipmentIfNeeded`). Набор аккаунта —
+  /// [clearCachedData] его стирает.
+  ///
+  /// Кэш по сохранённой строке: фильтр задач спрашивает набор на каждую
+  /// задачу каждого прохода, а меняется он редко.
+  Set<String> get removedEquipmentUuids {
+    final raw = stringBox.get(_removedEquipmentKey);
+    if (!identical(raw, _removedEquipmentRaw)) {
+      _removedEquipmentRaw = raw;
+      _removedEquipmentCache = _decodeUuidSet(raw);
+    }
+    return _removedEquipmentCache;
+  }
+
+  String? _removedEquipmentRaw;
+  Set<String> _removedEquipmentCache = const {};
+
+  static Set<String> _decodeUuidSet(String? raw) {
+    if (raw == null || raw.isEmpty) return const {};
+    try {
+      final data = jsonDecode(raw);
+      return data is List ? {for (final item in data) '$item'} : const {};
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  /// Обновляет [removedEquipmentUuids] по ответу синхронизации справочника
+  /// ([updateRemovedEquipment]).
+  Future<void> rememberRemovedEquipment({
+    required Iterable<String> deleted,
+    required Iterable<String> restored,
+  }) async {
+    final before = removedEquipmentUuids;
+    final after =
+        updateRemovedEquipment(before, deleted: deleted, restored: restored);
+    if (after.length == before.length && after.containsAll(before)) return;
+    await (after.isEmpty
+        ? stringBox.delete(_removedEquipmentKey)
+        : stringBox.put(_removedEquipmentKey, jsonEncode(after.toList())));
+  }
+
+  static const String _removedEquipmentKey = 'equipment_removed_uuids';
+
+  /// Список списанного (`archived=true`) для текущего справочника уже
+  /// загружен. Стирают полный проход справочника ([markArchivedEquipmentStale])
+  /// и смена аккаунта ([clearCachedData]); у установок прошлой версии отметки
+  /// нет — архив подтянется при первой же синхронизации.
+  bool get isArchivedEquipmentLoaded =>
+      stringBox.get(_archivedLoadedKey) == '1';
+
+  Future<void> markArchivedEquipmentLoaded() =>
+      stringBox.put(_archivedLoadedKey, '1');
+
+  Future<void> markArchivedEquipmentStale() =>
+      stringBox.delete(_archivedLoadedKey);
+
+  static const String _archivedLoadedKey = 'equipment_archived_loaded';
 
   /// Отправляет смену состояния оборудования на сервер и обновляет
   /// локальную запись в Hive. Обработку ошибок (UI/снекбары) оставляем
@@ -2643,6 +2754,16 @@ class DataProvider {
       return false;
     }
     final access = task.access;
+    // Оборудование удалили в вебе — видна только взятая этим обходчиком
+    // задача, чтобы он мог её завершить ([isTaskEquipmentShown]).
+    if (!isTaskEquipmentShown(
+      equipmentUuid: task.equipmentUuid,
+      knownEquipmentUuids: _knownEquipmentUuids,
+      confirmedRemoved: removedEquipmentUuids,
+      takenByMe: user.uuid.isNotEmpty && access?.inspectorUuid == user.uuid,
+    )) {
+      return false;
+    }
     if (task.resultStatus == "scheduled") {
       // Осмотр без периодической задачи (её удалили) ролей не несёт —
       // показывать его некому. Раньше здесь падал `!`.

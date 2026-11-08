@@ -232,4 +232,45 @@ void main() {
       expect(scanErrorStatusCode(const SocketException('no route')), isNull);
     });
   });
+
+  group('снятая задача (404 на закрытие, бэкенд 29443f3)', () {
+    final notFound = Exception('Осмотр не найден. [HTTP 404]');
+
+    test('404 на закрытие задачи — задачу сняли, отказ окончательный', () {
+      expect(isTaskWithdrawnError(notFound, closesTask: true), isTrue);
+      expect(isRetryableScanError(notFound), isFalse);
+      expect(
+        scanRejectionMessage(notFound, closesTask: true),
+        ScanQueueStrings.errorTaskWithdrawn,
+      );
+      expect(
+        isTaskWithdrawnReason(scanRejectionMessage(notFound, closesTask: true)),
+        isTrue,
+      );
+    });
+
+    test('404 на прямой осмотр — не снятая задача, а своя причина', () {
+      final equipmentGone = Exception('Equipment not found [HTTP 404]');
+      expect(isTaskWithdrawnError(equipmentGone, closesTask: false), isFalse);
+      expect(
+        scanRejectionMessage(equipmentGone, closesTask: false),
+        ScanQueueStrings.errorEquipmentNotFound,
+      );
+    });
+
+    test('временные сбои — не снятая задача, повтор', () {
+      final offline = const SocketException('no route');
+      final serverDown = Exception('Bad gateway [HTTP 502]');
+      expect(isTaskWithdrawnError(offline, closesTask: true), isFalse);
+      expect(isTaskWithdrawnError(serverDown, closesTask: true), isFalse);
+      expect(isRetryableScanError(offline), isTrue);
+      expect(isRetryableScanError(serverDown), isTrue);
+    });
+
+    test('другие отказы на закрытие задачи — прежние причины', () {
+      final closed = Exception('Закрытый осмотр нельзя изменить [HTTP 400]');
+      expect(isTaskWithdrawnError(closed, closesTask: true), isFalse);
+      expect(isTaskWithdrawnReason(ScanQueueStrings.errorGeneric), isFalse);
+    });
+  });
 }

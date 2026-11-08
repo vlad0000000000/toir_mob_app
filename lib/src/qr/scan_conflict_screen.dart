@@ -125,6 +125,26 @@ class _ScanConflictScreenState extends State<ScanConflictScreen>
   bool get _isTakenOrClosedLegacy =>
       isTakenOrClosedLegacyReason(_scan.lastError);
 
+  /// Задачу сняли на сервере (404): удалили её или оборудование, либо
+  /// передали другому направлению. Повтор остаётся — задачу могут вернуть.
+  bool get _isWithdrawn => isTaskWithdrawnReason(_scan.lastError);
+
+  /// Снимки осмотра. Лежат в записи строками base64 — разбираем один раз на
+  /// экран, а не на каждый кадр. Битый кадр пропускаем: экран должен
+  /// остаться рабочим, а отправка о нём и так скажет.
+  late final List<Uint8List> _photos = [
+    for (final raw in _scan.files ?? const <String>[])
+      if (_decodePhoto(raw) case final bytes?) bytes,
+  ];
+
+  static Uint8List? _decodePhoto(String raw) {
+    try {
+      return base64Decode(raw.contains(',') ? raw.split(',').last : raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Названия позиций, сохранённые вместе с осмотром. Разбираем один раз на
   /// построение экрана: список короткий, а обращений к нему несколько.
   late final Map<String, String> _names = _parseNames();
@@ -159,6 +179,9 @@ class _ScanConflictScreenState extends State<ScanConflictScreen>
         if (record.uuid == uuid) return record.name;
       }
     }
+    // Оборудование удалили — название, сохранённое вместе с осмотром.
+    final stored = _scan.equipmentName;
+    if (stored != null && stored.isNotEmpty) return stored;
     return ScanQueueStrings.rejectedUnknownEquipment;
   }
 
@@ -339,6 +362,22 @@ class _ScanConflictScreenState extends State<ScanConflictScreen>
 
   void _close() {
     if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+  }
+
+  /// Снимок во весь экран, с увеличением, — как предпросмотр на экране
+  /// результата скана. Закрывается тапом мимо.
+  void _showPhoto(Uint8List bytes) {
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(AppConstants.spacingMD),
+        child: InteractiveViewer(
+          child: Image.memory(bytes, fit: BoxFit.contain),
+        ),
+      ),
+    );
   }
 
   Future<void> _copy(String text) async {
@@ -524,7 +563,9 @@ class _ScanConflictScreenState extends State<ScanConflictScreen>
           ? ScanConflictStrings.deleteClosedBody
           : _isTakenByOther || _isTakenOrClosedLegacy
               ? ScanConflictStrings.deleteTakenBody
-              : ScanConflictStrings.deleteBody,
+              : _isWithdrawn
+                  ? ScanConflictStrings.deleteWithdrawnBody
+                  : ScanConflictStrings.deleteBody,
       note: RepairStrings.deleteIrreversible,
     );
     if (!confirmed || !mounted) return;
@@ -659,7 +700,9 @@ class _ScanConflictScreenState extends State<ScanConflictScreen>
                           ? ScanConflictStrings.takenOrClosedHint
                           : isNoRightsReason(_scan.lastError)
                               ? ScanConflictStrings.noRightsHint
-                              : ScanConflictStrings.genericHint,
+                              : _isWithdrawn
+                                  ? ScanConflictStrings.withdrawnHint
+                                  : ScanConflictStrings.genericHint,
               style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
             ),
           ],
@@ -682,6 +725,14 @@ class _ScanConflictScreenState extends State<ScanConflictScreen>
                 // ремонта: блок читается как её слепок, а не как отдельный
                 // стиль внутри одного приложения.
                 Text(_equipmentName(), style: tt.titleMedium),
+                // Название задачи — сохранённое с осмотром: задачу могли
+                // снять, и в списках её уже нет.
+                if ((_scan.taskTitle ?? '').trim().isNotEmpty) ...[
+                  const SizedBox(height: AppConstants.spacingMD),
+                  _Label(ScanConflictStrings.taskLabel),
+                  const SizedBox(height: AppConstants.spacingXS),
+                  Text(_scan.taskTitle!.trim(), style: tt.bodyMedium),
+                ],
                 const SizedBox(height: AppConstants.spacingMD),
                 _Label(ScanConflictStrings.commentLabel),
                 const SizedBox(height: AppConstants.spacingXS),
@@ -691,6 +742,35 @@ class _ScanConflictScreenState extends State<ScanConflictScreen>
                       : _scan.comment!.trim(),
                   style: tt.bodyMedium,
                 ),
+                // Фото — чтобы обходчик видел, что они сохранены, и мог
+                // показать их руководителю до удаления осмотра.
+                if (_photos.isNotEmpty) ...[
+                  const SizedBox(height: AppConstants.spacingMD),
+                  _Label(ScanConflictStrings.photosLabel),
+                  const SizedBox(height: AppConstants.spacingSM),
+                  Wrap(
+                    spacing: AppConstants.spacingSM,
+                    runSpacing: AppConstants.spacingSM,
+                    children: [
+                      for (final bytes in _photos)
+                        GestureDetector(
+                          onTap: () => _showPhoto(bytes),
+                          child: ClipRRect(
+                            borderRadius:
+                                BorderRadius.circular(AppConstants.radiusSM),
+                            child: Image.memory(
+                              bytes,
+                              width: 88,
+                              height: 88,
+                              fit: BoxFit.cover,
+                              cacheWidth: 264,
+                              gaplessPlayback: true,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: AppConstants.spacingMD),
                 _Label(ScanConflictStrings.consumptionLabel),
                 const SizedBox(height: AppConstants.spacingXS),

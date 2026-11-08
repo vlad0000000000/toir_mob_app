@@ -39,6 +39,36 @@ String scanErrorMessage(Object error) {
   return _looksRussian(raw) ? raw : ScanQueueStrings.errorGeneric;
 }
 
+/// Причина отказа для записи в очередь: [scanErrorMessage], кроме снятой
+/// задачи ([isTaskWithdrawnError]) — у неё своя причина, по которой экран
+/// разбора узнаёт отказ.
+///
+/// [closesTask] — запись закрывает задачу (`PATCH` по `task_uuid`).
+String scanRejectionMessage(Object error, {required bool closesTask}) =>
+    isTaskWithdrawnError(error, closesTask: closesTask)
+        ? ScanQueueStrings.errorTaskWithdrawn
+        : scanErrorMessage(error);
+
+/// Сервер не нашёл задачу, которую закрывает результат: окончательный отказ
+/// (бэкенд `29443f3`).
+///
+/// Снятый экземпляр (удалили задачу или оборудование) и невзятый экземпляр,
+/// перенесённый на чужое направление, сервер не видит и отвечает 404 на
+/// `PATCH`. Повтор сам по себе не поможет, поэтому запись не крутится в
+/// очереди, а ждёт решения обходчика — как другие отказы по существу
+/// ([isRetryableScanError] на 404 и так `false`). Данные не теряются: запись
+/// с фото остаётся на телефоне.
+///
+/// Только для закрытия задачи: 404 на прямом осмотре значит «оборудование не
+/// найдено», у него своя причина. И не временный сбой: без связи кода ответа
+/// нет, 5xx — повтор.
+bool isTaskWithdrawnError(Object error, {required bool closesTask}) =>
+    closesTask && scanErrorStatusCode(error) == 404;
+
+/// Сохранённая причина — «задачу сняли» ([isTaskWithdrawnError]).
+bool isTaskWithdrawnReason(String? stored) =>
+    stored == ScanQueueStrings.errorTaskWithdrawn;
+
 /// Причина отказа, уже лежащая в очереди, — для показа на экране.
 ///
 /// [scanErrorMessage] переводит ошибку в момент отказа, но результат остаётся

@@ -34,6 +34,7 @@ import '../widgets/session_sign_out_hold.dart';
 import '../widgets/task_pause_banner.dart';
 import '../../src/onboarding/demo_equipment.dart';
 import '../repairs/repair_unfinished.dart';
+import '../tasks/removed_equipment_banner.dart';
 import 'result_controls.dart';
 
 /// Код состояния «В ремонте» на сервере (`EquipmentState.IN_REPAIR`).
@@ -44,7 +45,19 @@ class QRResultScreen extends StatefulWidget {
   final InventoryRecord machine;
   final String openDateTime;
 
-  const QRResultScreen(this.machine, {super.key, required this.openDateTime});
+  /// Оборудование удалено в вебе, [machine] собран из задачи
+  /// (`removedEquipmentRecords`): экран только для завершения взятой задачи —
+  /// без паспорта и пилюли состояния (через неё создаётся ремонт), без блока
+  /// ремонтов и без выбора проблемы (через него создаётся заявка). Решение
+  /// пользователя от 08.11.2026.
+  final bool removedEquipment;
+
+  const QRResultScreen(
+    this.machine, {
+    super.key,
+    required this.openDateTime,
+    this.removedEquipment = false,
+  });
 
   @override
   State<QRResultScreen> createState() => _QRResultScreenState();
@@ -149,6 +162,8 @@ class _QRResultScreenState extends State<QRResultScreen>
   int _unfinishedSeq = 0;
 
   Future<void> _loadUnfinished() async {
+    // Удалённое оборудование: блока ремонтов нет — и спрашивать не о чем.
+    if (widget.removedEquipment) return;
     if (widget.machine.uuid == DemoEquipment.demoUuid) return;
     final seq = ++_unfinishedSeq;
     bool current() => mounted && seq == _unfinishedSeq;
@@ -364,6 +379,8 @@ class _QRResultScreenState extends State<QRResultScreen>
   /// плашка отвечает на выбор обходчика сразу, а при отказе сервера пилюля
   /// откатится, и плашка вместе с ней.
   bool get _isTaskGenerationPaused =>
+      // У удалённого оборудования состояния нет вовсе — паузы не показываем.
+      !widget.removedEquipment &&
       GlobalState.dataProvider.taskPauseSupported &&
       (_isLockedByRepair || isTaskGenerationPaused(stateController.value));
 
@@ -376,6 +393,9 @@ class _QRResultScreenState extends State<QRResultScreen>
   void _explainLockedState() => _showEquipmentInRepair();
 
   Widget passport() {
+    if (widget.removedEquipment) {
+      return _RemovedEquipmentHeader(name: widget.machine.name);
+    }
     return _HeroPassport(
       machine: widget.machine,
       stateController: stateController,
@@ -531,6 +551,8 @@ class _QRResultScreenState extends State<QRResultScreen>
         result.add(Scan(
             taskUuid: task.uuid,
             resultStatus: 'closed',
+            taskTitle: task.periodicTask?.title,
+            equipmentName: widget.machine.name,
             files: taskImages,
             comment: taskComment,
             priority: '',
@@ -560,6 +582,8 @@ class _QRResultScreenState extends State<QRResultScreen>
         result.add(Scan(
             taskUuid: task.uuid,
             resultStatus: 'closed',
+            taskTitle: task.periodicTask?.title,
+            equipmentName: widget.machine.name,
             files: taskImages,
             comment: taskComment,
             priority: '',
@@ -596,6 +620,8 @@ class _QRResultScreenState extends State<QRResultScreen>
         result.add(Scan(
             taskUuid: task.uuid,
             resultStatus: 'closed',
+            taskTitle: task.periodicTask?.title,
+            equipmentName: widget.machine.name,
             files: taskImages,
             comment: taskComment,
             priority: '',
@@ -649,6 +675,7 @@ class _QRResultScreenState extends State<QRResultScreen>
             !hasTasks)) {
       result.add(Scan(
           taskUuid: '',
+          equipmentName: widget.machine.name,
           resultStatus:
               (hasOtherProblem && faultUUID.length == 0) ? 'open' : 'closed',
           files: images,
@@ -687,6 +714,7 @@ class _QRResultScreenState extends State<QRResultScreen>
     ].where((v) => v.isNotEmpty).toList();
     return Scan(
       taskUuid: '',
+      equipmentName: widget.machine.name,
       resultStatus: 'closed',
       files: images,
       comment: UsageQueueStrings.inspectionComment([
@@ -804,7 +832,7 @@ class _QRResultScreenState extends State<QRResultScreen>
             ),
             // Незакрытые ремонты по оборудованию (макет 14h): кто и когда уже
             // работает. Нажатие открывает ремонт.
-            if (!_unfinished.isEmpty)
+            if (!widget.removedEquipment && !_unfinished.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: AppConstants.spacingSM,
@@ -831,6 +859,8 @@ class _QRResultScreenState extends State<QRResultScreen>
               consumptionController: consumptionController,
               highlightDescError: _highlightDescError,
               highlightPriorityError: _highlightPriorityError,
+              // Проблема по удалённому оборудованию создала бы заявку.
+              allowProblem: !widget.removedEquipment,
             ),
           ],
         ),
@@ -1117,6 +1147,39 @@ class _QRResultScreenState extends State<QRResultScreen>
 /// Компактный паспорт оборудования: 64px превью слева, имя + подзаголовок
 /// (модель / S/N) + chip состояния — справа. Полная разметка свёрнута в
 /// `ExpansionTile «Подробнее»`. Тап по превью открывает lightbox.
+/// Шапка карточки взятой задачи по удалённому оборудованию: название из
+/// задачи и плашка, что здесь можно только завершить задачу. Без паспорта и
+/// пилюли состояния — через неё создаётся ремонт.
+class _RemovedEquipmentHeader extends StatelessWidget {
+  final String name;
+
+  const _RemovedEquipmentHeader({required this.name});
+
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+    return Card(
+      margin: const EdgeInsets.fromLTRB(8, 12, 8, 0),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              name,
+              style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: AppConstants.spacingSM),
+            const RemovedEquipmentBanner(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _HeroPassport extends StatelessWidget {
   final InventoryRecord machine;
   final AnyController<String> stateController;

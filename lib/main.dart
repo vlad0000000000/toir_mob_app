@@ -670,6 +670,22 @@ class MyApp extends StatelessWidget {
           );
         },
       ),
+      // Взятая задача по оборудованию, удалённому в вебе: только завершить
+      // её (`QRResultScreen.removedEquipment`). Открывается из «Задач» и ППР.
+      GoRoute(
+        path: '/qr_result_removed',
+        pageBuilder: (context, state) {
+          final machine = state.extra! as InventoryRecord;
+          return NoTransitionPage<void>(
+            child: QRResultScreen(
+              machine,
+              key: const Key('qr_result_removed'),
+              openDateTime: GlobalState.nowUTCDate,
+              removedEquipment: true,
+            ),
+          );
+        },
+      ),
       GoRoute(
         path: '/qr_result_demo',
         pageBuilder: (context, state) {

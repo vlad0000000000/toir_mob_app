@@ -223,7 +223,17 @@ class _PprTaskItem extends StatelessWidget {
     final records = GlobalState.dataProvider.inventoryRecords
         .where((record) => record.uuid == equipmentUuid)
         .toList();
-    if (records.isEmpty) return;
+    if (records.isEmpty) {
+      // Оборудование удалили в вебе, а задачу обходчик уже взял — карточка
+      // завершения (`isTaskEquipmentShown`). Невзятые сюда не доходят: их
+      // фильтр задач не пропускает.
+      final removed =
+          GlobalState.dataProvider.removedTaskEquipmentByUuid(equipmentUuid);
+      if (removed != null) {
+        GoRouter.of(context).push('/qr_result_removed', extra: removed);
+      }
+      return;
+    }
     // `from=ppr` — чтобы кнопка «назад» вернула на список ППР, а не на задачи.
     GoRouter.of(context).go('/details/${records.first.id}?from=ppr');
   }

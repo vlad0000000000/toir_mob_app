@@ -182,6 +182,65 @@ void main() {
     );
   });
 
+  test(
+      'названия задачи и оборудования переживают запись, копии и не уходят '
+      'на сервер', () async {
+    Hive.registerAdapter(ScanAdapter());
+    final scan = Scan(
+      resultStatus: 'closed',
+      // Список снимков есть у каждой записи: адаптер читает его без проверки.
+      files: const ['ZmFrZQ=='],
+      equipmentUuid: 'eq-1',
+      taskUuid: 'task-1',
+      eventId: 'evt-1',
+      ownerUuid: 'me',
+      ownerServer: 'https://a.test',
+      taskTitle: 'Осмотр насоса',
+      equipmentName: 'Насос Н-1',
+    );
+
+    final box = await Hive.openBox<Scan>('scans');
+    await box.put(scan.key(), scan);
+    await box.close();
+    final stored = (await Hive.openBox<Scan>('scans')).get(scan.key())!;
+
+    expect(stored.taskTitle, 'Осмотр насоса');
+    expect(stored.equipmentName, 'Насос Н-1');
+    // Запись до названий того же содержания — тот же ключ.
+    expect(
+      stored.key(),
+      Scan(
+        resultStatus: 'closed',
+        files: const ['ZmFrZQ=='],
+        equipmentUuid: 'eq-1',
+        taskUuid: 'task-1',
+        ownerUuid: 'me',
+        ownerServer: 'https://a.test',
+      ).key(),
+    );
+    expect(stored.toJson().containsKey('task_title'), isFalse);
+    expect(stored.toJson().containsKey('equipment_name'), isFalse);
+    final copied = stored.copyWithConsumption(
+        actualConsumptions: null, consumptionNames: null);
+    expect(copied.taskTitle, 'Осмотр насоса');
+    expect(stored.withUsageKeys(null).equipmentName, 'Насос Н-1');
+  });
+
+  test('запись прошлой версии читается без названий', () async {
+    Hive.registerAdapter(_LegacyScanAdapter());
+    final legacy = await Hive.openBox<Scan>('scans');
+    await legacy.put('k', sample());
+    await legacy.close();
+    Hive.resetAdapters();
+
+    Hive.registerAdapter(ScanAdapter());
+    final stored = (await Hive.openBox<Scan>('scans')).get('k')!;
+
+    expect(stored.taskTitle, isNull);
+    expect(stored.equipmentName, isNull);
+    expect(stored.equipmentUuid, 'eq-1');
+  });
+
   test('ключи событий уникальны', () {
     final ids = {for (var i = 0; i < 100; i++) Scan.newEventId()};
     expect(ids.length, 100);

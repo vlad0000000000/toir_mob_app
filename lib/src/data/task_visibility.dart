@@ -146,3 +146,33 @@ bool isClosedMarkCurrent({required int markedRevision, TaskAccess? access}) {
   if (access == null || !access.returned) return true;
   return markedRevision >= access.reviewRevision;
 }
+
+/// Оборудование задачи есть в локальном справочнике [knownEquipmentUuids].
+///
+/// Нет — его удалили или списали в вебе (синхронизация убрала запись из
+/// справочника), либо оно обходчику не видно. Такие задачи видны только по
+/// правилу [isTaskEquipmentShown].
+bool isTaskEquipmentKnown(
+  String equipmentUuid,
+  Set<String> knownEquipmentUuids,
+) =>
+    knownEquipmentUuids.contains(equipmentUuid);
+
+/// Показывать ли задачу с учётом её оборудования.
+///
+/// Оборудование в справочнике — да. Нет — только если удаление подтвердил
+/// сервер ([confirmedRemoved]: `deleted` синхронизации справочника и список
+/// `archived=true`) **и** задачу уже взял этот обходчик ([takenByMe]):
+/// решение пользователя от 08.11.2026 — взятую он должен иметь возможность
+/// завершить. Невзятые экземпляры сервер при удалении снимает сам (бэкенд
+/// `29443f3`), а невзятые заявки «Проблема», которые он оставляет, не
+/// показываем. Оборудование, пропавшее не из-за удаления, а по правам
+/// (подразделение вне области), в `deleted` не попадает — его задачи скрыты.
+bool isTaskEquipmentShown({
+  required String equipmentUuid,
+  required Set<String> knownEquipmentUuids,
+  required Set<String> confirmedRemoved,
+  required bool takenByMe,
+}) =>
+    isTaskEquipmentKnown(equipmentUuid, knownEquipmentUuids) ||
+    (takenByMe && confirmedRemoved.contains(equipmentUuid));

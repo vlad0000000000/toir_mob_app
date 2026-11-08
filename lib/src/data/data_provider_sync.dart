@@ -49,6 +49,7 @@ extension DataProviderSync on DataProvider {
       } finally {
         endInventoryEventWindow(fromSeq);
       }
+      await _loadArchivedEquipmentIfNeeded(generation);
     } catch (e, s) {
       // Стек кладём в само сообщение: слушатель в `main.dart` печатает только
       // `record.message`, поэтому третьим аргументом он бы просто потерялся.
@@ -56,6 +57,33 @@ extension DataProviderSync on DataProvider {
     } finally {
       _isLoading = false;
     }
+  }
+
+  /// Подтверждения удаления из списка `archived=true`
+  /// ([DataProvider.rememberRemovedEquipment]) — пока их нет для текущего
+  /// справочника ([DataProvider.isArchivedEquipmentLoaded]).
+  ///
+  /// Отдельно от полной сверки: полный проход `deleted` не сообщает и лишь
+  /// стирает отметку, а сам архив подтягивается здесь, после любого прохода
+  /// справочника. Сбой — отметка остаётся снятой, следующая синхронизация
+  /// попробует снова; иначе один упавший запрос скрывал бы взятые задачи по
+  /// удалённому оборудованию до следующей полной сверки.
+  Future<void> _loadArchivedEquipmentIfNeeded(int generation) async {
+    if (isArchivedEquipmentLoaded) return;
+    final Set<String> archived;
+    try {
+      archived = await api.getArchivedEquipmentUuids();
+    } catch (e) {
+      _syncLog.warning('Failed to load archived equipment: $e');
+      return;
+    }
+    await _commit(generation, 'Списанное оборудование', () async {
+      await rememberRemovedEquipment(
+        deleted: archived,
+        restored: [for (final record in inventoryBox.values) record.uuid],
+      );
+      await markArchivedEquipmentLoaded();
+    });
   }
 
   /// Полная выгрузка оборудования.
@@ -95,6 +123,10 @@ extension DataProviderSync on DataProvider {
       await markEquipmentWriteStarted();
       await inventoryBox.clear();
       await inventoryBox.putAll(merged);
+      // Снова пришедшее — уже не удалено. Списаний полный проход не сообщает:
+      // их подтянет [_loadArchivedEquipmentIfNeeded] — отметку стираем.
+      await rememberRemovedEquipment(deleted: const [], restored: merged.keys);
+      await markArchivedEquipmentStale();
       await markEquipmentWriteFinished();
       await saveEquipmentCursor(window.syncUntil);
       await markEquipmentFullResyncDone();
@@ -136,6 +168,12 @@ extension DataProviderSync on DataProvider {
         });
       }
       if (deleted.isNotEmpty) await inventoryBox.deleteAll(deleted);
+      // `deleted` — подтверждение удаления: взятые задачи такого
+      // оборудования остаются видны ([isTaskEquipmentShown]).
+      await rememberRemovedEquipment(
+        deleted: deleted,
+        restored: [for (final record in changed) record.uuid],
+      );
       await saveEquipmentCursor(until);
       updateInventoryRecords();
     });

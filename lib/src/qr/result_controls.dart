@@ -84,6 +84,10 @@ class ResultControls extends StatefulWidget {
   final bool highlightDescError;
   final bool highlightPriorityError;
 
+  /// Строка «Проблема». Нет у взятой задачи по удалённому оборудованию:
+  /// проблема создала бы заявку на оборудование, которого больше нет.
+  final bool allowProblem;
+
   const ResultControls({
     super.key,
     required this.descController,
@@ -98,6 +102,7 @@ class ResultControls extends StatefulWidget {
     required this.consumptionController,
     this.highlightDescError = false,
     this.highlightPriorityError = false,
+    this.allowProblem = true,
   });
 
   @override
@@ -486,15 +491,17 @@ class _ResultControlsState extends State<ResultControls> {
               ),
               // Проблема без задачи — это прямой осмотр, право на него
               // отдельное от выполнения задач.
-              _ActionRow(
-                icon: Icons.warning_amber_rounded,
-                title: 'Проблема',
-                value: problemValue,
-                valueColor: problemAccent,
-                onTap: _pickProblem,
-                lockedWhat: access.inspection ? null : AccessStrings.inspection,
-              ),
-              if (showPriority)
+              if (widget.allowProblem)
+                _ActionRow(
+                  icon: Icons.warning_amber_rounded,
+                  title: 'Проблема',
+                  value: problemValue,
+                  valueColor: problemAccent,
+                  onTap: _pickProblem,
+                  lockedWhat:
+                      access.inspection ? null : AccessStrings.inspection,
+                ),
+              if (widget.allowProblem && showPriority)
                 _ActionRow(
                   icon: Icons.flag_outlined,
                   title: 'Приоритет',

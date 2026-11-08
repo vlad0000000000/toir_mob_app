@@ -1,6 +1,58 @@
 part of 'api.dart';
 
+/// Собирает uuid со всех страниц [loadPage] (страница — сырой JSON-список,
+/// аргумент — смещение). Короткая страница — последняя. [maxPages] —
+/// предохранитель от бесконечного цикла, если сервер не уважает `skip`.
+Future<Set<String>> collectPagedUuids(
+  Future<List<dynamic>> Function(int skip) loadPage, {
+  int limit = 100,
+  int maxPages = 1000,
+}) async {
+  final result = <String>{};
+  for (var page = 0; page < maxPages; page++) {
+    final items = await loadPage(page * limit);
+    for (final item in items) {
+      final uuid = item is Map ? item['uuid'] : null;
+      if (uuid is String && uuid.isNotEmpty) result.add(uuid);
+    }
+    if (items.length < limit) break;
+  }
+  return result;
+}
+
 extension EquipmentApi on API {
+  /// uuid списанного оборудования (`archived=true`) — подтверждение удаления
+  /// для взятых задач по нему: полный проход справочника `deleted` не
+  /// сообщает.
+  Future<Set<String>> getArchivedEquipmentUuids({int limit = 100}) async {
+    _guardOffline();
+    if (API.jwtToken == null) {
+      throw Exception('Not authenticated');
+    }
+    return collectPagedUuids(limit: limit, (skip) async {
+      final url = Uri.parse('${API.baseUrl}/v1/company/equipment/').replace(
+        queryParameters: {
+          'limit': '$limit',
+          'skip': '$skip',
+          'archived': 'true',
+        },
+      );
+      final response = await _client.get(
+        url,
+        headers: {'Authorization': 'Bearer ${API.jwtToken}'},
+      ).timeout(API._readTimeout);
+      if (response.statusCode != 200) {
+        throw Exception('Failed to load archived equipment: '
+            '${response.statusCode}');
+      }
+      final data = jsonDecode(utf8.decode(response.bodyBytes));
+      if (data is! List) {
+        throw const FormatException('Archived equipment is not a list');
+      }
+      return data;
+    });
+  }
+
   Future<List<InventoryRecord>> getEquipment({limit = 10, offset = 0}) async {
     final page = await getEquipmentPage(limit: limit, offset: offset);
     return page.items;

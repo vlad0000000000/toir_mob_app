@@ -145,6 +145,17 @@ class Scan implements QueueOwned {
   @override
   String? ownerServer;
 
+  /// Название задачи и оборудования на момент сохранения — только для
+  /// экрана разбора отказа, на сервер не уходят.
+  ///
+  /// Сервер снимает задачу при удалении её самой или оборудования в вебе
+  /// (бэкенд `29443f3`), и отказ 404 приходит, когда ни задачи, ни
+  /// оборудования в справочнике уже нет: без сохранённых названий экран
+  /// показал бы «Оборудование не указано», и обходчик не понял бы, чей это
+  /// результат. `null` — запись прошлой версии. В [key] не входят.
+  final String? taskTitle;
+  final String? equipmentName;
+
   /// Повторная сдача возвращённого результата ([reviewRevision]).
   bool get isRework => reviewRevision != null;
 
@@ -201,6 +212,8 @@ class Scan implements QueueOwned {
       reviewRevision: reviewRevision,
       ownerUuid: ownerUuid,
       ownerServer: ownerServer,
+      taskTitle: taskTitle,
+      equipmentName: equipmentName,
     );
   }
 
@@ -234,6 +247,8 @@ class Scan implements QueueOwned {
         reviewRevision: reviewRevision,
         ownerUuid: ownerUuid,
         ownerServer: ownerServer,
+        taskTitle: taskTitle,
+        equipmentName: equipmentName,
       );
 
   /// Ключ, под которым запись лежала до привязки очередей к аккаунту, — без
@@ -292,7 +307,9 @@ class Scan implements QueueOwned {
       this.usageUpdates,
       this.reviewRevision,
       this.ownerUuid,
-      this.ownerServer});
+      this.ownerServer,
+      this.taskTitle,
+      this.equipmentName});
 
   Map<String, dynamic> toJson() {
     var result = <String, dynamic>{
@@ -406,6 +423,17 @@ class ScanAdapter extends TypeAdapter<Scan> {
     } catch (_) {
       ownerServer = null; // записи до привязки очередей к серверу
     }
+    String? taskTitle;
+    String? equipmentName;
+    try {
+      taskTitle = reader.read() as String?;
+      equipmentName = reader.read() as String?;
+    } catch (_) {
+      // Записи до сохранения названий: экран разбора возьмёт название
+      // оборудования из справочника.
+      taskTitle = null;
+      equipmentName = null;
+    }
     return Scan(
       files: files,
       periodicTaskUuid: periodicTaskUuid,
@@ -428,6 +456,8 @@ class ScanAdapter extends TypeAdapter<Scan> {
       reviewRevision: reviewRevision,
       ownerUuid: ownerUuid,
       ownerServer: ownerServer,
+      taskTitle: taskTitle,
+      equipmentName: equipmentName,
     );
   }
 
@@ -455,5 +485,7 @@ class ScanAdapter extends TypeAdapter<Scan> {
     writer.write(obj.reviewRevision);
     writer.write(obj.ownerUuid);
     writer.write(obj.ownerServer);
+    writer.write(obj.taskTitle);
+    writer.write(obj.equipmentName);
   }
 }
