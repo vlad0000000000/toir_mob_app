@@ -29,9 +29,7 @@ import '../utils/any_controller.dart';
 import '../utils/offline_error.dart';
 import '../utils/quantity_format.dart';
 import '../widgets/no_access.dart';
-import '../data/task_generation.dart';
 import '../widgets/session_sign_out_hold.dart';
-import '../widgets/task_pause_banner.dart';
 import '../../src/onboarding/demo_equipment.dart';
 import '../repairs/repair_unfinished.dart';
 import '../tasks/removed_equipment_banner.dart';
@@ -374,15 +372,6 @@ class _QRResultScreenState extends State<QRResultScreen>
       // Запланированный черновик оборудование не держит — см.
       // [DataProvider.hasHoldingRepairDraft].
       GlobalState.dataProvider.hasHoldingRepairDraft(widget.machine.uuid);
-
-  /// Показать плашку паузы новых задач. По пилюле, а не по справочнику: так
-  /// плашка отвечает на выбор обходчика сразу, а при отказе сервера пилюля
-  /// откатится, и плашка вместе с ней.
-  bool get _isTaskGenerationPaused =>
-      // У удалённого оборудования состояния нет вовсе — паузы не показываем.
-      !widget.removedEquipment &&
-      GlobalState.dataProvider.taskPauseSupported &&
-      (_isLockedByRepair || isTaskGenerationPaused(stateController.value));
 
   /// Объясняет, почему состояние заблокировано. Молчаливо неактивная пилюля
   /// вернула бы ровно ту жалобу, с которой всё началось: «нажимаю — ничего
@@ -803,33 +792,10 @@ class _QRResultScreenState extends State<QRResultScreen>
         child: Column(
           spacing: 8,
           children: [
-            // Плашка — в одном блоке с паспортом: когда её нет, лишнего
-            // отступа `spacing` между блоками не остаётся.
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                passport(),
-                // Обновляется сразу при смене состояния и появлении ремонта
-                // — обходчик видит последствия только что сделанного выбора.
-                ListenableBuilder(
-                  listenable: Listenable.merge([
-                    stateController.valueNotifier,
-                    dataProvider.activeRepairsCount,
-                  ]),
-                  builder: (context, _) => _isTaskGenerationPaused
-                      ? const Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            AppConstants.spacingSM,
-                            AppConstants.spacingSM,
-                            AppConstants.spacingSM,
-                            0,
-                          ),
-                          child: TaskPauseBanner(),
-                        )
-                      : const SizedBox.shrink(),
-                ),
-              ],
-            ),
+            // Плашки паузы новых задач здесь больше нет (решение 09.11.2026):
+            // обходчику пауза ничего не меняет — выданные задачи, заявки и
+            // ППР работают как обычно, а плановую выдачу решает сервер.
+            passport(),
             // Незакрытые ремонты по оборудованию (макет 14h): кто и когда уже
             // работает. Нажатие открывает ремонт.
             if (!widget.removedEquipment && !_unfinished.isEmpty)
@@ -878,6 +844,31 @@ class _QRResultScreenState extends State<QRResultScreen>
       GoRouter.of(context).clearStackAndNavigate('/onboarding_video');
       return;
     }
+    // Удалённое оборудование: отправить можно только взятую задачу. Без неё
+    // ушёл бы прямой осмотр с одним комментарием или заявка — сервер прямой
+    // осмотр принимает (стенд 09.11.2026, 201) и пишет в историю по
+    // оборудованию, которого уже нет.
+    //
+    // Статус — текущий, а не с открытия экрана: оборудование могли удалить,
+    // пока осмотр был открыт, и синхронизация это уже подтвердила.
+    final removedNow = widget.removedEquipment ||
+        dataProvider.removedEquipmentUuids.contains(widget.machine.uuid);
+    if (removedNow &&
+        (equipmentController.selectedTasks.isEmpty ||
+            problemController.value != null)) {
+      showInfoDialog(
+        context,
+        icon: Icons.checklist_rounded,
+        tone: DialogTone.warning,
+        title: widget.removedEquipment
+            ? RemovedEquipmentStrings.chooseTaskTitle
+            : RemovedEquipmentStrings.removedWhileOpenTitle,
+        body: widget.removedEquipment
+            ? RemovedEquipmentStrings.chooseTaskBody
+            : RemovedEquipmentStrings.removedWhileOpenBody,
+      );
+      return;
+    }
     final usageScans = createUsageScans();
     final usagePayload = usageUpdatesPayload(usageScans);
     final scans = createScans(maintenanceUsage: usagePayload);
@@ -897,6 +888,20 @@ class _QRResultScreenState extends State<QRResultScreen>
     final separateUsage = scans.any((scan) => scan.usageUpdates != null)
         ? const <UsageUpdate>[]
         : usageScans;
+    // Отдельная наработка по удалённому оборудованию ушла бы своим запросом
+    // на его параметры, а проверки удаления там на сервере нет. Внутри задачи
+    // ТО она остаётся — это часть завершения взятой задачи. Молча не
+    // выкидываем: обходчик решил бы, что показания ушли.
+    if (removedNow && separateUsage.isNotEmpty) {
+      showInfoDialog(
+        context,
+        icon: Icons.speed_rounded,
+        tone: DialogTone.warning,
+        title: RemovedEquipmentStrings.usageBlockedTitle,
+        body: RemovedEquipmentStrings.usageBlockedBody,
+      );
+      return;
+    }
     if (scans.length + usageScans.length == 0) {
       showInfoDialog(
         context,
@@ -974,8 +979,7 @@ class _QRResultScreenState extends State<QRResultScreen>
               : InspectionConsumptionStrings.confirmEmptyBody)
           : (shortages.isEmpty
               ? null
-              : InspectionConsumptionStrings.confirmShortageBody(
-                  shortageList)),
+              : InspectionConsumptionStrings.confirmShortageBody(shortageList)),
       confirmLabel: DialogStrings.send,
       confirmIcon: Icons.send_rounded,
     );
@@ -1487,17 +1491,6 @@ class _StateChipState extends State<_StateChip> with ControllerListenerMixin {
                     ),
               ),
             ),
-            if (GlobalState.dataProvider.taskPauseSupported)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text(
-                  TaskPauseStrings.pickerHint,
-                  style: Theme.of(ctx)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: cs.onSurfaceVariant),
-                ),
-              ),
             ListTile(
               leading: Icon(Icons.remove_circle_outline_rounded,
                   color: cs.onSurfaceVariant),

@@ -6,7 +6,7 @@ import '../design/app_theme.dart';
 
 /// Плашка в карточке взятой задачи по удалённому оборудованию: что здесь
 /// можно (завершить задачу) и чего нельзя (ремонт, заявка). Вид — как у
-/// всех плашек-подсказок, без значка ([TaskPauseBanner]).
+/// всех плашек-подсказок, без значка.
 class RemovedEquipmentBanner extends StatelessWidget {
   const RemovedEquipmentBanner({super.key});
 

@@ -345,6 +345,7 @@ class RepairStrings {
         ? 'UTC$sign$hours'
         : 'UTC$sign$hours:${minutes.toString().padLeft(2, '0')}';
   }
+
   static const String createFooter =
       'Оборудование перейдёт в состояние «В ремонте»';
   static const String normSheetTitle = 'Норма расхода ЗИП';
@@ -401,6 +402,13 @@ class RepairCardStrings {
   static const String staleDataBanner =
       'Показаны сохранённые данные — подробности не загрузились. Потяните '
       'вниз, чтобы повторить.';
+
+  /// Подробностей нет, и карточка заперта: правка уходит целиком, а пустые
+  /// поля затёрли бы сохранённые на сервере комментарий и расход.
+  static const String staleDataLockedBanner =
+      'Подробности ремонта не загрузились. Править его можно после загрузки, '
+      'иначе сохранённые комментарий и расход затрутся.';
+  static const String retryLoad = 'Повторить загрузку';
   static const String lockedClosed =
       'Ремонт закрыт — редактирование недоступно';
 
@@ -413,6 +421,7 @@ class RepairCardStrings {
   static String scheduledOn(String startsAt) =>
       'Ремонт запланирован на $startsAt. До его начала состояние '
       'оборудования не изменится';
+
   /// Правка ремонта, который перенесли на будущее, пока она ждала в очереди.
   static const String unsentWaitsForStart =
       'Ремонт перенесён на будущее — изменения сохранены и уйдут, когда он '
@@ -1079,30 +1088,16 @@ class SessionStrings {
       'сохранится на телефоне и уйдёт после входа.';
 }
 
-/// Пауза новых задач по оборудованию не в состоянии «В работе».
-class TaskPauseStrings {
-  TaskPauseStrings._();
-
-  static const String title = 'Новые задачи приостановлены';
-  // «Выдаются», а не «создаются»: задачу на такое оборудование создать можно,
-  // сервер лишь не выдаёт её обходчику, пока оборудование не «В работе»
-  // (решение продукта 08.11).
-  static const String body =
-      'Пока оборудование не «В работе», задачи по расписанию и ТО по нему не '
-      'выдаются. Пропущенные плановые запуски потом не появятся. Выданные '
-      'задачи, заявки и ППР работают как обычно.';
-
-  /// Подсказка в окне выбора состояния.
-  static const String pickerHint =
-      'Задачи по расписанию и ТО выдаются только в состоянии «В работе».';
-}
-
 /// Срок выданного задания в строке задачи.
 class TaskDeadlineStrings {
   TaskDeadlineStrings._();
 
   static String due(String date) => 'Срок: $date';
   static String overdue(String date) => 'Просрочено, срок $date';
+
+  /// Строка в карточке задачи: подпись «Срок» стоит над значением.
+  static const String cardLabel = 'Срок';
+  static String overdueValue(String date) => '$date · просрочено';
 }
 
 /// Подписи к задаче в списке по её привязке к направлениям.
@@ -1202,6 +1197,7 @@ class DialogStrings {
 
   static const String toRepairs = 'К ремонтам';
   static const String repairInProgressTitle = 'Оборудование в ремонте';
+
   /// Окно по нажатию на «В ремонте» (макет 14h-2): ремонтов может быть
   /// несколько.
   static const String repairsInProgressNote =
@@ -1219,6 +1215,7 @@ class DialogStrings {
       'Часть осмотров или показаний наработки ещё не отправлена.';
   static const String syncProblemReportsFailedTitle =
       'Не все заявки о проблеме отправлены';
+
   /// Только временные сбои (связь, ошибка сервера, ждут повтора): отказы по
   /// существу стали отклонёнными и идут отдельным пунктом с причиной.
   static const String syncProblemReportsFailedBody =
@@ -1344,7 +1341,8 @@ class EquipmentFilterStrings {
   static const String showAllDivisions = 'Показать все подразделения';
 
   /// Поиск или фильтры ничего не нашли.
-  static const String nothingFoundHint = 'Измените запрос или сбросьте фильтры.';
+  static const String nothingFoundHint =
+      'Измените запрос или сбросьте фильтры.';
   static const String nothingFoundMineHint =
       'В ваших подразделениях нет такого оборудования. Измените запрос, '
       'сбросьте фильтры или переключите область на все подразделения.';
@@ -1389,6 +1387,27 @@ class RemovedEquipmentStrings {
   static const String bannerBody =
       'Здесь можно только завершить взятую задачу. Создать ремонт или заявку '
       'по удалённому оборудованию нельзя.';
+
+  /// «Отправить» без выбранной задачи: осмотр по удалённому оборудованию сам
+  /// по себе не нужен, сервер его всё же принял бы.
+  static const String chooseTaskTitle = 'Выберите задачу';
+  static const String chooseTaskBody =
+      'По удалённому оборудованию можно только завершить взятую задачу. '
+      'Отметьте её в списке задач и отправьте снова.';
+
+  /// То же, когда оборудование удалили, пока осмотр был открыт: экран
+  /// обычный, и обходчик ещё не знает об удалении.
+  static const String removedWhileOpenTitle = 'Оборудование удалено';
+  static const String removedWhileOpenBody =
+      'Пока шёл осмотр, оборудование удалили. По нему можно только завершить '
+      'взятую задачу: отметьте её и отправьте снова. Проблему и осмотр без '
+      'задачи отправить нельзя.';
+
+  /// Показания наработки отдельно от задачи ТО по удалённому оборудованию.
+  static const String usageBlockedTitle = 'Наработку не отправить';
+  static const String usageBlockedBody =
+      'Оборудование удалено — показания наработки по нему больше не '
+      'принимаются. Очистите их и отправьте задачу.';
 }
 
 /// Задачи, возвращённые проверяющим на доработку.

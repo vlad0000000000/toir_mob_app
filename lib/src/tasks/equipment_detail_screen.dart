@@ -11,7 +11,6 @@ import '../design/app_theme.dart';
 import '../utils/search_text.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/filter_sheet.dart';
-import '../widgets/task_pause_banner.dart';
 import 'task_models.dart';
 import 'equipment_detail_controller.dart';
 import 'periodic_task_card.dart';
@@ -353,8 +352,8 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
                           color: Theme.of(context)
                               .colorScheme
                               .surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(
-                              AppConstants.radiusFull),
+                          borderRadius:
+                              BorderRadius.circular(AppConstants.radiusFull),
                         ),
                         child: Text(
                           '${checklist.tasks.length}',
@@ -443,18 +442,6 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             textAlign: TextAlign.center,
           ),
         ),
-        // В окне выбора задачи плашка не нужна: она есть на экране скана под ним.
-        if (!widget.isModal &&
-            GlobalState.dataProvider.isTaskGenerationPausedFor(widget.machine))
-          const Padding(
-            padding: EdgeInsets.fromLTRB(
-              AppConstants.spacingMD,
-              0,
-              AppConstants.spacingMD,
-              AppConstants.spacingSM,
-            ),
-            child: TaskPauseBanner(),
-          ),
         if (_isSelectionMode && widget.isModal && !_hintHidden)
           _buildSelectionHint(
             context,
@@ -473,11 +460,9 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
     final tt = Theme.of(context).textTheme;
     return Container(
       margin: const EdgeInsets.symmetric(
-          horizontal: AppConstants.spacingMD,
-          vertical: AppConstants.spacingSM),
+          horizontal: AppConstants.spacingMD, vertical: AppConstants.spacingSM),
       padding: const EdgeInsets.symmetric(
-          horizontal: AppConstants.spacingMD,
-          vertical: AppConstants.spacingSM),
+          horizontal: AppConstants.spacingMD, vertical: AppConstants.spacingSM),
       decoration: BoxDecoration(
         color: cs.primaryContainer,
         borderRadius: BorderRadius.circular(AppConstants.radiusMD),
@@ -535,7 +520,9 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
             style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
           ),
         ],
-        TaskDeadlineLine(task: task),
+        // Срок — в карточке по кнопке «i». Строкой — только у задачи без
+        // карточки, иначе срок не было бы видно нигде.
+        if (task.periodicTask == null) TaskDeadlineLine(task: task),
         // Задача и так в группе «На доработку», а причина — в карточке по
         // кнопке «i». Строкой она остаётся, только если карточки нет: у
         // задачи без периодической задачи кнопки «i» не бывает.
@@ -566,6 +553,7 @@ class _EquipmentDetailScreenState extends State<EquipmentDetailScreen> {
               task.periodicTask!,
               usage: task.sparePartUsage,
               rework: task.isReturnedForRework ? task.access : null,
+              task: task,
             ),
             tooltip: 'Карточка периодической задачи',
           )

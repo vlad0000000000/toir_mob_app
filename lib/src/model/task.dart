@@ -37,6 +37,12 @@ class Task {
   /// нет: разовая задача, ТО, заявка или сервер прошлой версии.
   final DateTime? deadlineAt;
 
+  /// Название оборудования из самого экземпляра (`equipment.name`). Нужно,
+  /// когда оборудования нет в справочнике (его удалили в вебе), а шаблона
+  /// задачи нет тоже (его удалили, а взятый экземпляр сервер оставил): иначе
+  /// в «Задачах» строка была бы безымянной. `null` — запись прошлой версии.
+  final String? equipmentName;
+
   Task({
     required this.uuid,
     required this.resultStatus,
@@ -51,6 +57,7 @@ class Task {
     this.sparePartUsage,
     this.access,
     this.deadlineAt,
+    this.equipmentName,
   });
 
   /// Проверяющий вернул результат на доработку. Статус при этом `closed` —
@@ -114,6 +121,10 @@ class Task {
           : null,
       access: TaskAccess.fromServer(json),
       deadlineAt: DateTime.tryParse(json['deadline_at'] as String? ?? ''),
+      equipmentName: switch (json['equipment']) {
+        {'name': final String name} when name.isNotEmpty => name,
+        _ => null,
+      },
     );
   }
 
@@ -173,6 +184,13 @@ class TaskAdapter extends TypeAdapter<Task> {
     } catch (_) {
       deadlineAt = null;
     }
+    // Название оборудования — ещё дальше в конец, по тому же правилу.
+    String? equipmentName;
+    try {
+      equipmentName = reader.read() as String?;
+    } catch (_) {
+      equipmentName = null;
+    }
     return Task(
       uuid: uuid,
       resultStatus: resultStatus,
@@ -187,6 +205,7 @@ class TaskAdapter extends TypeAdapter<Task> {
       sparePartUsage: sparePartUsage,
       access: access,
       deadlineAt: deadlineAt,
+      equipmentName: equipmentName,
     );
   }
 
@@ -212,5 +231,6 @@ class TaskAdapter extends TypeAdapter<Task> {
     writer.write(obj.access?.encode());
     // Срок — ещё дальше в конец, по тому же правилу.
     writer.write(obj.deadlineAt);
+    writer.write(obj.equipmentName);
   }
 }

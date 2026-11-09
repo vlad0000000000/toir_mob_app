@@ -87,6 +87,23 @@ void main() {
       expect(records.single.name, RemovedEquipmentStrings.unknownName);
       expect(records.single.id, isNegative);
     });
+
+    test('шаблон удалён — название из самого экземпляра', () {
+      final task = Task(
+        uuid: 't1',
+        resultStatus: 'open',
+        targetType: 'equipment',
+        periodicTask: null,
+        equipmentUuid: 'eq-gone',
+        roles: const [],
+        comment: null,
+        equipmentName: 'Насос на списании',
+      );
+
+      final records = removedEquipmentRecords([task], knownEquipment: const {});
+
+      expect(records.single.name, 'Насос на списании');
+    });
   });
 
   group('collectPagedUuids', () {

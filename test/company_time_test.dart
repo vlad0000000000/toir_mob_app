@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:intl/intl.dart';
+import 'package:qr_scan_industry/src/model/company.dart';
 import 'package:qr_scan_industry/src/notifications/notification_formatters.dart';
 import 'package:qr_scan_industry/src/utils/company_time.dart';
 import 'package:qr_scan_industry/strings.dart';
@@ -151,6 +152,28 @@ void main() {
 
     test('пояс неизвестен — как раньше, по сдвигу телефона', () {
       expect(RepairStrings.timeZone(const Duration(hours: 3)), 'МСК (UTC+3)');
+    });
+  });
+
+  group('пояс компании в /user/me', () {
+    Map<String, dynamic> me(Map<String, dynamic> extra) => {
+          'company': {
+            'allow_requests_without_qr': true,
+            'allow_multiple_tasks_per_qr_scan': false,
+            ...extra,
+          },
+        };
+
+    test('разбирается', () {
+      expect(CompanyFlags.fromMe(me({'timezone': 'Asia/Omsk'}))!.timezone,
+          'Asia/Omsk');
+    });
+
+    test('сервер прошлой версии — пояса нет, флаги на месте', () {
+      final flags = CompanyFlags.fromMe(me({}))!;
+
+      expect(flags.timezone, isNull);
+      expect(flags.allowRequestsWithoutQr, isTrue);
     });
   });
 

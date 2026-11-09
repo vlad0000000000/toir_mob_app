@@ -49,7 +49,7 @@ These break user data or the build if ignored. Full detail lives in the skill.
 ```bash
 flutter pub get
 flutter analyze     # baseline: 94 infos, zero warnings/errors; any warning is your regression
-flutter test        # baseline: green, 582 tests in 56 files
+flutter test        # baseline: green, 587 tests in 56 files
 flutter run -d <device>
 ```
 

@@ -169,7 +169,14 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
   /// ответственным (`_walker_can_modify_repair`). Раньше поля были активны, а
   /// кнопки «Сохранить» всё равно не было — правки просто пропадали. Теперь
   /// карточка сразу показывает, что сначала надо взять ремонт в работу.
-  bool get _editable {
+  ///
+  /// Плюс подробности ремонта должны быть на руках ([_detailsMissing]).
+  bool get _editable => _workAllowed && !_detailsMissing;
+
+  /// Работа над ремонтом разрешена по статусу, исполнителю и роли — без
+  /// оглядки на то, загружены ли подробности. Решает, есть ли у карточки
+  /// панель «Сохранить» / «Отправить» и плашка о запрете.
+  bool get _workAllowed {
     final repair = _repair;
     if (repair == null) return false;
     // Черновик, который обходчик уже отправил, правке не подлежит: очередь
@@ -210,6 +217,26 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
       null => null,
     };
   }
+
+  /// Показан ремонт без подробностей (из списка или кэша): комментарий, фото
+  /// и расход неизвестны. Править такую карточку нельзя — правка уходит
+  /// целиком, и пустые поля заменили бы на сервере сохранённый комментарий и
+  /// расход. Карточка заперта, пока подробности не придут; без связи —
+  /// плашка с предложением потянуть вниз.
+  ///
+  /// Неотправленная правка обходчика — исключение: в форме его собственные
+  /// значения, а не пустые поля списка.
+  bool get _detailsMissing {
+    final repair = _repair;
+    return !_isDraft &&
+        repair != null &&
+        !repair.detailsLoaded &&
+        _pendingUpdate == null;
+  }
+
+  /// Подробности ещё грузятся: вместо комментария, фото и расхода —
+  /// индикатор загрузки (замечание 12).
+  bool get _detailsPending => _isLoading && _detailsMissing;
 
   /// Черновик помечен к отправке и ждёт связи.
   bool get _submittedDraft => _draft?.submitForReview ?? false;
@@ -262,8 +289,21 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
       _failed = false;
       _outOfScope = false;
     });
+    // Поколение кэша — до запроса, см. [DataProvider.upsertRepair].
+    final generation = GlobalState.dataProvider.cacheGeneration;
+    final requestSeq = GlobalState.dataProvider.beginRepairRequest();
     try {
       final repair = await API().getRepair(widget.repairUuid);
+      // Карточку — в кэш целиком: список ремонтов комментария, расхода и фото
+      // не отдаёт, и без этого каждое открытие начиналось бы с неполной
+      // карточки и перерисовывалось ответом (замечание 12, 09.11.2026).
+      // Проход синхронизации подробности не затирает (`withDetailsFrom`), так
+      // что следующее открытие — сразу полное, в том числе без связи.
+      await GlobalState.dataProvider.upsertRepair(
+        repair,
+        generation: generation,
+        requestSeq: requestSeq,
+      );
       if (!mounted) return;
       setState(() {
         // Заполненную форму серверными данными не перетираем. Признак
@@ -304,6 +344,15 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
         }
       });
     }
+  }
+
+  /// Перезагрузка, которую обходчик запустил сам: свайп вниз или «Повторить
+  /// загрузку». Отметку «сервер недоступен» забываем, как у «Повторить
+  /// отправку»: связь могла только что вернуться, и без этого запрос
+  /// получал бы мгновенный отказ по памяти о прошлой неудаче.
+  Future<void> _reloadByUser() {
+    API.retryConnectionNow();
+    return _load();
   }
 
   Repair? _cachedRepair() {
@@ -1037,7 +1086,10 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
             ),
         ],
       ),
-      body: RefreshIndicator(onRefresh: _load, child: _buildBody(cs, repair)),
+      body: RefreshIndicator(
+        onRefresh: _reloadByUser,
+        child: _buildBody(cs, repair),
+      ),
       bottomNavigationBar: _buildBottomBar(repair),
     );
   }
@@ -1363,11 +1415,32 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
         // она есть, но неполная. Второе куда коварнее: экран выглядит
         // заполненным, а комментарий, фото и расход пусты — не потому, что их
         // нет, а потому, что список ремонтов их не отдаёт.
-        if (_failed || !repair.detailsLoaded) ...[
+        // Пока запрос в пути, плашки нет: подробности ещё могут прийти, а
+        // плашка, тут же исчезая, сдвигала всю карточку — это и выглядело
+        // как показ другой карточки (замечание 12).
+        if (_failed || (!repair.detailsLoaded && !_isLoading)) ...[
           // Без значка и по центру — как остальные полосы про отсутствие связи.
+          // Запертая карточка ([_detailsMissing]) говорит, почему заперта.
+          // Неотправленная правка карточку не запирает — там прежний текст.
           _Banner(
-            text: RepairCardStrings.staleDataBanner,
+            text: _detailsMissing && _workAllowed
+                ? RepairCardStrings.staleDataLockedBanner
+                : RepairCardStrings.staleDataBanner,
           ),
+          if (_detailsMissing) ...[
+            const SizedBox(height: AppConstants.spacingSM),
+            // Потянуть вниз можно и так, но кнопка на виду: без подробностей
+            // ремонт не поправить, и обходчик должен сразу видеть, что делать.
+            SizedBox(
+              width: double.infinity,
+              height: AppConstants.buttonHeight,
+              child: OutlinedButton.icon(
+                onPressed: _reloadByUser,
+                icon: const Icon(Icons.refresh_rounded, size: 20),
+                label: const Text(RepairCardStrings.retryLoad),
+              ),
+            ),
+          ],
           const SizedBox(height: AppConstants.spacingMD),
         ],
         // Ремонт вне статуса «Открыт» правкам не подлежит — говорим об этом
@@ -1384,7 +1457,7 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
         ] else if (repair.isScheduled) ...[
           // Запланированный — плашка под карточкой оборудования, как на
           // макете 14d: она про оборудование, а не про запрет правки.
-        ] else if (!_editable && !repair.isUnassigned) ...[
+        ] else if (!_workAllowed && !repair.isUnassigned) ...[
           // Без значка: текст занимает всю ширину, и отступы со всех сторон
           // получаются одинаковыми — плашка выглядит ровно.
           //
@@ -1428,81 +1501,85 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
           _LockedStartDate(repair: repair),
         ],
         const SizedBox(height: AppConstants.spacingLG),
-        _SectionLabel(RepairCardStrings.labelComment),
-        const SizedBox(height: AppConstants.spacingSM),
-        TextField(
-          controller: _commentController,
-          enabled: _editable,
-          minLines: 3,
-          maxLines: 6,
-          maxLength: _commentLimit,
-          onChanged: (_) => setState(_markEdited),
-          decoration: const InputDecoration(
-            hintText: RepairCardStrings.commentHint,
+        if (_detailsPending)
+          const _DetailsLoading()
+        else ...[
+          _SectionLabel(RepairCardStrings.labelComment),
+          const SizedBox(height: AppConstants.spacingSM),
+          TextField(
+            controller: _commentController,
+            enabled: _editable,
+            minLines: 3,
+            maxLines: 6,
+            maxLength: _commentLimit,
+            onChanged: (_) => setState(_markEdited),
+            decoration: const InputDecoration(
+              hintText: RepairCardStrings.commentHint,
+            ),
           ),
-        ),
-        const SizedBox(height: AppConstants.spacingSM),
-        _SectionLabel(
-          RepairCardStrings.labelPhotos,
-          // Считаем и неотправленные: предел в десять снимков сервер проверяет
-          // по факту, и обходчик должен видеть, сколько наберётся после
-          // отправки, а не сколько уже доехало.
-          trailing: _CountChip(
-            count: photos.length,
-            total: _PhotoStrip.maxPhotos,
+          const SizedBox(height: AppConstants.spacingSM),
+          _SectionLabel(
+            RepairCardStrings.labelPhotos,
+            // Считаем и неотправленные: предел в десять снимков сервер проверяет
+            // по факту, и обходчик должен видеть, сколько наберётся после
+            // отправки, а не сколько уже доехало.
+            trailing: _CountChip(
+              count: photos.length,
+              total: _PhotoStrip.maxPhotos,
+            ),
           ),
-        ),
-        const SizedBox(height: AppConstants.spacingSM),
-        _PhotoStrip(
-          photos: photos,
-          editable: _editable,
-          busy: _isPhotoBusy,
-          onAdd: _addPhoto,
-          onRemove: (view) {
-            final local = view.localPath;
-            if (local != null) {
-              _removeLocalPhoto(local);
-            } else {
-              _removePhoto(view.remote!);
-            }
-          },
-        ),
-        const SizedBox(height: AppConstants.spacingSM),
-        // Разделитель раньше рисовала сама секция расхода. Теперь секция общая
-        // с экраном осмотра, где она стоит между другими блоками формы и
-        // отбивка сверху не нужна, — поэтому здесь она своя.
-        Divider(color: cs.outlineVariant, height: AppConstants.spacingLG * 2),
-        SparePartConsumptionSection(
-          lines: _consumptionLines,
-          // Без права на ЗИП каталог пуст — позицию выбрать не из чего.
-          editable: _editable && _canEditConsumption,
-          // Ремонт закрыт — значит ЗИП уже списан со склада, и сравнение
-          // расхода с остатком дало бы ложную тревогу про позицию, которая
-          // как раз этим ремонтом и была списана.
-          showStockWarnings: !repair.isClosed,
-          // Пустой блок означает разное. Если карточку читали целиком —
-          // расхода действительно нет. Если нет (открыли по кэшу без связи, а
-          // список расход не отдаёт) — мы просто не знаем, и говорить
-          // «списания не будет» нельзя: это и создавало ощущение, что расход
-          // пропал.
-          //
-          // Черновик сюда не попадает: `PendingRepair.toRepair` ставит
-          // отметку сам — его расход лежит в очереди целиком.
-          emptyNote: _editable && !_canEditConsumption
-              ? RepairCardStrings.consumptionNoAccessNote
-              : repair.detailsLoaded
-                  ? RepairCardStrings.consumptionEmptyNote
-                  : RepairCardStrings.consumptionUnknownNote,
-          hasNorm: repair.normItems.isNotEmpty,
-          // Кнопка гаснет, когда добавлять уже нечего (п. 4.3.9 отчёта):
-          // нажимать её ради снекбара «всё добавлено» бессмысленно.
-          canFillFromNorm: _missingNormItems.isNotEmpty,
-          onAdd: _addPosition,
-          onFillFromNorm: _fillFromNorm,
-          onChangeQuantity: _changeQuantity,
-          onSetQuantity: _setQuantity,
-          onRemove: _removePosition,
-        ),
+          const SizedBox(height: AppConstants.spacingSM),
+          _PhotoStrip(
+            photos: photos,
+            editable: _editable,
+            busy: _isPhotoBusy,
+            onAdd: _addPhoto,
+            onRemove: (view) {
+              final local = view.localPath;
+              if (local != null) {
+                _removeLocalPhoto(local);
+              } else {
+                _removePhoto(view.remote!);
+              }
+            },
+          ),
+          const SizedBox(height: AppConstants.spacingSM),
+          // Разделитель раньше рисовала сама секция расхода. Теперь секция общая
+          // с экраном осмотра, где она стоит между другими блоками формы и
+          // отбивка сверху не нужна, — поэтому здесь она своя.
+          Divider(color: cs.outlineVariant, height: AppConstants.spacingLG * 2),
+          SparePartConsumptionSection(
+            lines: _consumptionLines,
+            // Без права на ЗИП каталог пуст — позицию выбрать не из чего.
+            editable: _editable && _canEditConsumption,
+            // Ремонт закрыт — значит ЗИП уже списан со склада, и сравнение
+            // расхода с остатком дало бы ложную тревогу про позицию, которая
+            // как раз этим ремонтом и была списана.
+            showStockWarnings: !repair.isClosed,
+            // Пустой блок означает разное. Если карточку читали целиком —
+            // расхода действительно нет. Если нет (открыли по кэшу без связи, а
+            // список расход не отдаёт) — мы просто не знаем, и говорить
+            // «списания не будет» нельзя: это и создавало ощущение, что расход
+            // пропал.
+            //
+            // Черновик сюда не попадает: `PendingRepair.toRepair` ставит
+            // отметку сам — его расход лежит в очереди целиком.
+            emptyNote: _editable && !_canEditConsumption
+                ? RepairCardStrings.consumptionNoAccessNote
+                : repair.detailsLoaded
+                    ? RepairCardStrings.consumptionEmptyNote
+                    : RepairCardStrings.consumptionUnknownNote,
+            hasNorm: repair.normItems.isNotEmpty,
+            // Кнопка гаснет, когда добавлять уже нечего (п. 4.3.9 отчёта):
+            // нажимать её ради снекбара «всё добавлено» бессмысленно.
+            canFillFromNorm: _missingNormItems.isNotEmpty,
+            onAdd: _addPosition,
+            onFillFromNorm: _fillFromNorm,
+            onChangeQuantity: _changeQuantity,
+            onSetQuantity: _setQuantity,
+            onRemove: _removePosition,
+          ),
+        ],
         ..._buildUnsentSection(cs),
         // История изменений (макет 14i) — внизу карточки: точки входа на
         // макете нет, так решено. Только у ремонта на сервере: у черновика
@@ -1567,12 +1644,15 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
         ],
       );
     }
-    if (!_editable) return null;
+    // Без подробностей панель остаётся, но кнопки заперты ([_detailsMissing]):
+    // исчезая на время загрузки, она сдвигала бы карточку при каждом открытии.
+    if (!_workAllowed) return null;
     return _BottomBar(
       children: [
         Expanded(
           child: OutlinedButton(
-            onPressed: _hasChanges && !_isSaving ? _save : null,
+            onPressed:
+                _hasChanges && !_isSaving && !_detailsMissing ? _save : null,
             child: const Text(RepairCardStrings.save),
           ),
         ),
@@ -1581,7 +1661,9 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
           child: ElevatedButton.icon(
             // Сохранять можно, а отправлять на рассмотрение сервер не даёт —
             // кнопка неактивна, а не ведёт в заведомый отказ.
-            onPressed: _isSaving || !canSubmitRepair(repair) ? null : _submit,
+            onPressed: _isSaving || _detailsMissing || !canSubmitRepair(repair)
+                ? null
+                : _submit,
             icon: _isSaving
                 ? const _ButtonSpinner()
                 : const Icon(Icons.send_rounded),
@@ -2567,6 +2649,26 @@ class _ButtonSpinner extends StatelessWidget {
       child: CircularProgressIndicator(
         strokeWidth: 2.5,
         color: Theme.of(context).colorScheme.onPrimary,
+      ),
+    );
+  }
+}
+
+/// Место комментария, фото и расхода, пока полная карточка ремонта грузится
+/// (см. `_detailsPending`). Один индикатор вместо трёх пустых блоков: они
+/// показывали бы «нет комментария» и «нет фото», которых на деле может и не
+/// быть, а потом сменялись бы ответом сервера.
+class _DetailsLoading extends StatelessWidget {
+  const _DetailsLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppConstants.spacingXL),
+      child: Center(
+        child: CircularProgressIndicator(
+          color: Theme.of(context).colorScheme.primary,
+        ),
       ),
     );
   }

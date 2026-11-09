@@ -5,9 +5,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../global_state.dart';
 import '../../settings.dart';
+import '../../strings.dart';
 import '../model/inventory_record.dart';
 import '../model/notification.dart';
 import '../model/task.dart';
+import '../tasks/task_deadline.dart';
 import '../utils/go_router_ext.dart';
 import '../design/app_constants.dart';
 import '../design/app_theme.dart';
@@ -257,8 +259,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   ),
                   const SizedBox(height: AppConstants.spacingMD),
                   Builder(builder: (_) {
-                    final summary = NotificationFormatters.summaryDescription(
-                        n,
+                    final summary = NotificationFormatters.summaryDescription(n,
                         multiline: true);
                     final desc = summary ??
                         NotificationFormatters.effectiveDescription(n);
@@ -425,11 +426,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       if (pt.periodicityRuleDisplay.isNotEmpty) {
         widgets.add(_kv('Периодичность', pt.periodicityRuleDisplay));
       }
-      // Срок самого задания. `nextDueAt` у выданного задания сервер теперь
-      // обнуляет (бэкенд `ec225a5`) — он только для сервера прошлой версии.
-      final due = task.deadlineAt ?? pt.nextDueAt;
+      // Срок задания — по тому же правилу, что в карточке задачи
+      // ([taskDeadlineValue]): замороженный `deadline_at`, у доработки срока
+      // нет, у просроченного — пометка. Дату следующего запуска шаблона
+      // (`nextDueAt`) больше не подставляем: у выданного задания сервер её
+      // обнуляет (бэкенд `ec225a5`), а список и карточка её не показывают.
+      final due = taskDeadlineValue(task, DateTime.now());
       if (due != null) {
-        widgets.add(_kv('Срок', NotificationFormatters.formatDateTime(due)));
+        widgets.add(_kv(TaskDeadlineStrings.cardLabel, due));
       }
       if (pt.node != null && pt.node!.isNotEmpty) {
         widgets.add(_kv('Узел', pt.node!));

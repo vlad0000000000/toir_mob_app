@@ -50,7 +50,6 @@ import 'sync_report.dart';
 import 'sync_schedule.dart';
 import 'subscription_blocks.dart';
 import 'sync_window.dart';
-import 'task_generation.dart';
 import 'task_visibility.dart';
 import 'usage_order.dart';
 import '../tasks/removed_equipment.dart';
@@ -1056,8 +1055,7 @@ class DataProvider {
 
   /// Сервер, выдавший вход пользователю [username] (`null` — не знаем:
   /// запись прошлой версии). См. `data/session_server.dart`.
-  String? userServer(String username) =>
-      stringBox.get(userServerKey(username));
+  String? userServer(String username) => stringBox.get(userServerKey(username));
 
   /// Запомнить, что [username] вошёл на текущем сервере ([API.baseUrl]).
   Future<void> rememberUserServer(String username) =>
@@ -1264,28 +1262,6 @@ class DataProvider {
     }
   }
 
-  /// Сервер не создаёт задачи вне состояния «В работе» (бэкенд `5e60312`).
-  /// Отдельного признака нет: пояс компании появился в той же выкладке, и у
-  /// сервера прошлой версии паузы нет — обещать её было бы неправдой.
-  bool get taskPauseSupported => companyTimezone != null;
-
-  /// Плашка паузы на экране оборудования [machine]: сервер паузу умеет и
-  /// оборудование не «В работе». Состояние — из справочника, он новее
-  /// переданной записи; ремонт и черновик держат оборудование, даже если
-  /// справочник об этом ещё не знает ([isEquipmentHeldByRepair]).
-  bool isTaskGenerationPausedFor(InventoryRecord machine) {
-    if (!taskPauseSupported) return false;
-    if (isEquipmentHeldByRepair(machine.uuid)) return true;
-    var state = machine.state;
-    for (final record in _inventoryRecords) {
-      if (record.uuid == machine.uuid) {
-        state = record.state;
-        break;
-      }
-    }
-    return isTaskGenerationPaused(state);
-  }
-
   /// Порядок ответов `/user/me` в [syncAccessProfile]: запоздалый ответ
   /// более раннего запроса не ложится поверх свежего.
   final _profileResponses = AccessResponseOrder();
@@ -1430,9 +1406,8 @@ class DataProvider {
   final ValueNotifier<int> rejectedScansCount = ValueNotifier<int>(0);
 
   /// Отклонённые осмотры — для полосы на главной и диалога с причинами.
-  List<Scan> get rejectedScans => scanBox.values
-      .where((scan) => scan.isRejected && isMine(scan))
-      .toList();
+  List<Scan> get rejectedScans =>
+      scanBox.values.where((scan) => scan.isRejected && isMine(scan)).toList();
 
   void refreshRejectedScansCount() {
     rejectedScansCount.value = rejectedScans.length;
@@ -1582,9 +1557,8 @@ class DataProvider {
   /// Черновики ремонтов, ждущие отправки. Порядок — от новых к старым, как в
   /// списке ремонтов.
   List<PendingRepair> get pendingRepairs {
-    final drafts = pendingRepairBox.values
-        .where((draft) => isMine(draft))
-        .toList();
+    final drafts =
+        pendingRepairBox.values.where((draft) => isMine(draft)).toList();
     drafts.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return drafts;
   }
@@ -2442,6 +2416,10 @@ class DataProvider {
     await (after.isEmpty
         ? stringBox.delete(_removedEquipmentKey)
         : stringBox.put(_removedEquipmentKey, jsonEncode(after.toList())));
+    // Набор решает, какие взятые задачи видны в «Задачах»: открытый список
+    // должен перестроиться. Архив грузится уже после прохода справочника,
+    // и его собственная ревизия к этому моменту уже сдвинута.
+    inventoryRevision.value++;
   }
 
   static const String _removedEquipmentKey = 'equipment_removed_uuids';

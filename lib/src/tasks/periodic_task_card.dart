@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import '../../src/model/periodic_task_models.dart';
 import '../../src/model/spare_part_usage.dart';
+import '../../src/model/task.dart';
 import '../../src/model/task_access.dart';
 import '../../strings.dart';
 import '../design/app_constants.dart';
 import '../design/app_theme.dart';
 import '../widgets/app_bottom_sheet.dart';
 import '../widgets/spare_part_consumption.dart';
+import 'task_deadline.dart';
 
 /// Карточка периодической задачи (узел, описание, норма расхода, фото) — общая
 /// для списка задач оборудования и для списка задач ППР.
@@ -21,29 +23,41 @@ import '../widgets/spare_part_consumption.dart';
 /// причина возврата и кто вернул показываются блоком сразу под заголовком.
 /// В списке задач их больше нет — там задача и так в группе «На доработку»,
 /// а длинная причина раздувала строку.
+///
+/// [task] — выданный экземпляр: срок есть у него, а не у шаблона [pt]. Строка
+/// «Срок» стоит сразу под названием (замечание 14, 09.11.2026); в списке её
+/// больше нет, см. `TaskDeadlineLine`.
 void showPeriodicTaskCard(
   BuildContext context,
   PeriodicTask pt, {
   SparePartUsage? usage,
   TaskAccess? rework,
+  Task? task,
 }) {
   final tt = Theme.of(context).textTheme;
+  final now = DateTime.now();
+  final deadline = task == null ? null : taskDeadlineValue(task, now);
+  final overdue = task?.isOverdueAt(now) ?? false;
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (context) => DraggableScrollableSheet(
-      initialChildSize: 0.6,
-      minChildSize: 0.3,
-      maxChildSize: 0.95,
-      expand: false,
-      builder: (context, scrollController) => SingleChildScrollView(
-        controller: scrollController,
-        padding: const EdgeInsets.fromLTRB(
-            AppConstants.spacingMD,
-            0,
-            AppConstants.spacingMD,
-            AppConstants.spacingMD),
+    // Высота — по содержимому: раньше лист всегда открывался на 60% экрана, и
+    // у короткой задачи снизу оставалась пустота. Длинное — описание, норма,
+    // фото — упирается в 90% экрана и прокручивается.
+    builder: (context) => ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.9,
+      ),
+      child: SingleChildScrollView(
+        // Снизу — ещё и системная полоса жестов, чтобы «Закрыть» не уходила
+        // под неё, когда лист стоит вплотную к краю экрана.
+        padding: EdgeInsets.fromLTRB(
+          AppConstants.spacingMD,
+          0,
+          AppConstants.spacingMD,
+          AppConstants.spacingMD + MediaQuery.viewPaddingOf(context).bottom,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -52,6 +66,21 @@ void showPeriodicTaskCard(
               pt.title,
               style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
+            if (deadline != null) ...[
+              const SizedBox(height: 8),
+              _buildDetailRow(
+                context,
+                TaskDeadlineStrings.cardLabel,
+                deadline,
+                // Просроченный — красным и жирным, как было в списке.
+                valueStyle: overdue
+                    ? tt.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.error,
+                        fontWeight: FontWeight.w600,
+                      )
+                    : null,
+              ),
+            ],
             if (rework != null && rework.returned) ...[
               const SizedBox(height: AppConstants.spacingMD),
               _ReworkBlock(access: rework),
@@ -250,7 +279,12 @@ Widget _buildNormRow(BuildContext context, SparePartUsageItem item) {
   );
 }
 
-Widget _buildDetailRow(BuildContext context, String label, String value) {
+Widget _buildDetailRow(
+  BuildContext context,
+  String label,
+  String value, {
+  TextStyle? valueStyle,
+}) {
   final cs = Theme.of(context).colorScheme;
   final tt = Theme.of(context).textTheme;
   return Padding(
@@ -266,7 +300,7 @@ Widget _buildDetailRow(BuildContext context, String label, String value) {
           ),
         ),
         const SizedBox(height: 2),
-        Text(value, style: tt.bodyMedium),
+        Text(value, style: valueStyle ?? tt.bodyMedium),
       ],
     ),
   );

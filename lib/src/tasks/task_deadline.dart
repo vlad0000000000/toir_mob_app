@@ -16,6 +16,15 @@ String? taskDeadlineText(Task task, DateTime now) {
       : TaskDeadlineStrings.due(date);
 }
 
+/// Значение строки «Срок» в карточке задачи: дата, у просроченной — с
+/// пометкой. `null` — по тем же правилам, что и [taskDeadlineText].
+String? taskDeadlineValue(Task task, DateTime now) {
+  final deadline = task.deadlineAt;
+  if (deadline == null || task.isReturnedForRework) return null;
+  final date = NotificationFormatters.formatDateTime(deadline);
+  return task.isOverdueAt(now) ? TaskDeadlineStrings.overdueValue(date) : date;
+}
+
 /// Порядок задач внутри группы: сначала самый ранний срок, задачи без срока —
 /// после них. Экземпляров одной задачи бывает несколько (сервер их сам не
 /// закрывает), и самый старый не должен потеряться в конце списка. При равном
@@ -36,6 +45,10 @@ int compareTasksByDeadline(Task a, Task b) {
 
 /// Строка срока под названием задачи: у просроченной — красным и жирным.
 /// Общая для задач оборудования и списка ППР.
+///
+/// Срок живёт в карточке задачи (замечание 14, 09.11.2026), в списке строка
+/// остаётся только у задачи без карточки — без шаблона кнопки «i» нет, и
+/// иначе срок не было бы видно нигде.
 class TaskDeadlineLine extends StatelessWidget {
   final Task task;
 

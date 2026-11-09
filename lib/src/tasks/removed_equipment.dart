@@ -32,7 +32,9 @@ List<InventoryRecord> removedEquipmentRecords(
       return InventoryRecord(
         id: equipment?.id ?? -(byUuid.length + 1),
         uuid: uuid,
-        name: equipment?.name ?? RemovedEquipmentStrings.unknownName,
+        name: equipment?.name ??
+            task.equipmentName ??
+            RemovedEquipmentStrings.unknownName,
         typeModel: equipment?.typeModel,
         serialNumber: null,
         location: null,

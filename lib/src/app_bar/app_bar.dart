@@ -47,24 +47,32 @@ class MyAppBar {
     if (location == '/qr_result' || location == '/qr_result_demo') {
       return AppBar(
         leading: BackButton(
-          onPressed: () =>
-              GoRouter.of(context).backOr('/qr_scanner'),
+          onPressed: () => GoRouter.of(context).backOr('/qr_scanner'),
         ),
+        title: const Text('Осмотр'),
       );
     }
     if (location == '/qr_result_problems') {
       return AppBar(
         leading: BackButton(
-          onPressed: () =>
-              GoRouter.of(context).backOr('/problems'),
+          onPressed: () => GoRouter.of(context).backOr('/problems'),
         ),
+        title: const Text('Осмотр'),
+      );
+    }
+    // Взятая задача по удалённому оборудованию — открывают из «Задач».
+    if (location == '/qr_result_removed') {
+      return AppBar(
+        leading: BackButton(
+          onPressed: () => GoRouter.of(context).backOr('/tasks'),
+        ),
+        title: const Text('Осмотр'),
       );
     }
     if (location == '/tasks' || location == '/problems') {
       return AppBar(
         leading: BackButton(
-          onPressed: () =>
-              GoRouter.of(context).backOr('/actions'),
+          onPressed: () => GoRouter.of(context).backOr('/actions'),
         ),
         title: const Text('Оборудование'),
       );
@@ -82,8 +90,7 @@ class MyAppBar {
     if (location == '/repairs') {
       return AppBar(
         leading: BackButton(
-          onPressed: () =>
-              GoRouter.of(context).backOr('/actions'),
+          onPressed: () => GoRouter.of(context).backOr('/actions'),
         ),
         title: const Text('Ремонты'),
       );
@@ -94,8 +101,7 @@ class MyAppBar {
     if (location == '/spare_parts') {
       return AppBar(
         leading: BackButton(
-          onPressed: () =>
-              GoRouter.of(context).backOr('/actions'),
+          onPressed: () => GoRouter.of(context).backOr('/actions'),
         ),
         title: const Text('ЗИП'),
       );
@@ -139,8 +145,7 @@ class MyAppBar {
       return AppBar(
         leading: BackButton(
           color: cs.onInverseSurface,
-          onPressed: () =>
-              GoRouter.of(context).backOr('/actions'),
+          onPressed: () => GoRouter.of(context).backOr('/actions'),
         ),
         automaticallyImplyLeading: false,
         backgroundColor: cs.inverseSurface,

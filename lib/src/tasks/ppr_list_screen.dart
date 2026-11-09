@@ -123,8 +123,7 @@ class _PprCard extends StatelessWidget {
     final progress = GlobalState.dataProvider.pprProgressForUser(ppr);
     final subtitleParts = <String>[
       if (ppr.statusLabel.isNotEmpty) ppr.statusLabel,
-      if (progress.total > 0)
-        'выполнено ${progress.done} из ${progress.total}',
+      if (progress.total > 0) 'выполнено ${progress.done} из ${progress.total}',
     ];
 
     return Card(
@@ -174,8 +173,8 @@ class _PprCard extends StatelessWidget {
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 2),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
                       color: cs.surfaceContainerHighest,
                       borderRadius:
@@ -293,7 +292,9 @@ class _PprTaskItem extends StatelessWidget {
                               ?.copyWith(color: cs.onSurfaceVariant),
                         ),
                       ],
-                      TaskDeadlineLine(task: task),
+                      // Срок — в карточке по кнопке «i»; строкой — только
+                      // у задачи без карточки.
+                      if (periodicTask == null) TaskDeadlineLine(task: task),
                     ],
                   ),
                 ),
@@ -306,6 +307,11 @@ class _PprTaskItem extends StatelessWidget {
                       context,
                       periodicTask,
                       usage: task.sparePartUsage,
+                      // Причина возврата — как на экране оборудования: без
+                      // неё задача ППР на доработке открывалась бы без
+                      // объяснения, что исправить.
+                      rework: task.isReturnedForRework ? task.access : null,
+                      task: task,
                     ),
                     tooltip: 'Карточка периодической задачи',
                   ),
