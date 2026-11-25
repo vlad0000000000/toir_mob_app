@@ -150,58 +150,54 @@ extension EquipmentApi on API {
     }
   }
 
-  Future<EquipmentState> getEquipmentStates() async {
+  /// Состояния оборудования. [ifNoneMatch] — ETag сохранённых: не менялись —
+  /// 304 без тела ([Conditional.notModified]).
+  Future<Conditional<EquipmentState>> getEquipmentStates({
+    String? ifNoneMatch,
+  }) async {
     _guardOffline();
     if (API.jwtToken == null) {
       throw Exception('Not authenticated');
     }
 
-    final url = Uri.parse('${API.baseUrl}/v1/company/equipment/states');
-
-    final response = await _client.get(
-      url,
-      headers: {
-        'Authorization': 'Bearer ${API.jwtToken}',
-      },
-    ).timeout(API._readTimeout);
-
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      const utf8Decoder = Utf8Decoder(allowMalformed: true);
-      final decodedBytes = utf8Decoder.convert(response.bodyBytes);
-      final Map<String, dynamic> data = jsonDecode(decodedBytes);
-      return EquipmentState.fromJson(data);
-    } else {
-      throw Exception(
-          'Failed to load equipment states: ${response.statusCode}');
-    }
+    final response = await _client
+        .get(
+          Uri.parse('${API.baseUrl}/v1/company/equipment/states'),
+          headers: _conditionalHeaders(ifNoneMatch),
+        )
+        .timeout(API._readTimeout);
+    return _conditionalResult(
+      response,
+      ifNoneMatch,
+      EquipmentState.fromJson,
+      'Failed to load equipment states',
+    );
   }
 
-  Future<List<UsageUnit>> getUsageUnitTypes() async {
+  /// Единицы наработки. [ifNoneMatch] — как у [getEquipmentStates].
+  Future<Conditional<List<UsageUnit>>> getUsageUnitTypes({
+    String? ifNoneMatch,
+  }) async {
     _guardOffline();
     if (API.jwtToken == null) {
       throw Exception('Not authenticated');
     }
 
-    final url =
-        Uri.parse('${API.baseUrl}/v1/company/equipment/usage-unit-types');
-
-    final response = await _client.get(
-      url,
-      headers: {
-        'Authorization': 'Bearer ${API.jwtToken}',
-      },
-    ).timeout(API._readTimeout);
-
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      const utf8Decoder = Utf8Decoder(allowMalformed: true);
-      final decodedBytes = utf8Decoder.convert(response.bodyBytes);
-      final Map<String, dynamic> data = jsonDecode(decodedBytes);
-      final List<dynamic> unitTypes = data['unit_types'];
-      return unitTypes.map((json) => UsageUnit.fromJson(json)).toList();
-    } else {
-      throw Exception(
-          'Failed to load usage unit types: ${response.statusCode}');
-    }
+    final response = await _client
+        .get(
+          Uri.parse('${API.baseUrl}/v1/company/equipment/usage-unit-types'),
+          headers: _conditionalHeaders(ifNoneMatch),
+        )
+        .timeout(API._readTimeout);
+    return _conditionalResult(
+      response,
+      ifNoneMatch,
+      (data) => [
+        for (final json in data['unit_types'] as List<dynamic>)
+          UsageUnit.fromJson(json),
+      ],
+      'Failed to load usage unit types',
+    );
   }
 
   Future<bool> updateUsageParameter(UsageUpdate usageUpdate) async {
@@ -219,6 +215,10 @@ extension EquipmentApi on API {
           headers: {
             'Authorization': 'Bearer ${API.jwtToken}',
             'Content-Type': 'application/json',
+            // Только с `current_value` в теле — иначе сервер ответит 400
+            // (бэкенд `81f644c`). Тело здесь именно такое.
+            if (usageUpdate.eventId != null)
+              'Idempotency-Key': usageUpdate.eventId!,
           },
           body: jsonEncode({'current_value': usageUpdate.usageParameterValue}),
         )
@@ -283,7 +283,14 @@ extension EquipmentApi on API {
     ];
   }
 
-  Future<bool> updateEquipmentState(String equipmentUuid, String state) async {
+  /// Смена одного состояния. [idempotencyKey] — ключ нажатия (бэкенд
+  /// `81f644c`): сервер принимает его только у запроса с одним `state`, без
+  /// фото, — здесь именно такой.
+  Future<bool> updateEquipmentState(
+    String equipmentUuid,
+    String state, {
+    String? idempotencyKey,
+  }) async {
     _guardOffline();
     if (API.jwtToken == null) {
       throw Exception('Not authenticated');
@@ -296,6 +303,9 @@ extension EquipmentApi on API {
 
     request.headers['Authorization'] = 'Bearer ${API.jwtToken}';
     request.headers['accept'] = 'application/json';
+    if (idempotencyKey != null) {
+      request.headers['Idempotency-Key'] = idempotencyKey;
+    }
     request.fields['state'] = state;
 
     try {

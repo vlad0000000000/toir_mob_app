@@ -21,6 +21,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import '../../src/login/login_screen.dart';
 import '../../src/model/inventory_record.dart';
+import '../../src/model/mobile_build.dart';
 import '../../src/model/periodic_task_models.dart';
 import '../../src/model/periodic_task_request.dart';
 import '../../src/model/periodicity_rule.dart';
@@ -35,7 +36,9 @@ import '../../src/qr/qr_screen.dart';
 import '../../src/knowledge_base/knowledge_base_screen.dart';
 import '../../src/qr/qa_actions.dart';
 import '../../src/qr/qr_result_screen.dart';
+import '../../src/notifications/announcements_service.dart';
 import '../../src/notifications/notifications_screen.dart';
+import '../../src/notifications/notifications_service.dart';
 import '../../src/notifications/notifications_settings_screen.dart';
 import '../../src/notifications/push/notification_router.dart';
 import '../../src/notifications/push/push_notifications_controller.dart';
@@ -312,6 +315,33 @@ Future<void> main() async {
   // и запоздалый отказ прошлой сессии не выкинет нового входа с тем же
   // токеном.
   API.accessSession = () => dataProvider.accessSession;
+  // Установка приложения (бэкенд `81f644c`): UUID создаётся один раз и
+  // живёт до удаления приложения. Заголовок — только после регистрации у
+  // вошедшего; регистрирует `mainSync`. Впервые зарегистрировали — фоновый
+  // сервис переподключает поток уже с заголовком.
+  await dataProvider.ensureInstallationId();
+  // Сборка — до сохранённого статуса и первого запроса: по ней сверяется
+  // статус поддержки и ставится `X-Mobile-Build-Number` (бэкенд `811c4dc`).
+  await MobileBuild.current();
+  dataProvider.loadSupportStatus(GlobalState.authUser);
+  API.installationId = () => dataProvider.installationHeaderId;
+  // Рабочие запросы (плановые задачи, взятие ремонта) — с UUID и сборкой
+  // даже до регистрации: по ним сервер проверяет ограничение работы версии.
+  API.rawInstallationId = () => dataProvider.installationId;
+  API.installedBuild = () => MobileBuild.known?.buildNumber;
+  // 426 — работа версии ограничена: статус с сервера сразу, плашка на
+  // главной появится, не дожидаясь сигнала `mobile_support_changed`.
+  API.onWorkBlocked = () => unawaited(dataProvider.refreshSupportStatus());
+  dataProvider.onInstallationRegistered = () {
+    unawaited(PushNotificationsController.instance.ensureRunning());
+    // Лента без карточек 1.0, поток с заголовком, объявления — свои.
+    NotificationsService.instance.onInstallationRegistered();
+    unawaited(AnnouncementsService.instance.refresh());
+  };
+  // Проход синхронизации прошёл — связь есть: объявления, не загрузившиеся
+  // без неё, догружаются.
+  dataProvider.onMainSyncDone =
+      () => unawaited(AnnouncementsService.instance.refreshIfStale());
   // Роль, права или область поменяли во время работы — перечитываем доступ
   // и справочники сразу, по заголовку первого же ответа.
   API.onAccessVersion = dataProvider.handleAccessVersion;
@@ -344,7 +374,8 @@ Future<void> main() async {
   // событию, которое растёт уже после перехода.
   dataProvider.accessBlockEvents.addListener(() async {
     if (!GlobalState.isAuthorized) return;
-    final stopping = signOut();
+    // Доступ закрыт, а сессия на сервере ещё жива — отзываем её.
+    final stopping = signOut(revokeSession: true);
     MyApp._router.clearStackAndNavigate('/login');
     dataProvider.accessNoticeEvents.value++;
     await stopping;

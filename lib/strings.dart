@@ -186,6 +186,11 @@ class RepairStrings {
   // Список ремонтов
   static const String groupFree = 'СВОБОДНЫЕ — МОЖНО ВЗЯТЬ В РАБОТУ';
   static const String groupMine = 'МОИ РЕМОНТЫ';
+
+  /// Неотправленное, чьей карточки в списке не видно: ремонт вне выбранных
+  /// статусов («На рассмотрении», «Закрыт»), не подходит под поиск или его
+  /// больше нет у обходчика (удалён, передан другому).
+  static const String groupUnsent = 'НЕ ОТПРАВЛЕНО';
   static const String listEmptyTitle = 'Ремонтов нет';
   static const String listEmptyHint =
       'Здесь появятся ремонты, за которые вы отвечаете.';
@@ -375,6 +380,38 @@ class RepairStrings {
 /// только чтобы список констант оставался обозримым.
 class RepairCardStrings {
   RepairCardStrings._();
+
+  // Ремонт изменили на сервере (412 на If-Match, бэкенд `d22727e`).
+  static const String changedOnServerReason =
+      'Ремонт изменили на сервере после того, как вы открыли карточку. '
+      'Ваша правка не отправлена. Проверьте, что там сейчас, и решите, '
+      'отправлять ли её.';
+  static const String changedOnServerSnack =
+      'Ремонт изменили на сервере — правка не отправлена';
+  static const String serverNowLabel = 'Сейчас на сервере';
+  static String serverNowStatus(String status) => 'Статус: $status';
+  static String serverNowComment(String comment) =>
+      comment.isEmpty ? 'Комментария нет' : 'Комментарий: $comment';
+  static String serverNowConsumptions(int count) =>
+      count == 0 ? 'Расхода ЗИП нет' : 'Позиций расхода ЗИП: $count';
+  static const String sendMine = 'Отправить мою правку';
+  static const String discardMine = 'Отменить мою правку';
+  static const String discardNeedsConnection =
+      'Чтобы отменить правку и загрузить ремонт с сервера, нужна связь';
+
+  /// Удаление отклонённой правки существующего ремонта из блока «Не
+  /// отправлено»: сервер её не принял, и сама она не уйдёт.
+  static const String deleteUnsent = 'Удалить неотправленное';
+  static String deleteUnsentBody(String equipmentName) =>
+      'Комментарий, расход ЗИП и снимки этой правки ремонта по оборудованию '
+      '«$equipmentName» на сервер не попали и будут удалены с телефона. Сам '
+      'ремонт на сервере не изменится.';
+
+  /// Ремонт уже отправлен на проверку, а снимки добавили, пока шла отправка:
+  /// «На рассмотрении» сервер их не принимает.
+  static const String photosAfterSubmit =
+      'Ремонт уже на рассмотрении — снимки, добавленные во время отправки, '
+      'сервер не принял. Скопируйте данные или удалите неотправленное.';
 
   // Карточка
   static const String title = 'Ремонт';
@@ -819,9 +856,22 @@ class ScanQueueStrings {
   /// перенесли на другое направление. Запись с фото остаётся на телефоне,
   /// пока обходчик сам её не удалит. Признак вида отказа, как и строки выше
   /// (`isTaskWithdrawnReason`).
+  /// Экземпляр календарной задачи пропущен: по расписанию выдан следующий, а
+  /// этот сервер снял (`missed`, бэкенд `5a789dc`). Окончательно — снятый
+  /// экземпляр не вернётся. Признак вида отказа (`isTaskMissedReason`).
+  static const String errorTaskMissed =
+      'Задача пропущена: по расписанию уже выдана следующая. Результат с фото '
+      'сохранён на телефоне';
+
   static const String errorTaskWithdrawn =
       'Задачу сняли: её или оборудование удалили, либо передали задачу '
       'другому направлению. Результат с фото сохранён на телефоне';
+
+  /// Ключ записи уже использован для запроса с другими данными (409
+  /// `idempotency_key_conflict`, бэкенд `81f644c`). Окончательно.
+  static const String errorKeyConflict =
+      'Эта запись уже отправлялась с другими данными. Удалите её и внесите '
+      'заново.';
 
   static const String rejectedTitle = 'Осмотры не отправлены';
   static const String rejectedAction = 'Разобраться';
@@ -961,6 +1011,17 @@ class ScanConflictStrings {
   static const String deleteWithdrawnBody =
       'Результат с фото будет удалён с телефона безвозвратно. Задачи на '
       'сервере уже нет.';
+
+  /// Задача пропущена — повтор не поможет, кнопки повтора нет (решение
+  /// 18.11: результат на новую задачу не переносим).
+  static const String missedHint =
+      'Эту задачу уже не выполнить: выдана следующая, она в списке задач. '
+      'Если в результате есть что-то важное — передайте руководителю, затем '
+      'удалите осмотр. До этого он с фото хранится на телефоне.';
+
+  static const String deleteMissedBody =
+      'Результат с фото будет удалён с телефона безвозвратно. Пропущенная '
+      'задача на сервере уже закрыта для выполнения.';
 
   static const String photosLabel = 'ФОТО';
   static const String taskLabel = 'ЗАДАЧА';
@@ -1227,8 +1288,22 @@ class DialogStrings {
   static const String syncProblemReportsRejectedTitle =
       'Заявка о проблеме не создана';
   static const String syncRepairsFailedTitle = 'Не все ремонты отправлены';
+
+  /// Ждут отправки — связь, сбой сервера, ремонт ещё не начался. Уйдут сами.
   static const String syncRepairsFailedBody =
-      'Откройте раздел «Ремонты» — там видно, что помешало.';
+      'Изменения уйдут сами, когда будет связь или ремонт начнётся. Они '
+      'видны в «Ремонтах», в блоке «Не отправлено».';
+
+  /// Сервер отказал — сами не уйдут, решает обходчик.
+  static const String syncRepairsRejectedTitle =
+      'Ремонты не приняты сервером';
+  static const String syncRepairsRejectedBody =
+      'Откройте «Ремонты» — в блоке «Не отправлено» видна причина. Повторите '
+      'отправку или удалите запись.';
+
+  /// Кнопка окна синхронизации — перейти к неотправленным ремонтам.
+  static const String syncOpenRepairs = 'Открыть ремонты';
+  static const String syncGotIt = 'Понятно';
   static const String scansReset = 'Осмотры успешно сброшены';
   static const String infoTitle = 'Информация';
 
@@ -1459,4 +1534,85 @@ class AccessRoleStrings {
   static const String roleInactiveTitle = 'Роль доступа отключена';
   static const String companyMissingTitle =
       'Учётная запись не привязана к компании';
+}
+
+/// Плашка поддержки версии на главной (бэкенд `81f644c`).
+///
+/// Сервер ничего не блокирует — даже после окончания поддержки приложение
+/// работает. Поэтому тексты только предупреждают и зовут обновиться.
+class MobileSupportStrings {
+  MobileSupportStrings._();
+
+  static const String endingSoonTitle = 'Скоро завершится поддержка версии';
+  static const String obsoleteTitle = 'Поддержка версии завершена';
+
+  /// [version] — название версии с сервера, `null` — неизвестно. [date] —
+  /// дата окончания, уже в поясе компании и отформатированная.
+  static String endingSoonBody(String? version, String? date, bool canUpdate) {
+    final which = version == null ? 'вашей версии' : 'версии $version';
+    final when = date == null ? 'скоро завершится' : 'завершится $date';
+    return 'Поддержка $which $when. '
+        '${canUpdate ? 'Обновите приложение в RuStore.' : 'Обновите приложение.'}';
+  }
+
+  static String obsoleteBody(String? version, bool canUpdate) {
+    final which = version == null ? 'Ваша версия' : 'Версия $version';
+    return '$which больше не поддерживается. '
+        '${canUpdate ? 'Обновите приложение в RuStore.' : 'Обновите приложение.'}';
+  }
+
+  static const String update = 'Обновить в RuStore';
+  static const String openFailed = 'Не удалось открыть RuStore';
+
+  /// Работа версии ограничена вручную (`work_blocked`, бэкенд `811c4dc`).
+  static const String workBlockedTitle = 'Работа в этой версии ограничена';
+
+  /// Очередь сервер принимает — об этом и говорим: обходчик не должен
+  /// бояться, что накопленное пропадёт.
+  static String workBlockedBody(bool canUpdate) =>
+      'Новые задачи и ремонты не загружаются. Накопленные осмотры и фото '
+      'отправятся. '
+      '${canUpdate ? 'Обновите приложение в RuStore.' : 'Обновите приложение.'}';
+
+  /// Ответ 426 на загрузку задач или взятие ремонта — когда статуса с
+  /// сервера ещё нет; текст сервера тот же по смыслу.
+  static const String workBlockedShort =
+      'Работа в этой версии ограничена. Обновите приложение через RuStore.';
+
+  /// Кнопка в окне синхронизации.
+  static const String openStore = 'Открыть RuStore';
+}
+
+/// Задачи ППР, ждущие оборудование «В работе» (бэкенд `6296b61`).
+class PprWaitingStrings {
+  PprWaitingStrings._();
+
+  static const String sectionLabel = 'ЖДУТ ОБОРУДОВАНИЕ «В РАБОТЕ»';
+
+  /// Подзаголовок ППР: «ждут оборудование: 2».
+  static String count(int n) => 'ждут оборудование: $n';
+
+  static const String hint =
+      'Задача появится, когда оборудование переведут «В работе». Состояние '
+      'можно сменить на экране оборудования после сканирования.';
+
+  static const String unknownEquipment = 'Оборудование';
+}
+
+/// Сервисные объявления в «Уведомлениях» (бэкенд `81f644c`).
+class AnnouncementStrings {
+  AnnouncementStrings._();
+
+  /// Подпись типа над заголовком карточки — как у уведомлений. Те же слова,
+  /// что сервер даёт карточкам версии 1.0 (`LEGACY_CARD_LABELS`).
+  static String typeLabel(bool release) =>
+      release ? 'Обновление приложения' : 'Объявление';
+
+  static const String important = 'Важное';
+  static const String statusActive = 'Активно';
+  static const String statusExpired = 'Завершено';
+  static String version(String version) => 'Версия $version';
+
+  static String visibleFrom(String date) => 'Показывается с $date';
+  static String visibleUntil(String date) => 'Показывается до $date';
 }

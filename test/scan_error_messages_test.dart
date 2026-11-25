@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qr_scan_industry/src/exceptions/app_exceptions.dart';
+import 'package:qr_scan_industry/src/model/task.dart';
 import 'package:qr_scan_industry/src/qr/scan_error_messages.dart';
 import 'package:qr_scan_industry/strings.dart';
 
@@ -271,6 +272,104 @@ void main() {
       final closed = Exception('Закрытый осмотр нельзя изменить [HTTP 400]');
       expect(isTaskWithdrawnError(closed, closesTask: true), isFalse);
       expect(isTaskWithdrawnReason(ScanQueueStrings.errorGeneric), isFalse);
+    });
+  });
+
+  group('коды отказов осмотра (бэкенд 811c4dc)', () {
+    ServerFailureException failure(String code) => ServerFailureException(
+          409,
+          'Осмотр снят как пропущенный. Сохраните результат и фотографии.',
+          errorCode: code,
+        );
+
+    test('409 inspection_missed — задача снята, причина без перечитывания', () {
+      final missed = failure(inspectionMissedCode);
+      expect(isInspectionMissedError(missed), isTrue);
+      expect(isTaskWithdrawnError(missed, closesTask: true), isTrue);
+      // Окончательно: запись с фото ждёт решения обходчика.
+      expect(isRetryableScanError(missed), isFalse);
+      expect(isScanAlreadyDelivered(missed), isFalse);
+      expect(
+        scanRejectionMessage(missed, closesTask: true),
+        ScanQueueStrings.errorTaskWithdrawn,
+      );
+    });
+
+    test('прочие отказы и 404 — не «пропущена»', () {
+      expect(isInspectionMissedError(failure('already_taken')), isFalse);
+      expect(
+        isInspectionMissedError(
+            ServerFailureException(404, 'Осмотр не найден.')),
+        isFalse,
+      );
+    });
+
+    test('ключ события ещё выполняется — повтор, ушёл с другим телом — нет',
+        () {
+      final inProgress = ServerFailureException(
+        409,
+        'Idempotency-Key is being processed; retry the request',
+        errorCode: idempotencyKeyInProgressCode,
+      );
+      expect(isRetryableScanError(inProgress), isTrue);
+      final conflict = ServerFailureException(
+        409,
+        'Idempotency-Key was already used with a different request',
+        errorCode: idempotencyKeyConflictCode,
+      );
+      expect(isRetryableScanError(conflict), isFalse);
+      expect(scanErrorMessage(conflict), ScanQueueStrings.errorKeyConflict);
+    });
+
+    test('код наверху и внутри detail разбирается одинаково', () {
+      expect(
+        serverErrorCode('{"code":"inspection_missed","detail":"x"}'),
+        inspectionMissedCode,
+      );
+      expect(
+        serverErrorCode(
+            '{"detail":{"code":"idempotency_key_conflict","message":"x"}}'),
+        idempotencyKeyConflictCode,
+      );
+      expect(serverErrorCode('{"detail":"Закрытый осмотр нельзя изменить"}'),
+          isNull);
+    });
+  });
+
+  group('пропущенная задача (бэкенд 5a789dc)', () {
+    test('перечитанный экземпляр пропущен — своя причина', () {
+      final reason = withdrawnTaskReason('missed');
+      expect(reason, ScanQueueStrings.errorTaskMissed);
+      expect(isTaskMissedReason(reason), isTrue);
+      expect(isTaskWithdrawnReason(reason), isFalse);
+    });
+
+    test('не найден, другой статус или перечитать не вышло — «сняли»', () {
+      for (final status in [null, 'scheduled', 'open', 'closed']) {
+        final reason = withdrawnTaskReason(status);
+        expect(reason, ScanQueueStrings.errorTaskWithdrawn, reason: '$status');
+        expect(isTaskMissedReason(reason), isFalse);
+      }
+    });
+
+    test('причина по-русски доходит до экрана как есть', () {
+      expect(
+        scanStoredReason(ScanQueueStrings.errorTaskMissed),
+        ScanQueueStrings.errorTaskMissed,
+      );
+    });
+
+    test('экземпляр со статусом missed разбирается', () {
+      final task = Task.fromJson({
+        'uuid': 't-1',
+        'result_status': 'missed',
+        'target_type': 'periodic',
+        'equipment_uuid': 'eq-1',
+        'photos': <dynamic>[],
+        'cancelled_at': '2026-11-16T09:00:00Z',
+        'cancel_reason': 'superseded',
+      });
+      expect(task.resultStatus, 'missed');
     });
   });
 }

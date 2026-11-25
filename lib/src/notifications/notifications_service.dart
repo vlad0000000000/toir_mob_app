@@ -15,7 +15,9 @@ import '../http/api.dart';
 import '../model/notification.dart';
 import '../model/notification_settings.dart';
 import '../utils/offline_error.dart';
+import 'announcements_service.dart';
 import 'pending_reads.dart';
+import 'push/notifications_task_handler.dart';
 import 'push/push_notifications_controller.dart';
 import 'sse_line_parser.dart';
 
@@ -81,6 +83,8 @@ class NotificationsService {
     // Недошедшие отметки прошлых запусков этого пользователя — досылка в
     // первом же refreshList ниже.
     _restorePendingReads();
+    // Объявления — своим запросом, параллельно ленте.
+    unawaited(AnnouncementsService.instance.bootstrap());
     // Сразу включаем флаг загрузки — иначе первая отрисовка экрана видит
     // isLoading=false + пустой список и моргает EmptyState'ом до того, как
     // запрос успеет долететь до сервера.
@@ -120,6 +124,14 @@ class NotificationsService {
     }
     if (data is Map && data['type'] == 'repair_changed') {
       _syncRepairsOnSignal();
+    }
+    if (data is Map && data['type'] == pprChangedEvent) {
+      _syncPprOnSignal();
+    }
+    // Сигналы служебных методов, пойманные потоком foreground-сервиса.
+    if (data is Map && data['type'] is String) {
+      final type = data['type'] as String;
+      if (isClientSignalEvent(type)) _onClientSignal(type);
     }
     // Состояние оборудования, пойманное потоком foreground-сервиса.
     if (data is Map && data['type'] == 'equipment_changed') {
@@ -588,6 +600,16 @@ class NotificationsService {
       } catch (_) {}
       return;
     }
+    if (isClientSignalEvent(event)) {
+      _onClientSignal(event);
+      return;
+    }
+    // ППР стартовал, выдал ждавшие задачи, выполнен или закрыт (бэкенд
+    // `6296b61`) — перечитать ППР.
+    if (event == pprChangedEvent) {
+      _syncPprOnSignal();
+      return;
+    }
     if (event != 'notification') return;
     // Доступ обходчика поменяли: сервер шлёт `notification` с
     // `action: access_changed` и закрывает поток. Кроме центра уведомлений
@@ -609,7 +631,49 @@ class NotificationsService {
     }
   }
 
+  /// Сигнал служебных методов (бэкенд `81f644c`): содержимого в нём нет,
+  /// источник правды — REST. Объявления подключает следующий этап.
+  void _onClientSignal(String event) {
+    if (!GlobalState.isAuthorized) return;
+    if (event == supportChangedEvent) {
+      unawaited(GlobalState.dataProvider.refreshSupportStatus());
+    }
+    if (event == announcementsChangedEvent) {
+      unawaited(AnnouncementsService.instance.refresh());
+    }
+  }
+
+  /// Установку впервые зарегистрировали: у запросов появился заголовок.
+  /// Лента перечитывается — карточки 1.0 из неё уходят, поток
+  /// переподключается — с заголовком он шлёт сигналы объявлений вместо
+  /// обновления этих карточек.
+  void onInstallationRegistered() {
+    if (!GlobalState.isAuthorized) return;
+    unawaited(refreshList());
+    if (_streamHandle != null) {
+      _disconnectStream();
+      _connectStream();
+    }
+  }
+
   Timer? _repairSyncDebounce;
+  Timer? _pprSyncDebounce;
+
+  /// `ppr_changed` — перечитать ППР, затем задачи: их осмотры догружает
+  /// [DataProvider.syncTasks]. Склейка в 1 с, как у ремонтов: закрытие
+  /// нескольких ППР подряд — серия событий.
+  void _syncPprOnSignal() {
+    if (!GlobalState.isAuthorized) return;
+    _pprSyncDebounce?.cancel();
+    _pprSyncDebounce = Timer(const Duration(seconds: 1), () async {
+      try {
+        await GlobalState.dataProvider.syncPpr();
+        await GlobalState.dataProvider.syncTasks();
+      } catch (e) {
+        debugPrint('Failed to sync PPR on SSE signal: $e');
+      }
+    });
+  }
 
   /// SSE — только сигнал, источник правды REST (см.
   /// `docs/mobile_notifications_flow.md`), поэтому перечитываем список
@@ -672,6 +736,8 @@ class NotificationsService {
     // записи — с чужим (или снятым) токеном.
     _repairSyncDebounce?.cancel();
     _repairSyncDebounce = null;
+    _pprSyncDebounce?.cancel();
+    _pprSyncDebounce = null;
     _disconnectStream();
     _detachForegroundListener();
   }
@@ -688,6 +754,7 @@ class NotificationsService {
     _readSession++;
     hasMore.value = true;
     settings.value = NotificationSettings.defaults();
+    AnnouncementsService.instance.onLogout();
     PushNotificationsController.instance.stop();
   }
 }

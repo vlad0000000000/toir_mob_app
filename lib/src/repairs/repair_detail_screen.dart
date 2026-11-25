@@ -23,6 +23,7 @@ import '../model/pending_repair_update.dart';
 import '../model/repair.dart';
 import '../model/repair_conflict.dart';
 import '../utils/go_router_ext.dart';
+import '../utils/idempotency_key.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/info_dialog.dart';
 import '../widgets/no_access.dart';
@@ -30,6 +31,8 @@ import '../widgets/session_sign_out_hold.dart';
 import '../widgets/spare_part_consumption.dart';
 import 'repair_access.dart';
 import 'repair_clipboard.dart';
+import 'repair_delete_dialog.dart';
+import 'repair_edit_base.dart';
 import 'repair_error_messages.dart';
 import 'repair_status_pill.dart';
 import 'spare_part_picker_sheet.dart';
@@ -93,6 +96,47 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
   /// Идёт действие из блока «Не отправлено»: перенос, повтор или удаление.
   bool _isUnsentBusy = false;
 
+  /// ETag и состояние ремонта, которые видит обходчик, — для `If-Match`
+  /// (бэкенд `d22727e`, решение 22.11). Берутся при загрузке карточки со
+  /// связью ([_refreshEditBase]); `null` — без связи или сервер прошлой
+  /// версии: правка уйдёт без `If-Match`, как раньше.
+  RepairEditBase? _editBase;
+
+  /// Версия ремонта, из которой заполнена форма. С ней сверяется ETag перед
+  /// сохранением ([_send]): обновление карточки с правками в форме меняет
+  /// [_repair] на свежую версию, а поля оставляет прежними — и ETag свежей
+  /// версии вернул бы на сервер старые значения полей, которых обходчик не
+  /// трогал.
+  Repair? _formSource;
+
+  /// Номер последнего запроса ETag ([_refreshEditBase]): ответ более раннего,
+  /// пришедший позже, не затирает свежий.
+  int _editBaseSeq = 0;
+
+  /// Номер последнего завершённого (или отменённого) запроса ETag: меньше
+  /// [_editBaseSeq] — запрос ещё летит.
+  int _editBaseDoneSeq = 0;
+
+  bool get _editBaseInFlight => _editBaseDoneSeq < _editBaseSeq;
+
+  /// [_editBase] ушёл в правку очереди ([_queueUpdate]). Очередь её отправит —
+  /// и ремонт изменится нашей же правкой, а ETag в карточке останется
+  /// прежним. Поэтому следующая онлайн-отправка без правки в очереди сначала
+  /// берёт ETag заново.
+  bool _editBaseSpent = false;
+
+  /// Правка, которую карточка последней положила в очередь, — с ней сверяется
+  /// ETag после её отправки ([_refreshEditBase]).
+  PendingRepairUpdate? _spentEdit;
+
+  /// Перезагрузки подряд из-за ETag другой версии ([_refreshEditBase]).
+  int _baseReloads = 0;
+
+  /// Завершится, когда ETag карточки загружен (или загрузить не вышло):
+  /// онлайн-сохранение ждёт его, иначе быстрое «Сохранить» ушло бы без
+  /// `If-Match` ([_send]).
+  Future<void>? _baseReady;
+
   /// Обходчик что-то менял в форме с момента последней загрузки с сервера.
   bool _userEdited = false;
 
@@ -148,6 +192,7 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
   /// после сохранения или перезагрузки правки считаются принятыми.
   void _applyRepair(Repair? repair) {
     _repair = repair;
+    _formSource = repair;
     _userEdited = false;
     if (repair == null) return;
     _commentController.text = repair.comment ?? '';
@@ -289,6 +334,27 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
       _failed = false;
       _outOfScope = false;
     });
+    // ETag карточки готов, когда завершится вся загрузка вместе с ним
+    // ([_baseReady]): онлайн-сохранение до этого ушло бы без `If-Match`.
+    // Прежнее ожидание — до замены: форма с правками останется той версии,
+    // и её ETag (может, ещё не пришедший) по-прежнему нужен сохранению.
+    final previousReady = _baseReady;
+    final ready = Completer<void>();
+    _baseReady = ready.future;
+    void baseDone() {
+      if (!ready.isCompleted) ready.complete();
+    }
+
+    // Форму не перезаполняем (правки обходчика или нет ответа) — готовность
+    // та же, что у ETag прежней версии, а не «сразу».
+    void keepPreviousBase() {
+      if (previousReady == null) {
+        baseDone();
+      } else {
+        unawaited(previousReady.whenComplete(baseDone));
+      }
+    }
+
     // Поколение кэша — до запроса, см. [DataProvider.upsertRepair].
     final generation = GlobalState.dataProvider.cacheGeneration;
     final requestSeq = GlobalState.dataProvider.beginRepairRequest();
@@ -304,6 +370,15 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
         generation: generation,
         requestSeq: requestSeq,
       );
+      // Основа правки — то, что обходчик сейчас увидит (решение 22.11). Форму
+      // с его правками перечитанные данные не трогают (ниже) — тогда и ETag
+      // остаётся прежним: правки сделаны поверх старой версии, и новый ETag
+      // молча затёр бы то, что за это время поменяли на сервере.
+      if (!_userEdited) {
+        unawaited(_refreshEditBase(shown: repair).whenComplete(baseDone));
+      } else {
+        keepPreviousBase();
+      }
       if (!mounted) return;
       setState(() {
         // Заполненную форму серверными данными не перетираем. Признак
@@ -312,16 +387,20 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
         final keepLocalEdits = _userEdited;
         final localComment = _commentController.text;
         final localConsumptions = _consumptions;
+        final localSource = _formSource;
 
         _applyRepair(repair);
         if (keepLocalEdits) {
           _commentController.text = localComment;
           _consumptions = localConsumptions;
           _userEdited = true;
+          // Поля — прежней версии, значит и сверять ETag с ней.
+          _formSource = localSource;
         }
         _isLoading = false;
       });
     } catch (e) {
+      keepPreviousBase();
       if (!mounted) return;
       // Без связи показываем карточку из офлайн-кэша, а не пустой экран с
       // ошибкой: активные ремонты там лежат целиком, и обходчик в цеху
@@ -334,11 +413,28 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
         // карточку как «данные не загрузились» значило бы звать к работе
         // над ремонтом, которую сервер уже не примет.
         _outOfScope = isRepairOutOfScope(e);
-        if (cached != null && !_userEdited) {
-          _applyRepair(cached);
+        // Ремонта нет и в кэше (удалён на сервере, передан другому), а
+        // неотправленная правка к нему есть — показываем ремонт по ней:
+        // иначе правку было бы не открыть и не удалить, а синхронизация
+        // вечно говорила бы «Не все ремонты отправлены».
+        final fallback = cached ?? _pendingUpdate?.toRepair();
+        if (fallback != null && !_userEdited) {
+          final previousSource = _formSource;
+          _applyRepair(fallback);
+          // Форма теперь из кэша, а ETag — прежней загруженной версии. Кэш
+          // мог успеть обновиться синхронизацией: другая версия — основа
+          // «неизвестна», и перед сохранением ETag загрузится заново
+          // (иначе лишний вопрос «Ремонт изменили»).
+          // И когда ETag ещё грузится: пришёл бы ETag прежней версии при
+          // форме из кэша новой.
+          if (previousSource != null &&
+              (_editBase != null || _editBaseInFlight) &&
+              !sameEditableFields(previousSource, fallback)) {
+            _setEditBase((etag: unknownBaseEtag, state: ''));
+          }
           _applyPendingUpdate();
-        } else if (cached != null) {
-          _repair = cached;
+        } else if (fallback != null) {
+          _repair = fallback;
         } else {
           _failed = true;
         }
@@ -376,6 +472,129 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
 
   // ── действия ──────────────────────────────────────────────────────────
 
+  /// Берёт ETag и состояние ремонта для `If-Match` (`edit-state`, бэкенд
+  /// `d22727e`). Не вышло — правка уйдёт без него, как раньше: ничего не
+  /// ломается, пропадает только проверка «ремонт изменили».
+  ///
+  /// Пишет только ответ последнего запроса: запрос из [_load] мог уйти до
+  /// сохранения, а вернуться после него — со старым ETag.
+  ///
+  /// ETag приходит отдельным запросом, и ремонт мог измениться между ним и
+  /// загрузкой карточки. Поэтому он принимается, только если его состояние
+  /// совпадает с тем, что обходчик видит: [shown] — ремонт в карточке,
+  /// [sentEdit] — правка, которую очередь уже отправила (`_editBaseSpent`).
+  /// Не совпало — форма без правок перезагружается (не больше двух раз
+  /// подряд), а с правками основа помечается неизвестной ([unknownBaseEtag]):
+  /// сохранение получит 412 и покажет, что на сервере.
+  ///
+  /// Загрузить ETag не вышло (нет связи, 5xx) — основа тоже «неизвестна»:
+  /// сброс в `null` отправил бы правку без `If-Match`. Без `If-Match` правка
+  /// уходит, только если сервер `edit-state` не знает (прошлая версия) или
+  /// ответил без ETag. [allowReload] — можно ли перезагрузить форму при
+  /// чужой версии (нельзя посреди сохранения).
+  Future<void> _refreshEditBase({
+    Repair? shown,
+    PendingRepairUpdate? sentEdit,
+    bool allowReload = true,
+  }) {
+    final future = _fetchEditBase(
+      shown: shown,
+      sentEdit: sentEdit,
+      allowReload: allowReload,
+    );
+    _baseReady = future;
+    return future;
+  }
+
+  Future<void> _fetchEditBase({
+    Repair? shown,
+    PendingRepairUpdate? sentEdit,
+    required bool allowReload,
+  }) async {
+    final seq = ++_editBaseSeq;
+    RepairEditBase? base;
+    var failed = false;
+    try {
+      base = await API().getRepairEditState(widget.repairUuid);
+    } catch (error) {
+      base = null;
+      failed = !isEditStateUnsupported(error);
+    }
+    if (seq > _editBaseDoneSeq) _editBaseDoneSeq = seq;
+    if (!mounted || seq != _editBaseSeq) return;
+    if (failed) {
+      _editBase = (etag: unknownBaseEtag, state: '');
+      _editBaseSpent = false;
+      return;
+    }
+    if (base != null) {
+      final matches = shown != null
+          ? editStateMatchesRepair(base.state, shown)
+          : sentEdit == null ||
+              editStateMatchesSentEdit(
+                base.state,
+                sentComment: sentEdit.comment,
+                sentConsumptions: sentEdit.consumptions,
+                submitted: sentEdit.submitForReview,
+              );
+      if (!matches) {
+        _editBaseSpent = false;
+        if (allowReload && shown != null && !_userEdited && _baseReloads < 2) {
+          _baseReloads++;
+          _editBase = null;
+          unawaited(_load());
+          return;
+        }
+        _editBase = (etag: unknownBaseEtag, state: '');
+        return;
+      }
+      _baseReloads = 0;
+    }
+    _editBase = base;
+    _editBaseSpent = false;
+  }
+
+  /// Ставит ETag, известный без запроса (из ответа 412); идущие запросы
+  /// [_refreshEditBase] его уже не затрут.
+  void _setEditBase(RepairEditBase base) {
+    _editBaseSeq++;
+    // Запрос, который ещё летит, этим отменён — его ответ не запишется.
+    _editBaseDoneSeq = _editBaseSeq;
+    _editBase = base;
+    _editBaseSpent = false;
+  }
+
+  /// ETag и состояние, на которых держится правка: у правки в очереди — её
+  /// собственные (созданная без связи — без них), иначе — загруженные с
+  /// карточкой.
+  ({String? etag, String? state}) _baseForEdit() {
+    final existing = _pendingUpdate;
+    switch (_baseSource()) {
+      case EditBaseSource.card:
+        return (etag: _editBase?.etag, state: _editBase?.state);
+      // После 412 обходчик видел блок «Сейчас на сервере» — «Сохранить» и
+      // «Отправить» идут поверх этого состояния, а не снова в тот же отказ.
+      case EditBaseSource.serverConflict:
+        return (etag: existing!.serverEtag, state: existing.serverState);
+      case EditBaseSource.queued:
+        return (etag: existing!.baseEtag, state: existing.baseState);
+      // Правка, сделанная без связи, — без `If-Match`, как раньше.
+      case EditBaseSource.none:
+        return (etag: null, state: null);
+    }
+  }
+
+  /// Откуда сейчас брать основу правки ([editBaseSource]).
+  EditBaseSource _baseSource() => editBaseSource(
+        queued: _pendingUpdate,
+        formSource: _formSource ?? _repair,
+      );
+
+  static String? _statusOf(Map<String, dynamic> state) {
+    final status = state['status'];
+    return status is String ? status : null;
+  }
+
   Future<void> _save() async {
     await _send(submitForReview: false);
   }
@@ -399,7 +618,12 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
     return false;
   }
 
-  Future<void> _send({required bool submitForReview}) async {
+  /// [rebased] — повтор после 412, где сдвинулось одно время изменения
+  /// ([isSameRepairEditState]): второй раз так же не повторяем.
+  Future<void> _send({
+    required bool submitForReview,
+    bool rebased = false,
+  }) async {
     final repair = _repair;
     if (repair == null || _isSaving) return;
     if (!_stillEditable()) return;
@@ -425,22 +649,68 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
       return;
     }
     setState(() => _isSaving = true);
+    // ETag карточки ещё грузится (открыли, взяли, сохранили) — ждём его, а
+    // не шлём правку без `If-Match`. Не дольше трёх перезагрузок подряд. До
+    // того, как собрано тело: оно должно быть из формы на момент отправки.
+    for (var i = 0; i < 3; i++) {
+      final ready = _baseReady;
+      // Ждём, только если основа — карточки: пустая очередь или запись, где
+      // остались одни снимки (после онлайн-сохранения, пока ETag грузится).
+      if (ready == null || _baseSource() != EditBaseSource.card) break;
+      await ready;
+      if (identical(ready, _baseReady)) break;
+    }
+    if (!mounted) return;
+    // ETag карточки ушёл в правку, которую очередь уже отправила, — ремонт
+    // изменился нашей же правкой: берём ETag заново, иначе 412 на своё.
+    if (_pendingUpdate == null && _editBaseSpent) {
+      await _refreshEditBase(sentEdit: _spentEdit, allowReload: false);
+    }
+    // ETag не загрузился (временная ошибка) — ещё одна попытка, сверяясь с
+    // ремонтом, по которому заполнена форма. Не вышло и сейчас — правка уйдёт
+    // с «неизвестной» основой: сервер ответит 412, и обходчик увидит, что на
+    // сервере, а введённое останется в «Не отправлено».
+    final shownRepair = _formSource;
+    if (_baseSource() == EditBaseSource.card &&
+        _editBase?.etag == unknownBaseEtag &&
+        shownRepair != null) {
+      await _refreshEditBase(shown: shownRepair, allowReload: false);
+    }
+    if (!mounted) return;
     // Поколение кэша — до запроса, см. [DataProvider.upsertRepair].
     final generation = GlobalState.dataProvider.cacheGeneration;
     final requestSeq = GlobalState.dataProvider.beginRepairRequest();
-    try {
-      final updated = await API().updateRepair(
-        repair.uuid,
+    // Ключ и тело — на это нажатие (бэкенд `81f644c`). Ответ не дошёл —
+    // правка встаёт в очередь с ними же: если сервер её всё-таки принял,
+    // повтор не применит её второй раз и не упрётся в «ремонт не открыт».
+    // Тело — после всех ожиданий ETag, прямо перед отправкой: дописанное за
+    // эти секунды должно уйти, а не затереться ответом сервера.
+    final sent = (
+      key: newIdempotencyKey(),
+      body: repairUpdateBody(
         comment: _commentController.text.trim(),
         consumptions: GlobalState.dataProvider.sectionAccess
             .consumptionsToSend(_consumptions),
         submitForReview: submitForReview,
+      ),
+    );
+    final base = _baseForEdit();
+    try {
+      final updated = await API().sendRepairUpdate(
+        repair.uuid,
+        sent.body,
+        idempotencyKey: sent.key,
+        ifMatch: base.etag,
       );
       await GlobalState.dataProvider.upsertRepair(
         updated,
         generation: generation,
         requestSeq: requestSeq,
       );
+      // Ремонт изменился нашей же правкой — следующей нужен новый ETag, и
+      // только той версии, что вернул сервер ([_refreshEditBase]).
+      _editBase = null;
+      unawaited(_refreshEditBase(shown: updated));
       // Поля уехали — но снимки уходят отдельными запросами, и их очередь
       // может быть ещё не разобрана. Удалить запись целиком значило бы стереть
       // файлы кадров, которые сервер ни разу не видел: `deletePendingRepairUpdate`
@@ -460,6 +730,34 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
       );
     } catch (e) {
       if (!mounted) return;
+      // Ремонт изменили после того, как обходчик открыл карточку (412,
+      // бэкенд `d22727e`).
+      if (e is StaleRevisionException) {
+        final state = jsonEncode(e.current);
+        // Сдвинулось только время изменения — отправляем на новый ETag
+        // молча, один раз.
+        if (!rebased && isSameRepairEditState(base.state, e.current)) {
+          final existing = _pendingUpdate;
+          if (existing != null) {
+            await GlobalState.dataProvider.savePendingRepairUpdate(
+              existing.rebased(etag: e.currentEtag, state: state),
+            );
+          } else {
+            _setEditBase((etag: e.currentEtag, state: state));
+          }
+          if (!mounted) return;
+          setState(() => _isSaving = false);
+          await _send(submitForReview: submitForReview, rebased: true);
+          return;
+        }
+        // Правку не теряем и не отправляем молча поверх: в «Не отправлено»
+        // с тем, что на сервере сейчас, — решает обходчик.
+        await _queueUpdate(submitForReview: submitForReview, stale: e);
+        if (!mounted) return;
+        setState(() => _isSaving = false);
+        _showSnack(message: RepairCardStrings.changedOnServerSnack, ok: false);
+        return;
+      }
       // Связи нет — не теряем заполненное, кладём правку в очередь. Форму при
       // этом оставляем как есть: обходчик видит свои цифры, а не серверные.
       if (isRetryableRepairError(e)) {
@@ -468,6 +766,7 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
         await _queueUpdate(
           submitForReview: submitForReview,
           clearRejection: true,
+          sent: sent,
         );
         if (!mounted) return;
         setState(() => _isSaving = false);
@@ -594,6 +893,9 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
         generation: generation,
         requestSeq: requestSeq,
       );
+      // Взятие меняет ответственного — ETag карточки устарел, а правка после
+      // него получила бы 412 на собственное изменение.
+      unawaited(_refreshEditBase(shown: updated));
       if (!mounted) return;
       setState(() {
         _applyRepair(updated);
@@ -827,15 +1129,47 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
   /// «Отправить»), значит пометку об отказе снимаем и очередь берёт запись
   /// снова. Для работы с фотографиями — нет: снимок к причине отказа
   /// отношения не имеет.
+  ///
+  /// [sent] — ключ и тело запроса, который уже ушёл из карточки, но ответа
+  /// не дождался: очередь повторит его ими же.
+  ///
+  /// [stale] — сервер ответил 412: ремонт изменили (бэкенд `d22727e`).
+  /// Правка ложится отклонённой с тем, что на сервере сейчас, и ждёт решения
+  /// обходчика ([RepairConflictKind.changedOnServer]).
   Future<void> _queueUpdate({
     bool? submitForReview,
     String? addPath,
     String? deleteUuid,
     bool clearRejection = false,
+    ({String key, String body})? sent,
+    StaleRevisionException? stale,
   }) async {
     final repair = _repair!;
     final provider = GlobalState.dataProvider;
     final existing = provider.pendingUpdateFor(repair.uuid);
+    final comment = _commentController.text.trim();
+    final consumptions = List<RepairConsumption>.from(_consumptions);
+    final submit = submitForReview ?? existing?.submitForReview ?? false;
+    // Форма та же — ключ и тело уже начатой отправки сохраняются
+    // ([PendingRepairUpdate.sameFormAs]); поменялась — это новый запрос.
+    final sameForm = existing != null &&
+        existing.sameFormAs(
+          comment: comment,
+          consumptions: consumptions,
+          submitForReview: submit,
+        );
+    // Ключ и тело ушедшего запроса [sent] — только если форма с тех пор та
+    // же: пока шла отправка, поля можно было поменять, и ключ запроса А на
+    // форме Б очередь отправила бы телом А, а Б сочла бы доставленной.
+    final sentIsCurrent = sent != null &&
+        sent.body ==
+            repairUpdateBody(
+              comment: comment,
+              consumptions: provider.sectionAccess.consumptionsToSend(
+                consumptions,
+              ),
+              submitForReview: submit,
+            );
     final queued = PendingRepairUpdate(
       repairUuid: repair.uuid,
       repairId: repair.id,
@@ -846,9 +1180,9 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
       createdAt: existing?.createdAt ?? DateTime.now(),
       // Форму подхватываем как есть: если обходчик что-то набрал и ещё не
       // сохранил, снимок не должен эти правки затереть.
-      comment: _commentController.text.trim(),
-      consumptions: List<RepairConsumption>.from(_consumptions),
-      submitForReview: submitForReview ?? existing?.submitForReview ?? false,
+      comment: comment,
+      consumptions: consumptions,
+      submitForReview: submit,
       // Снимки и удаления копятся, а не заменяются.
       photoPaths: [
         ...?existing?.photoPaths,
@@ -858,10 +1192,49 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
         ...?existing?.deletedPhotoUuids,
         if (deleteUuid != null) deleteUuid,
       ],
-      lastError: clearRejection ? null : existing?.lastError,
-      serverStatus: clearRejection ? null : existing?.serverStatus,
-      conflictKind: clearRejection ? null : existing?.conflictKind,
+      lastError: stale != null
+          ? RepairCardStrings.changedOnServerReason
+          : clearRejection
+              ? null
+              : existing?.lastError,
+      serverStatus: stale != null
+          ? _statusOf(stale.current)
+          : clearRejection
+              ? null
+              : existing?.serverStatus,
+      conflictKind: stale != null
+          ? RepairConflictKind.changedOnServer.code
+          : clearRejection
+              ? null
+              : existing?.conflictKind,
+      // Отклонённый 412 запрос сервер откатил — ключ и тело соберутся заново.
+      mutationKey: stale != null
+          ? null
+          : sentIsCurrent
+              ? sent.key
+              : (sameForm ? existing.mutationKey : null),
+      requestBody: stale != null
+          ? null
+          : sentIsCurrent
+              ? sent.body
+              : (sameForm ? existing.requestBody : null),
+      // Основа If-Match: у правки, уже лежащей в очереди, — её собственная.
+      baseEtag: _baseForEdit().etag,
+      baseState: _baseForEdit().state,
+      serverEtag:
+          stale?.currentEtag ?? (clearRejection ? null : existing?.serverEtag),
+      serverState: stale != null
+          ? jsonEncode(stale.current)
+          : clearRejection
+              ? null
+              : existing?.serverState,
     );
+    // ETag карточки теперь у правки в очереди ([_editBaseSpent]).
+    final cardBase = _editBase;
+    if (cardBase != null && queued.baseEtag == cardBase.etag) {
+      _editBaseSpent = true;
+    }
+    _spentEdit = queued;
     await provider.savePendingRepairUpdate(queued);
   }
 
@@ -1200,6 +1573,123 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
     await _load();
   }
 
+  /// Правка отклонена 412 и знает, что на сервере сейчас.
+  bool _isChangedOnServer(PendingRepairUpdate? update, bool rejected) =>
+      update != null &&
+      rejected &&
+      update.kind == RepairConflictKind.changedOnServer &&
+      update.serverEtag != null &&
+      update.serverState != null;
+
+  /// «Удалить неотправленное» у отклонённой правки: сервер её не принял, и
+  /// сама она не уйдёт (ремонт закрыли, передали, снимки после отправки на
+  /// проверку). С подтверждением — удаляются и файлы неотправленных снимков.
+  Future<void> _deleteUnsentUpdate(PendingRepairUpdate update) async {
+    final confirmed = await confirmRepairDelete(
+      context,
+      title: RepairStrings.draftDeleteCreatedTitle,
+      body: RepairCardStrings.deleteUnsentBody(update.equipmentName),
+      note: RepairStrings.deleteIrreversible,
+    );
+    if (!confirmed || !mounted) return;
+    setState(() => _isUnsentBusy = true);
+    await GlobalState.dataProvider.deletePendingRepairUpdate(widget.repairUuid);
+    if (!mounted) return;
+    setState(() {
+      _isUnsentBusy = false;
+      // Форма — серверная: своё обходчик только что удалил.
+      _userEdited = false;
+    });
+    await _load();
+  }
+
+  /// «Отправить мою правку» — поверх того, что на сервере сейчас.
+  Future<void> _resendMine() async {
+    setState(() => _isUnsentBusy = true);
+    API.retryConnectionNow();
+    await GlobalState.dataProvider
+        .resendRepairUpdateOverServer(widget.repairUuid);
+    if (!mounted) return;
+    setState(() => _isUnsentBusy = false);
+    await _load();
+  }
+
+  /// «Отменить мою правку»: в карточке — то, что на сервере. Снимки, ещё не
+  /// загруженные, не теряются — их файлы есть только на телефоне; поля
+  /// правки приводятся к серверным ([_dropQueuedFieldsKeepingPhotos]), для
+  /// этого нужна свежая карточка, а значит связь.
+  Future<void> _discardMine() async {
+    final provider = GlobalState.dataProvider;
+    final update = _pendingUpdate;
+    if (update == null) return;
+    setState(() => _isUnsentBusy = true);
+    if (update.hasPhotoWork) {
+      if (!await GlobalState.hasConnectionToServer) {
+        if (!mounted) return;
+        setState(() => _isUnsentBusy = false);
+        _showSnack(
+            message: RepairCardStrings.discardNeedsConnection, ok: false);
+        return;
+      }
+      try {
+        final fresh = await API().getRepair(widget.repairUuid);
+        await _dropQueuedFieldsKeepingPhotos(fresh);
+      } catch (e) {
+        if (!mounted) return;
+        setState(() => _isUnsentBusy = false);
+        _showSnack(message: _messageOf(e), ok: false);
+        return;
+      }
+    } else {
+      await provider.deletePendingRepairUpdate(widget.repairUuid);
+    }
+    if (!mounted) return;
+    setState(() {
+      _isUnsentBusy = false;
+      // Форма — серверная: своё обходчик только что отменил.
+      _userEdited = false;
+    });
+    await _load();
+  }
+
+  /// Блок «Сейчас на сервере» — что изменили, пока карточка была открыта.
+  Widget _serverNowBlock(ColorScheme cs, PendingRepairUpdate update) {
+    final tt = Theme.of(context).textTheme;
+    final snapshot = repairServerSnapshot(update.serverState);
+    final status = snapshot?.status;
+    final count = snapshot?.consumptionCount;
+    final lines = [
+      if (status != null)
+        RepairCardStrings.serverNowStatus(RepairStatuses.displayName(status)),
+      RepairCardStrings.serverNowComment(snapshot?.comment ?? ''),
+      if (count != null) RepairCardStrings.serverNowConsumptions(count),
+    ];
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppConstants.spacingMD),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+        border: Border.all(color: cs.outlineVariant, width: 0.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            RepairCardStrings.serverNowLabel,
+            style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 2),
+          for (final line in lines)
+            Text(
+              line,
+              style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+            ),
+        ],
+      ),
+    );
+  }
+
   /// Третья кнопка блока — та, что зависит от причины отказа.
   ///
   /// `null` — делать нечего: сервер отказал окончательно, и остаётся только
@@ -1221,6 +1711,15 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
           label: Text(ConflictStrings.transferTo(blocking.id)),
         );
       }
+    }
+    // Ремонт изменили на сервере (412): обходчик видит, что там сейчас, и
+    // отправляет свою правку поверх осознанно (решение 22.11).
+    if (_isChangedOnServer(update, rejected)) {
+      return ElevatedButton.icon(
+        onPressed: busy ? null : _resendMine,
+        icon: const Icon(Icons.send_rounded, size: 20),
+        label: const Text(RepairCardStrings.sendMine),
+      );
     }
     // Окончательный отказ повторять бессмысленно: сервер ответит тем же.
     // Пока связи нет, отказа ещё не было — «повторить» значит «отправить
@@ -1314,6 +1813,11 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
         ),
       ),
       const SizedBox(height: AppConstants.spacingSM),
+      // Ремонт изменили на сервере — что там сейчас, прямо под причиной.
+      if (_isChangedOnServer(update, rejected)) ...[
+        _serverNowBlock(cs, update!),
+        const SizedBox(height: AppConstants.spacingSM),
+      ],
       // В столбик, а не в строку: подписи со значком в половину ширины не
       // помещаются. Первой — та, что зависит от причины отказа.
       if (primary != null) ...[
@@ -1321,6 +1825,36 @@ class _RepairDetailScreenState extends State<RepairDetailScreen>
           width: double.infinity,
           height: AppConstants.buttonHeight,
           child: primary,
+        ),
+        const SizedBox(height: AppConstants.spacingSM),
+      ],
+      if (_isChangedOnServer(update, rejected)) ...[
+        SizedBox(
+          width: double.infinity,
+          height: AppConstants.buttonHeight,
+          child: OutlinedButton.icon(
+            onPressed: busy ? null : _discardMine,
+            icon: Icon(Icons.undo_rounded, size: 20, color: cs.onSurface),
+            label: const Text(RepairCardStrings.discardMine),
+          ),
+        ),
+        const SizedBox(height: AppConstants.spacingSM),
+      ]
+      // Прочие отказы правки — удалить: иначе окончательно отклонённая
+      // правка висела бы в «Не отправлено» навсегда, а окно синхронизации
+      // каждый раз писало бы «Ремонты не приняты сервером».
+      else if (update != null && rejected) ...[
+        SizedBox(
+          width: double.infinity,
+          height: AppConstants.buttonHeight,
+          child: OutlinedButton.icon(
+            onPressed: busy ? null : () => _deleteUnsentUpdate(update),
+            icon: Icon(Icons.delete_outline_rounded, size: 20, color: cs.error),
+            label: Text(
+              RepairCardStrings.deleteUnsent,
+              style: TextStyle(color: cs.error),
+            ),
+          ),
         ),
         const SizedBox(height: AppConstants.spacingSM),
       ],

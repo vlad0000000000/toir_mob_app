@@ -8,6 +8,7 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 
+import '../../model/announcement.dart';
 import '../sse_line_parser.dart';
 
 /// Точка входа для изолята foreground-сервиса.
@@ -20,6 +21,43 @@ void notificationsForegroundCallback() {
 /// Ключ сохранённого uuid уведомления, по пушу которого тапнули, — для
 /// холодного старта: основной изолят отметит его прочитанным после входа.
 const String pushTapNotificationKey = 'push_tap_notification';
+
+/// Сигнал SSE «статус поддержки версии изменился» — перечитать
+/// `GET /v1/mobile/support-status`.
+const String supportChangedEvent = 'mobile_support_changed';
+
+/// Сигнал SSE «объявления изменились» — перечитать
+/// `GET /v1/system/announcements`.
+const String announcementsChangedEvent = 'announcements_changed';
+
+/// Событие SSE — сигнал служебных методов, а не запись центра уведомлений:
+/// пуш по нему не показываем.
+bool isClientSignalEvent(String event) =>
+    event == supportChangedEvent || event == announcementsChangedEvent;
+
+/// Сигнал SSE «ППР изменился» (бэкенд `6296b61`): стартовал, выдал ждавшие
+/// оборудование задачи, выполнен или закрыт — перечитать ППР. Пуша нет.
+const String pprChangedEvent = 'ppr_changed';
+
+/// Через сколько фоновый сервис повторит проверку объявлений после
+/// временного сбоя (нет связи, 5xx, 408, 429).
+const Duration announcementRetryDelay = Duration(minutes: 1);
+
+/// Ответ проверки объявлений — временный сбой, который лечится повтором.
+bool isTransientAnnouncementStatus(int statusCode) =>
+    statusCode >= 500 || statusCode == 408 || statusCode == 429;
+
+/// Ключ UUID установки для изолята сервиса — рядом с адресом и токеном
+/// (`sse_base_url`, `sse_jwt`). Пусто — установка не зарегистрирована, поток
+/// идёт без заголовка, и сервер шлёт карточки 1.0.
+const String pushInstallationKey = 'sse_installation_id';
+
+/// Заголовки установки для запросов изолята. Имя — `API.installationHeader`:
+/// `api.dart` в изолят не тянем, он читает `.env` и общий клиент приложения.
+Map<String, String> pushInstallationHeaders(String installationId) =>
+    installationId.isEmpty
+        ? const {}
+        : {'X-Mobile-Installation-ID': installationId};
 
 /// uuid уведомления из payload локального пуша (`uuid`, см.
 /// [NotificationsTaskHandler._showLocalNotification]). `null` — нет или
@@ -107,6 +145,7 @@ class NotificationsTaskHandler extends TaskHandler {
 
   String _baseUrl = '';
   String _jwt = '';
+  String _installationId = '';
 
   bool _stopped = false;
   int _nextNotificationId = 1000;
@@ -129,6 +168,10 @@ class NotificationsTaskHandler extends TaskHandler {
             .trim();
     _jwt = (await FlutterForegroundTask.getData<String>(key: 'sse_jwt') ?? '')
         .trim();
+    _installationId = (await FlutterForegroundTask.getData<String>(
+                key: pushInstallationKey) ??
+            '')
+        .trim();
 
     if (_baseUrl.isEmpty || _jwt.isEmpty) {
       debugPrint('[NotifTask] missing base url or jwt — abort');
@@ -149,6 +192,8 @@ class NotificationsTaskHandler extends TaskHandler {
   Future<void> onDestroy(DateTime timestamp) async {
     _stopped = true;
     _reconnectTimer?.cancel();
+    _announcementTimer?.cancel();
+    _announcementTimer = null;
     _keepaliveTimer?.cancel();
     _keepaliveTimer = null;
     await _sseSub?.cancel();
@@ -285,6 +330,7 @@ class NotificationsTaskHandler extends TaskHandler {
     request.headers['Authorization'] = 'Bearer $_jwt';
     request.headers['Accept'] = 'text/event-stream';
     request.headers['Cache-Control'] = 'no-cache';
+    request.headers.addAll(pushInstallationHeaders(_installationId));
 
     client.send(request).then((response) {
       if (_stopped) {
@@ -301,6 +347,8 @@ class NotificationsTaskHandler extends TaskHandler {
       _refusals = 0;
       _lastSseActivity = DateTime.now();
       _ensureKeepalive();
+      // Важное объявление, вышедшее, пока потока не было, — тоже пушем.
+      unawaited(_pushImportantAnnouncements());
       _sseSub = response.stream
           .transform(utf8.decoder)
           .transform(const LineSplitter())
@@ -400,6 +448,23 @@ class NotificationsTaskHandler extends TaskHandler {
       } catch (_) {}
       return;
     }
+    // ППР изменился — технический сигнал, пуша нет: main-изолят
+    // перечитает ППР.
+    if (event == pprChangedEvent) {
+      FlutterForegroundTask.sendDataToMain({'type': pprChangedEvent});
+      return;
+    }
+    // Сигналы служебных методов (бэкенд `81f644c`, приходят только с
+    // заголовком установки): содержимого нет, main-изолят перечитает REST.
+    if (isClientSignalEvent(event)) {
+      FlutterForegroundTask.sendDataToMain({'type': event});
+      // Приложение закрыто — сервер системного пуша не шлёт: важное
+      // объявление показываем локальным пушем сами (решение 18.11).
+      if (event == announcementsChangedEvent) {
+        unawaited(_pushImportantAnnouncements());
+      }
+      return;
+    }
     if (event != 'notification') return;
     Map<String, dynamic> data = const {};
     try {
@@ -484,6 +549,8 @@ class NotificationsTaskHandler extends TaskHandler {
         headers: {
           'Authorization': 'Bearer $_jwt',
           'Accept': 'application/json',
+          // Та же лента, что у приложения: с заголовком — без карточек 1.0.
+          ...pushInstallationHeaders(_installationId),
         },
       ).timeout(const Duration(seconds: 10));
       if (response.statusCode != 200) return null;
@@ -502,6 +569,138 @@ class NotificationsTaskHandler extends TaskHandler {
     return null;
   }
 
+  /// Ключ uuid объявлений, о которых уже был локальный пуш: сервис
+  /// перезапускается, а показывать одно объявление дважды нельзя.
+  static const String _pushedAnnouncementsKey = 'announcement_pushed';
+
+  /// Сколько последних uuid помнить.
+  static const int _pushedAnnouncementsLimit = 100;
+
+  bool _checkingAnnouncements = false;
+
+  /// Сигнал пришёл, пока шла проверка: её ответ мог быть ещё до публикации,
+  /// поэтому после неё — ещё одна проверка, а не пропуск сигнала.
+  bool _announcementsCheckAgain = false;
+
+  /// Перепроверка объявлений на ближайшей границе показа (`next_change_at`):
+  /// запланированное важное объявление начнёт показываться позже, а отдельного
+  /// сигнала об этом сервер при живом потоке не шлёт.
+  Timer? _announcementTimer;
+
+  /// Важные непрочитанные объявления — локальным пушем, по одному разу
+  /// ([announcementsToPush]). Только с зарегистрированной установкой: без неё
+  /// объявления приходят карточками ленты и пушатся как уведомления.
+  Future<void> _pushImportantAnnouncements() async {
+    if (_installationId.isEmpty) return;
+    if (_checkingAnnouncements) {
+      _announcementsCheckAgain = true;
+      return;
+    }
+    _checkingAnnouncements = true;
+    _announcementsCheckAgain = false;
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/v1/system/announcements')
+            .replace(queryParameters: {'surface': 'mobile'}),
+        headers: {
+          'Authorization': 'Bearer $_jwt',
+          'Accept': 'application/json',
+          ...pushInstallationHeaders(_installationId),
+        },
+      ).timeout(const Duration(seconds: 10));
+      // Временный сбой сервера — повтор через минуту: иначе важное
+      // объявление, начавшее показываться в этот момент, осталось бы без
+      // пуша до следующего сигнала. Прочие отказы (401 — токен устарел)
+      // повтором не лечатся.
+      if (isTransientAnnouncementStatus(response.statusCode)) {
+        _retryAnnouncementsLater();
+        return;
+      }
+      if (response.statusCode != 200) return;
+      const decoder = Utf8Decoder(allowMalformed: true);
+      final body = jsonDecode(decoder.convert(response.bodyBytes));
+      if (body is! Map) return;
+      _announcementTimer?.cancel();
+      final delay = announcementRefreshDelay(
+        DateTime.tryParse('${body['next_change_at'] ?? ''}'),
+        DateTime.now(),
+      );
+      _announcementTimer = delay == null || _stopped
+          ? null
+          : Timer(delay, () => unawaited(_pushImportantAnnouncements()));
+      final pushed = await _loadPushedAnnouncements();
+      final fresh = announcementsToPush(body['items'], pushed.toSet());
+      if (fresh.isEmpty) return;
+      for (final a in fresh) {
+        await _showAnnouncementNotification(a);
+        pushed.add(a.uuid);
+      }
+      final kept = pushed.length > _pushedAnnouncementsLimit
+          ? pushed.sublist(pushed.length - _pushedAnnouncementsLimit)
+          : pushed;
+      await FlutterForegroundTask.saveData(
+        key: _pushedAnnouncementsKey,
+        value: jsonEncode(kept),
+      );
+    } catch (e) {
+      // Нет связи, таймаут — тоже повтор через минуту.
+      debugPrint('[NotifTask] announcements check failed: $e');
+      _retryAnnouncementsLater();
+    } finally {
+      _checkingAnnouncements = false;
+      if (_announcementsCheckAgain && !_stopped) {
+        _announcementsCheckAgain = false;
+        unawaited(_pushImportantAnnouncements());
+      }
+    }
+  }
+
+  /// Повтор проверки объявлений после временного сбоя ([announcementRetryDelay]).
+  void _retryAnnouncementsLater() {
+    if (_stopped) return;
+    _announcementTimer?.cancel();
+    _announcementTimer = Timer(
+      announcementRetryDelay,
+      () => unawaited(_pushImportantAnnouncements()),
+    );
+  }
+
+  Future<List<String>> _loadPushedAnnouncements() async {
+    try {
+      final raw = await FlutterForegroundTask.getData<String>(
+        key: _pushedAnnouncementsKey,
+      );
+      final data = raw == null ? null : jsonDecode(raw);
+      return data is List ? data.whereType<String>().toList() : <String>[];
+    } catch (_) {
+      return <String>[];
+    }
+  }
+
+  /// Пуш объявления. Тап открывает «Уведомления» — объявления там сверху;
+  /// `uuid` в данных нет намеренно: это не уведомление ленты, и отмечать его
+  /// прочитанным как уведомление нельзя.
+  Future<void> _showAnnouncementNotification(Announcement a) async {
+    const androidDetails = AndroidNotificationDetails(
+      _eventsChannelId,
+      _eventsChannelName,
+      channelDescription: 'Push-like уведомления о событиях',
+      importance: Importance.high,
+      priority: Priority.high,
+      ticker: 'notification',
+      icon: '@mipmap/ic_launcher',
+      largeIcon: DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+    );
+    const details = NotificationDetails(android: androidDetails);
+    await _localNotifications.show(
+      a.uuid.hashCode & 0x7FFFFFFF,
+      a.title,
+      a.body,
+      details,
+      payload: jsonEncode({'announcement_uuid': a.uuid}),
+    );
+  }
+
   Future<void> _showLocalNotification(Map<String, dynamic> item) async {
     final type = item['notification_type']?.toString();
     final isSummary = type == 'summary_task';
@@ -514,14 +713,14 @@ class NotificationsTaskHandler extends TaskHandler {
     // Для сводки сервер часто не кладёт description — собираем текст из
     // payload.summary.
     if (isSummary) {
-      final summary = item['payload'] is Map
-          ? (item['payload'] as Map)['summary']
-          : null;
+      final summary =
+          item['payload'] is Map ? (item['payload'] as Map)['summary'] : null;
       if (summary is Map) {
         final newTasks = (summary['new_tasks'] ?? 0);
         final assigned = (summary['assigned_inspections'] ?? 0);
         final overdue = (summary['overdue_tasks'] ?? 0);
-        body = 'Новых: $newTasks, Назначенных: $assigned, Просроченных: $overdue';
+        body =
+            'Новых: $newTasks, Назначенных: $assigned, Просроченных: $overdue';
       } else if (body.isEmpty) {
         body = 'Есть новые задачи и осмотры';
       }

@@ -8,10 +8,12 @@ import 'package:http_parser/http_parser.dart';
 import 'package:logging/logging.dart';
 import '../../src/model/usage_update.dart';
 import '../../global_state.dart';
+import '../../strings.dart';
 import '../../src/model/access_profile.dart';
 import '../../src/model/company.dart';
 import '../../src/model/consumption_norm.dart';
 import '../../src/model/inventory_record.dart';
+import '../../src/model/mobile_build.dart';
 import '../../src/model/notification.dart';
 import '../../src/model/notification_settings.dart';
 import '../../src/model/periodicity_rule.dart';
@@ -28,6 +30,7 @@ import '../../src/model/user.dart';
 import '../../src/model/equipment_state.dart';
 import '../../src/model/periodic_task_request.dart';
 import '../exceptions/app_exceptions.dart';
+import '../repairs/repair_edit_base.dart';
 import '../utils/offline_error.dart';
 import 'token_refresher.dart';
 
@@ -40,6 +43,9 @@ part 'notifications_api.dart';
 part 'spare_part_api.dart';
 part 'repair_api.dart';
 part 'ppr_api.dart';
+part 'mobile_api.dart';
+part 'announcements_api.dart';
+part 'conditional.dart';
 
 /// Журнал сетевого слоя.
 ///
@@ -260,6 +266,65 @@ class API {
 
   static int _noAccessSession() => 0;
 
+  /// Заголовок установки приложения (бэкенд `81f644c`).
+  static const String installationHeader = 'X-Mobile-Installation-ID';
+
+  /// UUID установки для заголовка [installationHeader] — только когда она
+  /// зарегистрирована в текущем аккаунте (`DataProvider.installationHeaderId`).
+  /// Ставит `main.dart`; без него заголовка нет, и сервер считает клиента
+  /// «Версией 1.0».
+  static String? Function() installationId = _noInstallation;
+
+  static String? _noInstallation() => null;
+
+  /// Заголовок установки для запросов ленты уведомлений, SSE и служебных
+  /// методов. Пусто — установка ещё не зарегистрирована: без заголовка сервер
+  /// отдаёт объявления карточками 1.0, а не теряет их.
+  static Map<String, String> installationHeaders() {
+    final id = installationId();
+    return id == null ? const {} : {installationHeader: id};
+  }
+
+  /// Сервер ответил 426 — работа версии ограничена ([WorkBlockedException]).
+  /// Ставит `main.dart`: перечитать статус поддержки.
+  static void Function()? onWorkBlocked;
+
+  /// Формат конфликтов `PATCH` осмотра: `2` — пропущенный экземпляр кодом
+  /// `inspection_missed` (бэкенд `811c4dc`).
+  static const String inspectionConflictFormatHeader =
+      'X-Inspection-Conflict-Format';
+
+  /// Заголовок фактического номера установленной сборки (бэкенд `811c4dc`).
+  static const String buildHeader = 'X-Mobile-Build-Number';
+
+  /// UUID установки **без** оглядки на регистрацию — для рабочих запросов
+  /// ([workHeaders]). Ставит `main.dart`.
+  static String? Function() rawInstallationId = _noInstallation;
+
+  /// Номер установленной сборки (`MobileBuild.known`). Ставит `main.dart`.
+  static int? Function() installedBuild = _noBuild;
+
+  static int? _noBuild() => null;
+
+  /// Заголовки установки и сборки для запросов, на которых сервер проверяет
+  /// ручное ограничение работы версии (`require_mobile_work`, бэкенд
+  /// `811c4dc`): плановые задачи и взятие ремонта.
+  ///
+  /// UUID — даже до регистрации. Без заголовка сервер считает обходчика,
+  /// заходившего когда-то с 1.0, «Версией 1.0» и при её ограничении отвечает
+  /// 426. Незарегистрированную установку или другую сборку (только что
+  /// обновили приложение) он не ограничивает. Карточки 1.0 в ленте от этого
+  /// заголовка не зависят: лента получает его только после регистрации
+  /// ([installationHeaders]).
+  static Map<String, String> workHeaders() {
+    final id = rawInstallationId();
+    final build = installedBuild();
+    return {
+      if (id != null) installationHeader: id,
+      if (id != null && build != null) buildHeader: '$build',
+    };
+  }
+
   // Таймауты сетевых запросов
   static const Duration _readTimeout =
       Duration(seconds: 8); // GET и мелкие записи + login
@@ -369,6 +434,22 @@ Never _throwServerError(http.Response response, String fallback) {
   if (response.statusCode == 401) {
     throw AuthExpiredException();
   }
+  // Работа версии ограничена (бэкенд `811c4dc`) — статус поддержки
+  // перечитываем сразу, не дожидаясь сигнала: плашка появится вместе с
+  // отказом.
+  if (response.statusCode == WorkBlockedException.status) {
+    API.onWorkBlocked?.call();
+    throw WorkBlockedException(
+      _serverDetail(response, MobileSupportStrings.workBlockedShort),
+    );
+  }
+  // Запись изменилась после взятого ETag (`If-Match`, бэкенд `d22727e`) —
+  // с актуальным состоянием, чтобы показать его обходчику.
+  final stale = StaleRevisionException.fromResponse(
+    response.statusCode,
+    const Utf8Decoder(allowMalformed: true).convert(response.bodyBytes),
+  );
+  if (stale != null) throw stale;
   // Отказ по модели доступа — с машинным кодом: «нет права» поправимо, «уже
   // взял другой» окончательно, и очередь обязана их различать.
   const utf8Decoder = Utf8Decoder(allowMalformed: true);
@@ -386,6 +467,7 @@ Never _throwServerError(http.Response response, String fallback) {
   throw ServerFailureException(
     response.statusCode,
     _serverDetail(response, fallback),
+    errorCode: serverErrorCode(body),
   );
 }
 
@@ -408,6 +490,12 @@ String _detailFromBody(String body, String fallback) {
     if (data is Map && data['detail'] is String) {
       final detail = data['detail'] as String;
       if (detail.trim().isNotEmpty) return detail;
+    }
+    // Новые отказы (бэкенд `81f644c`) — объектом: `{"detail": {"code",
+    // "message"}}`. Раньше такой ответ давал запасной текст.
+    if (data is Map && data['detail'] is Map) {
+      final message = (data['detail'] as Map)['message'];
+      if (message is String && message.trim().isNotEmpty) return message;
     }
   } catch (_) {
     // Тело не JSON или без detail — покажем запасной текст.

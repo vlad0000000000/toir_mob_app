@@ -9,6 +9,7 @@ import '../widgets/empty_state.dart';
 import 'equipment_detail_screen.dart' show pprGroupColor;
 import 'periodic_task_card.dart';
 import 'task_deadline.dart';
+import '../../strings.dart';
 
 /// Список актуальных ППР: каждый ППР — сворачиваемый блок (по аналогии с
 /// группами задач оборудования), внутри — задачи именно этого ППР.
@@ -49,8 +50,15 @@ class _PprListScreenState extends State<PprListScreen> {
           // кнопка не должна вести на пустой список.
           final entries = provider
               .pprsWithTasks()
-              .map((ppr) => _PprEntry(ppr, provider.getTasksForPpr(ppr.uuid)))
-              .where((entry) => entry.tasks.isNotEmpty)
+              .map((ppr) => _PprEntry(
+                    ppr,
+                    provider.getTasksForPpr(ppr.uuid),
+                    provider.pprWaitingTasksForUser(ppr),
+                  ))
+              // ППР, где задачи обходчика только ждут оборудование, тоже в
+              // списке (решение 18.11).
+              .where((entry) =>
+                  entry.tasks.isNotEmpty || entry.waiting.isNotEmpty)
               .toList();
 
           if (entries.isEmpty) {
@@ -96,7 +104,10 @@ class _PprEntry {
   final Ppr ppr;
   final List<Task> tasks;
 
-  _PprEntry(this.ppr, this.tasks);
+  /// Задачи обходчика, ждущие оборудование «В работе» (бэкенд `6296b61`).
+  final List<PprWaitingTask> waiting;
+
+  _PprEntry(this.ppr, this.tasks, this.waiting);
 }
 
 /// Блок одного ППР. Раскладка повторяет карточки групп на экране задач
@@ -124,6 +135,8 @@ class _PprCard extends StatelessWidget {
     final subtitleParts = <String>[
       if (ppr.statusLabel.isNotEmpty) ppr.statusLabel,
       if (progress.total > 0) 'выполнено ${progress.done} из ${progress.total}',
+      if (entry.waiting.isNotEmpty)
+        PprWaitingStrings.count(entry.waiting.length),
     ];
 
     return Card(
@@ -172,6 +185,9 @@ class _PprCard extends StatelessWidget {
                       ],
                     ),
                   ),
+                  // Выданных нет — только ждущие: «0» в значке смотрелся бы
+                  // как ошибка, число ждущих уже в подзаголовке.
+                  if (entry.tasks.isNotEmpty)
                   Container(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -200,8 +216,11 @@ class _PprCard extends StatelessWidget {
                 bottom: AppConstants.spacingMD,
               ),
               onExpansionChanged: onExpansionChanged,
-              children:
-                  entry.tasks.map((task) => _PprTaskItem(task: task)).toList(),
+              children: [
+                ...entry.tasks.map((task) => _PprTaskItem(task: task)),
+                if (entry.waiting.isNotEmpty)
+                  _PprWaitingSection(tasks: entry.waiting),
+              ],
             ),
           ),
         ],
@@ -320,6 +339,94 @@ class _PprTaskItem extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Задачи ППР обходчика, ждущие оборудование «В работе» (бэкенд `6296b61`):
+/// экземпляра у них ещё нет, выполнять нечего — поэтому строки не нажимаются,
+/// а снизу подсказка, что сделать. Состояние — как в справочнике состояний.
+class _PprWaitingSection extends StatelessWidget {
+  final List<PprWaitingTask> tasks;
+
+  const _PprWaitingSection({required this.tasks});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final states = GlobalState.dataProvider.equipmentState;
+    return Padding(
+      padding: const EdgeInsets.only(top: AppConstants.spacingMD),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            PprWaitingStrings.sectionLabel,
+            style: tt.labelSmall?.copyWith(
+              color: cs.onSurfaceVariant,
+              letterSpacing: 0.8,
+            ),
+          ),
+          for (final task in tasks)
+            Container(
+              margin: const EdgeInsets.only(top: AppConstants.spacingSM),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppConstants.spacingMD,
+                vertical: AppConstants.spacingMD - 4,
+              ),
+              decoration: BoxDecoration(
+                color: cs.surfaceContainerLowest,
+                borderRadius: BorderRadius.circular(AppConstants.radiusMD),
+                border: Border.all(
+                  color: cs.outlineVariant.withValues(alpha: 0.6),
+                  width: 0.5,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.hourglass_empty_rounded,
+                    size: 20,
+                    color: cs.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: AppConstants.spacingSM),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          task.title,
+                          style: tt.bodyLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          [
+                            task.equipmentName ??
+                                PprWaitingStrings.unknownEquipment,
+                            if (task.equipmentState != null)
+                              states?.getStateName(task.equipmentState!) ??
+                                  task.equipmentState!,
+                          ].join(' · '),
+                          style:
+                              tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const SizedBox(height: AppConstants.spacingSM),
+          Text(
+            PprWaitingStrings.hint,
+            style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+          ),
+        ],
       ),
     );
   }

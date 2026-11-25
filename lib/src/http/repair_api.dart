@@ -33,6 +33,33 @@ const Map<String, String> _repairConflictFormat = {
   'X-Repair-Conflict-Format': '2',
 };
 
+/// Тело `PATCH /v1/repairs/{uuid}` исполнителя — строка JSON.
+///
+/// Белый список полей для обходчика на сервере — ровно
+/// `{status, comment, actual_consumptions}`, любое лишнее поле приведёт к
+/// 403. Позиции с нулевым количеством не отправляем: схема требует
+/// `quantity > 0`, и такая строка уронила бы весь запрос.
+///
+/// Строкой, а не объектом: очередь хранит её вместе с `Idempotency-Key` и
+/// шлёт повтор байт в байт (`PendingRepairUpdate.requestBody`).
+String repairUpdateBody({
+  String? comment,
+  List<RepairConsumption>? consumptions,
+  bool submitForReview = false,
+}) =>
+    jsonEncode(<String, dynamic>{
+      if (comment != null) 'comment': comment,
+      if (consumptions != null)
+        'actual_consumptions': consumptions
+            .where((item) => item.quantity > 0)
+            .map((item) => {
+                  'spare_part_uuid': item.sparePartUuid,
+                  'quantity': item.quantity,
+                })
+            .toList(),
+      if (submitForReview) 'status': RepairStatuses.underReview,
+    });
+
 extension RepairApi on API {
   /// Список ремонтов.
   ///
@@ -488,6 +515,9 @@ extension RepairApi on API {
           headers: {
             'Authorization': 'Bearer ${API.jwtToken}',
             'Content-Type': 'application/json',
+            // Взятие ремонта — запрос, на котором сервер проверяет ручное
+            // ограничение работы версии ([API.workHeaders], `811c4dc`).
+            ...API.workHeaders(),
           },
           body: jsonEncode({'responsible_user_uuid': userUuid}),
         )
@@ -498,6 +528,11 @@ extension RepairApi on API {
       final decodedBytes = utf8Decoder.convert(response.bodyBytes);
       final Map<String, dynamic> data = jsonDecode(decodedBytes);
       return Repair.fromJson(data);
+    }
+    // Работа версии ограничена — свой тип: текст тот же формат
+    // («Exception: …»), а плашка на главной появится сразу.
+    if (response.statusCode == WorkBlockedException.status) {
+      _throwServerError(response, MobileSupportStrings.workBlockedShort);
     }
     throw Exception(_serverDetail(
       response,
@@ -517,24 +552,38 @@ extension RepairApi on API {
     String? comment,
     List<RepairConsumption>? consumptions,
     bool submitForReview = false,
+  }) =>
+      sendRepairUpdate(
+        repairUuid,
+        repairUpdateBody(
+          comment: comment,
+          consumptions: consumptions,
+          submitForReview: submitForReview,
+        ),
+      );
+
+  /// `PATCH /v1/repairs/{uuid}` с готовым телом [body] (строка JSON,
+  /// [repairUpdateBody]) и, если задан, `Idempotency-Key` [idempotencyKey]
+  /// (бэкенд `81f644c`). Повтор после потерянного ответа — тем же ключом и
+  /// тем же телом: сервер узнаёт его и отвечает прежним результатом, а не
+  /// «ремонт не открыт». Другое тело с тем же ключом — 409
+  /// `idempotency_key_conflict`.
+  ///
+  /// [ifMatch] — ETag состояния, которое видел обходчик ([getRepairEditState],
+  /// бэкенд `d22727e`): ремонт с тех пор изменили — 412
+  /// [StaleRevisionException] с актуальным состоянием. Повтор с тем же
+  /// ключом сервер узнаёт раньше, чем сверяет ETag, — дошедшая правка не
+  /// упрётся в 412.
+  Future<Repair> sendRepairUpdate(
+    String repairUuid,
+    String body, {
+    String? idempotencyKey,
+    String? ifMatch,
   }) async {
     _guardOffline();
     if (API.jwtToken == null) {
       throw Exception('Not authenticated');
     }
-
-    final body = <String, dynamic>{
-      if (comment != null) 'comment': comment,
-      if (consumptions != null)
-        'actual_consumptions': consumptions
-            .where((item) => item.quantity > 0)
-            .map((item) => {
-                  'spare_part_uuid': item.sparePartUuid,
-                  'quantity': item.quantity,
-                })
-            .toList(),
-      if (submitForReview) 'status': RepairStatuses.underReview,
-    };
 
     final response = await _client
         .patch(
@@ -543,8 +592,10 @@ extension RepairApi on API {
             'Authorization': 'Bearer ${API.jwtToken}',
             'Content-Type': 'application/json',
             ..._repairConflictFormat,
+            if (idempotencyKey != null) 'Idempotency-Key': idempotencyKey,
+            if (ifMatch != null) 'If-Match': ifMatch,
           },
-          body: jsonEncode(body),
+          body: body,
         )
         .timeout(API._readTimeout);
 
@@ -558,6 +609,33 @@ extension RepairApi on API {
       response,
       'Не удалось сохранить ремонт: ${response.statusCode}',
     );
+  }
+
+  /// Состояние ремонта для правки и его ETag
+  /// (`GET /v1/repairs/{uuid}/edit-state`, бэкенд `d22727e`) — для
+  /// `If-Match` в [sendRepairUpdate]. [RepairEditBase.state] — тело ответа
+  /// строкой JSON: по нему отличаем чужую правку от сдвига одного
+  /// `updated_at` ([isSameRepairEditState]). `null` — сервер ETag не дал
+  /// (прошлая версия).
+  Future<RepairEditBase?> getRepairEditState(String repairUuid) async {
+    _guardOffline();
+    if (API.jwtToken == null) {
+      throw Exception('Not authenticated');
+    }
+    final response = await _client.get(
+      Uri.parse('${API.baseUrl}/v1/repairs/$repairUuid/edit-state'),
+      headers: {
+        'Authorization': 'Bearer ${API.jwtToken}',
+        'Accept': 'application/json',
+      },
+    ).timeout(API._readTimeout);
+    if (response.statusCode == 200) {
+      final etag = response.headers['etag'];
+      if (etag == null || etag.isEmpty) return null;
+      const utf8Decoder = Utf8Decoder(allowMalformed: true);
+      return (etag: etag, state: utf8Decoder.convert(response.bodyBytes));
+    }
+    _throwServerError(response, 'Не удалось получить состояние ремонта');
   }
 
   /// Карточка ремонта целиком: с комментарием, фактическим расходом и фото —

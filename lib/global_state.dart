@@ -36,6 +36,9 @@ class GlobalState {
     // Плашки и счётчики очередей — того, кто вошёл: записи другого аккаунта
     // на этом телефоне ему не показываются (п. 1.5 отчёта).
     dataProvider.refreshQueueCounters();
+    // Плашка поддержки версии — того, кто вошёл: по сохранённому статусу,
+    // свежий принесёт регистрация установки.
+    dataProvider.loadSupportStatus(user);
   }
 
   static User? get authUser {

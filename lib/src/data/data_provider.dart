@@ -30,9 +30,13 @@ import '../../src/model/equipment_state.dart';
 import '../../src/model/periodic_task_request.dart';
 import '../../src/model/consumption_norm.dart';
 import '../../src/model/ppr.dart';
+import '../model/mobile_build.dart';
+import '../model/mobile_support_status.dart';
 import '../model/queue_owned.dart';
 import '../model/usage_update.dart';
 import '../utils/company_time.dart';
+import '../utils/idempotency_key.dart';
+import '../utils/offline_error.dart';
 import '../exceptions/app_exceptions.dart';
 import '../../strings.dart';
 import '../feature_flags.dart';
@@ -40,10 +44,16 @@ import '../qr/scan_error_messages.dart';
 import '../repairs/repair_error_messages.dart';
 import 'access_session.dart';
 import 'equipment_scope.dart';
+import 'ppr_waiting.dart';
+import 'repair_update_queue.dart';
 import 'problem_report_photos.dart';
 import 'cache_commit_queue.dart';
+import 'conditional_cache.dart';
 import 'generation_pass.dart';
+import 'mobile_installation.dart';
 import 'repair_photo_files.dart';
+import '../repairs/repair_delivery.dart';
+import '../repairs/repair_edit_base.dart';
 import 'section_access.dart';
 import 'session_server.dart';
 import 'sync_report.dart';
@@ -244,6 +254,11 @@ class DataProvider {
         _dataLog.warning('Failed to read PPR progress cache: $e');
       }
     }
+    // Кэш видимости ждущих задач прошлой версии больше не нужен
+    // (`ppr_waiting.dart`).
+    if (stringBox.containsKey(legacyPprWaitingVisibilityKey)) {
+      unawaited(stringBox.delete(legacyPprWaitingVisibilityKey));
+    }
     final cached = stringBox.get(pprCacheKey);
     if (cached == null || cached.isEmpty) return;
     try {
@@ -353,6 +368,19 @@ class DataProvider {
   Set<String> _pprCompletedByMe = {};
   Set<String> _pprCompletedByMeChecked = {};
 
+  /// Доступ сменился, а ППР ещё не перечитаны: их состав — прежней области,
+  /// ждущие задачи не показываем (`ppr_waiting.dart`). Снимает [syncPpr].
+  bool _pprAccessStale = false;
+
+  /// Номер смены доступа: проход [syncPpr], начатый до смены, флаг
+  /// [_pprAccessStale] не снимает — его ответ ещё прежней области.
+  int _pprAccessEpoch = 0;
+
+  /// Ждущие оборудование «В работе» задачи [ppr] из области обходчика
+  /// (решение 18.11): сервер отдаёт в ППР только их — `visibleWaitingTasks`.
+  List<PprWaitingTask> pprWaitingTasksForUser(Ppr ppr) =>
+      visibleWaitingTasks(ppr, accessStale: _pprAccessStale);
+
   /// При выключенном [FeatureFlags.pprEnabled] раздел ППР не показывается
   /// вообще — даже при наличии старого кэша.
   List<Ppr> get activePprs =>
@@ -383,8 +411,13 @@ class DataProvider {
       if (!_isTaskAvailable(task, tasksInScans)) continue;
       available.add(task.uuid);
     }
+    // ППР, где все задачи обходчика ждут оборудование «В работе», тоже
+    // показываем (решение 18.11): иначе он не узнал бы, что ППР идёт и ждёт
+    // его действия.
     return pprs
-        .where((ppr) => ppr.inspectionUuids.any(available.contains))
+        .where((ppr) =>
+            ppr.inspectionUuids.any(available.contains) ||
+            pprWaitingTasksForUser(ppr).isNotEmpty)
         .toList();
   }
 
@@ -428,7 +461,13 @@ class DataProvider {
   ({int done, int total}) pprProgressForUser(Ppr ppr) {
     final done =
         ppr.completedInspectionUuids.where(_pprCompletedByMe.contains).length;
-    return (done: done, total: done + getTasksForPpr(ppr.uuid).length);
+    // Ждущие оборудование — тоже его задачи, просто ещё не выданные.
+    return (
+      done: done,
+      total: done +
+          getTasksForPpr(ppr.uuid).length +
+          pprWaitingTasksForUser(ppr).length,
+    );
   }
 
   /// Подпись к задаче в списке: «Общая задача» или чужое направление.
@@ -883,11 +922,16 @@ class DataProvider {
       'last_sync_date',
       pprCacheKey,
       pprCompletedByMeCacheKey,
+      // Кэш видимости ждущих задач ППР прошлой версии.
+      legacyPprWaitingVisibilityKey,
       // Помещения подразделений — того, кто вошёл: чужие сделали бы «своим»
       // не то оборудование.
       _myLocationsKey,
       // Пояс — компании прошлого аккаунта или сервера.
       _companyTimezoneKey,
+      // ETag справочников — их боксы очищены выше, 304 подтвердил бы пустоту
+      // (`conditional_cache.dart`).
+      ...lookupEtagKeys,
     ]);
     CompanyTime.configure(null);
     // Ключи с переменной частью — отметки закрытых задач и ожидания
@@ -921,6 +965,7 @@ class DataProvider {
     _repairsCursor = null;
     _pprCompletedByMe = {};
     _pprCompletedByMeChecked = {};
+    _pprAccessStale = false;
     setActivePprs(const []);
     _rebuildSparePartIndex();
     _rebuildClosedTaskIndex();
@@ -1331,6 +1376,10 @@ class DataProvider {
   /// при старом доступе. Курсоры инкрементальных справочников сбросит сам
   /// сервер ответом `resync_required`.
   void refreshAccess() {
+    // Область могла поменяться — ждущие задачи ППР прежнего состава не
+    // показываем, пока ППР не перечитаны (`ppr_waiting.dart`).
+    _pprAccessStale = true;
+    _pprAccessEpoch++;
     _accessRefreshTimer?.cancel();
     _accessRefreshTimer = Timer(const Duration(seconds: 1), () async {
       if (!GlobalState.isAuthorized) return;
@@ -1615,6 +1664,14 @@ class DataProvider {
     if (draft != null) await RepairPhotoFiles.deleteAll(draft.photoPaths);
     _refreshActiveRepairsCount();
   }
+
+  /// Все неотправленные правки ремонтов вошедшего обходчика — для блока «Не
+  /// отправлено» в «Ремонтах»: правка, чей ремонт в списке не виден, иначе
+  /// пропадала из виду.
+  List<PendingRepairUpdate> get myPendingRepairUpdates => [
+        for (final update in pendingRepairUpdateBox.values)
+          if (isMine(update)) update,
+      ];
 
   /// Правка конкретного ремонта, если она есть в очереди и она моя: правку
   /// другого обходчика на этом телефоне карточка не показывает.
@@ -2148,6 +2205,246 @@ class DataProvider {
     _users = userBox.values.toList();
   }
 
+  /// UUID установки приложения ([mobileInstallationIdKey]). `null` — ещё не
+  /// создан ([ensureInstallationId] зовётся на старте) или запись испорчена.
+  String? get installationId {
+    final value = stringBox.get(mobileInstallationIdKey);
+    return isInstallationId(value) ? value : null;
+  }
+
+  /// Создаёт UUID установки, если его ещё нет. Один раз на всю жизнь
+  /// установки: при выходе и смене аккаунта ключ не стирается.
+  Future<String> ensureInstallationId() async {
+    final current = installationId;
+    if (current != null) return current;
+    final created = newInstallationId();
+    await stringBox.put(mobileInstallationIdKey, created);
+    return created;
+  }
+
+  /// UUID для заголовка `X-Mobile-Installation-ID` — только если установка
+  /// уже зарегистрирована у вошедшего на этом сервере. Иначе `null`: без
+  /// заголовка сервер считает клиента «Версией 1.0» и отдаёт объявления
+  /// карточками в ленте. С заголовком карточек уже нет, а версию
+  /// незарегистрированной установки сервер не знает (`support-status` — 404).
+  String? get installationHeaderId {
+    final id = installationId;
+    final user = GlobalState.authUser;
+    if (id == null || user == null || user.uuid.isEmpty) return null;
+    final mark = stringBox.get(installationMarkKey(user.uuid, API.baseUrl));
+    return installationRegistered(mark) ? id : null;
+  }
+
+  /// Установку впервые зарегистрировали у вошедшего: заголовок появился.
+  /// Ставит `main.dart` — фоновому сервису уведомлений нужно переподключить
+  /// поток уже с заголовком.
+  void Function()? onInstallationRegistered;
+
+  /// Проход `mainSync` завершён у вошедшего — связь с сервером есть. Ставит
+  /// `main.dart`: догрузить то, что не загрузилось без связи (объявления).
+  void Function()? onMainSyncDone;
+
+  /// Регистрирует установку на сервере (`PUT /v1/mobile/installations/{uuid}`)
+  /// — после входа, при старте и при появлении связи: зовётся из
+  /// `mainSync`. Не чаще [installationRefreshInterval] для той же сборки:
+  /// по этим запросам сервер считает время последнего подключения.
+  ///
+  /// Ошибки не бросает: без регистрации приложение работает как 1.0, а
+  /// следующая попытка — со следующим проходом синхронизации.
+  ///
+  /// Первый раз в сессии входа ([_installationSession]) регистрирует без
+  /// оглядки на интервал.
+  Future<void> registerInstallation({DateTime? now}) async {
+    // Пользователь и сессия — до первого ожидания: вышли или вошёл другой за
+    // это время — регистрация и отметка относились бы к разным аккаунтам.
+    final user = GlobalState.authUser;
+    final session = _accessSession;
+    if (user == null || user.uuid.isEmpty || API.isServerKnownUnreachable) {
+      return;
+    }
+    final build = await MobileBuild.current();
+    if (session != _accessSession) return;
+    if (build == null) {
+      _dataLog.warning('сборка без номера — установку не регистрируем');
+      return;
+    }
+    final at = now ?? DateTime.now();
+    final markKey = installationMarkKey(user.uuid, API.baseUrl);
+    final mark = stringBox.get(markKey);
+    // Первая регистрация в сессии входа — без интервала: пока обходчика не
+    // было, на телефоне мог войти другой сотрудник, и сервер связывает
+    // установку с последним аккаунтом (бэкенд `811c4dc`). Иначе объявления
+    // и статус поддержки до пяти минут шли бы мимо.
+    if (_installationSession == _accessSession &&
+        !needsInstallationRegistration(
+          mark,
+          buildSignature: build.signature,
+          now: at,
+        )) {
+      return;
+    }
+    final id = await ensureInstallationId();
+    // Сменился вход за ожидания — запрос ушёл бы с токеном другого.
+    if (session != _accessSession) return;
+    // Номер запроса статуса: ответ регистрации — тоже статус поддержки.
+    final statusSeq = ++_supportRequestSeq;
+    final Map<String, dynamic> response;
+    try {
+      response = await api.putMobileInstallation(id, build);
+    } catch (error) {
+      _dataLog.info('установка не зарегистрирована: $error');
+      // 404 и на саму регистрацию (бэкенд `811c4dc`) — сервер не связывает
+      // установку с этим аккаунтом: заголовок снимаем, без него сервер хотя
+      // бы покажет карточки 1.0.
+      if (error is ServerFailureException &&
+          error.statusCode == 404 &&
+          session == _accessSession) {
+        await stringBox.delete(markKey);
+      }
+      return;
+    }
+    if (session != _accessSession) return;
+    _installationSession = session;
+    await stringBox.put(markKey, encodeInstallationMark(build.signature, at));
+    // Ответ регистрации — та же установка со статусом поддержки: отдельный
+    // запрос статуса после неё не нужен.
+    // Пока шла регистрация, ушёл более свежий запрос статуса — его ответ
+    // главнее: запоздалый мог бы снять плашку «работа ограничена».
+    await _saveSupportStatus(
+      user.uuid,
+      response,
+      at,
+      build.signature,
+      isCurrent: () =>
+          session == _accessSession && statusSeq == _supportRequestSeq,
+    );
+    if (!installationRegistered(mark)) onInstallationRegistered?.call();
+  }
+
+  /// Статус поддержки версии у вошедшего: плашка на главной. `null` — статуса
+  /// ещё нет (установка не зарегистрирована) или не вошли.
+  final ValueNotifier<MobileSupportStatus?> supportStatus =
+      ValueNotifier<MobileSupportStatus?>(null);
+
+  /// Когда статус последний раз получен с сервера в этой сессии — чтобы
+  /// возврат в приложение не дёргал сервер на каждом открытии камеры.
+  DateTime? _supportFetchedAt;
+
+  /// Номер последнего запроса статуса поддержки (регистрация или
+  /// `support-status`): записывается только ответ последнего — два запроса
+  /// могут идти одновременно (возврат в приложение, сигнал, 426, ручная
+  /// синхронизация), и запоздалый старый ответ перезаписал бы свежий.
+  int _supportRequestSeq = 0;
+
+  /// Сессия входа, в которой установка уже зарегистрирована
+  /// ([registerInstallation]). Другая — первая регистрация в сессии идёт без
+  /// интервала.
+  int? _installationSession;
+
+  /// Сохранённый статус [user] — при старте и входе: без связи плашка
+  /// показывается по нему. Пользователь — параметром: сеттер
+  /// `GlobalState.authUser` пишет в бокс без ожидания, и геттер в этот миг
+  /// мог бы вернуть прошлого.
+  ///
+  /// [buildSignature] — сборка, чей статус показывать; по умолчанию
+  /// запущенная ([MobileBuild.known]). Параметр — для тестов.
+  void loadSupportStatus(User? user, {String? buildSignature}) {
+    _supportFetchedAt = null;
+    if (user == null || user.uuid.isEmpty) {
+      supportStatus.value = null;
+      return;
+    }
+    // Только статус этой же сборки: после обновления приложения статус
+    // прошлой («работа ограничена») ждёт подтверждения сервером.
+    supportStatus.value = decodeStoredSupportStatus(
+      stringBox.get(supportStatusKey(user.uuid, API.baseUrl)),
+      buildSignature ?? MobileBuild.known?.signature,
+    );
+  }
+
+  /// [isCurrent] — запрос всё ещё актуален: та же сессия входа и последний
+  /// номер запроса статуса. Проверяется и до, и **после** записи в бокс: за
+  /// время записи мог войти другой обходчик, и статус прошлого аккаунта
+  /// («работа ограничена») показался бы новому.
+  Future<void> _saveSupportStatus(
+    String userUuid,
+    Map<String, dynamic> json,
+    DateTime at,
+    String buildSignature, {
+    required bool Function() isCurrent,
+  }) async {
+    final status = MobileSupportStatus.fromJson(json);
+    if (status == null || !isCurrent()) return;
+    await stringBox.put(
+      supportStatusKey(userUuid, API.baseUrl),
+      encodeStoredSupportStatus(status, buildSignature),
+    );
+    if (!isCurrent()) return;
+    _supportFetchedAt = at;
+    supportStatus.value = status;
+  }
+
+  /// Перечитывает статус поддержки (`GET /v1/mobile/support-status`) — при
+  /// возврате в приложение и по сигналу SSE `mobile_support_changed`. При
+  /// старте и появлении связи его приносит регистрация ([registerInstallation]).
+  ///
+  /// [maxAge] — не ходить, если статус свежее: возврат в приложение бывает
+  /// часто (камера, системные окна). Сигнал сервера зовёт без него.
+  ///
+  /// Установка не зарегистрирована — регистрирует: ответ регистрации и есть
+  /// статус. 404 — сервер не связывает её с этим аккаунтом и сборкой (база
+  /// стенда пересоздана, после нас входил другой, обновили приложение):
+  /// регистрируем заново сразу, отметку не трогаем. Прочие ошибки глушим —
+  /// плашка остаётся по сохранённому.
+  Future<void> refreshSupportStatus({Duration maxAge = Duration.zero}) async {
+    // Пользователь и сессия — до первого ожидания (см. [registerInstallation]).
+    final user = GlobalState.authUser;
+    final session = _accessSession;
+    if (user == null || user.uuid.isEmpty || API.isServerKnownUnreachable) {
+      return;
+    }
+    final id = installationHeaderId;
+    if (id == null) return registerInstallation();
+    final now = DateTime.now();
+    final fetched = _supportFetchedAt;
+    if (maxAge > Duration.zero &&
+        fetched != null &&
+        now.difference(fetched) < maxAge) {
+      return;
+    }
+    final build = await MobileBuild.current();
+    if (build == null || session != _accessSession) return;
+    final statusSeq = ++_supportRequestSeq;
+    try {
+      // Фактическая сборка — заголовком (бэкенд `811c4dc`): только что
+      // обновлённое приложение получит 404 и зарегистрирует новую, а не
+      // статус прошлой.
+      final response =
+          await api.getMobileSupportStatus(id, build: build.buildNumber);
+      if (session != _accessSession || statusSeq != _supportRequestSeq) {
+        return;
+      }
+      await _saveSupportStatus(
+        user.uuid,
+        response,
+        now,
+        build.signature,
+        isCurrent: () =>
+            session == _accessSession && statusSeq == _supportRequestSeq,
+      );
+    } on ServerFailureException catch (error) {
+      if (error.statusCode != 404 || session != _accessSession) return;
+      // Отметку не снимаем: без неё лента и поток на время ушли бы без
+      // заголовка (сервер снова счёл бы телефон «1.0»), а сервис уведомлений
+      // перезапустился бы как при первой регистрации. Регистрация — сразу, без
+      // интервала; снимет отметку сама, если и она получит 404.
+      _installationSession = null;
+      await registerInstallation();
+    } catch (error) {
+      _dataLog.info('статус поддержки не получен: $error');
+    }
+  }
+
   /// Сохраняет пару токенов после обмена `refresh_token` (`TokenRefresher`) —
   /// вошедшему и в его запись логина (по ней офлайн-вход).
   ///
@@ -2442,9 +2739,30 @@ class DataProvider {
   /// Отправляет смену состояния оборудования на сервер и обновляет
   /// локальную запись в Hive. Обработку ошибок (UI/снекбары) оставляем
   /// вызывающему — он ловит исключения этого метода.
+  ///
+  /// Ключ — на нажатие (бэкенд `81f644c`). Ответ потерялся — один повтор тем
+  /// же ключом: сервер, уже сменивший состояние, ответит прежним результатом,
+  /// а обходчик не увидит ошибку по сделанному ([isLostResponseError]).
   Future<void> updateEquipmentState(String equipmentUuid, String state) async {
     final generation = cacheGeneration;
-    await api.updateEquipmentState(equipmentUuid, state);
+    // Сессия — до запроса: повтор после обрыва ушёл бы с токеном того, кто
+    // успел войти вместо нажавшего.
+    final session = _accessSession;
+    final key = newIdempotencyKey();
+    try {
+      await api.updateEquipmentState(equipmentUuid, state,
+          idempotencyKey: key);
+    } catch (error) {
+      if (!isLostResponseError(error)) rethrow;
+      if (session != _accessSession || isStaleCacheGeneration(generation)) {
+        rethrow;
+      }
+      // Обрыв посреди обмена ставит окно «сервер не отвечает», и повтор упал
+      // бы сразу, не уйдя в сеть. Обходчик нажал сам — идём честно.
+      API.retryConnectionNow();
+      await api.updateEquipmentState(equipmentUuid, state,
+          idempotencyKey: key);
+    }
     // Через очередь фиксации, как и синхронизация: иначе правка могла бы
     // лечь посреди полной перезаписи справочника — или в кэш уже другого
     // обходчика.

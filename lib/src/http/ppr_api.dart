@@ -64,7 +64,12 @@ extension PprApi on API {
       final Set<String> periodicTaskUuids = {};
       final Set<String> inspectionUuids = {};
       final Set<String> completedInspectionUuids = {};
+      final List<PprWaitingTask> waitingTasks = [];
       for (final task in tasks) {
+        // Ждёт оборудование «В работе» — экземпляра ещё нет (бэкенд
+        // `6296b61`). Членство активное, задача входит в ППР.
+        final waiting = PprWaitingTask.fromPprTask(task);
+        if (waiting != null) waitingTasks.add(waiting);
         // Пропускаем задачи, которые уже не входят в ППР.
         if (task['active_membership'] != true) continue;
         final periodicTask = task['periodic_task'];
@@ -86,7 +91,12 @@ extension PprApi on API {
       }
 
       result.add(Ppr.fromListJson(
-          ppr, periodicTaskUuids, inspectionUuids, completedInspectionUuids));
+        ppr,
+        periodicTaskUuids,
+        inspectionUuids,
+        completedInspectionUuids,
+        waitingTasks: waitingTasks,
+      ));
     }
 
     return result;

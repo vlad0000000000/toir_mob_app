@@ -19,14 +19,22 @@ import 'notifications_task_handler.dart';
 /// работает» и ничего не делал, и пуши о новых задачах шли со старого сервера
 /// или не шли вовсе (стенд 05.11: `Failed host lookup` на адрес dev-сервера,
 /// хотя приложение работало с локальным стендом).
+///
+/// И не с той установкой ([savedInstallation]): установку зарегистрировали
+/// после запуска сервиса — его поток всё ещё без заголовка
+/// `X-Mobile-Installation-ID` и получает карточки 1.0 вместо сигналов
+/// объявлений. Пустое значение — «без заголовка».
 bool pushServiceNeedsRestart({
   required String? savedUrl,
   required String? savedJwt,
   required String currentUrl,
   required String currentJwt,
+  String? savedInstallation,
+  String? currentInstallation,
 }) =>
     (savedUrl ?? '').trim() != currentUrl.trim() ||
-    (savedJwt ?? '').trim() != currentJwt.trim();
+    (savedJwt ?? '').trim() != currentJwt.trim() ||
+    (savedInstallation ?? '').trim() != (currentInstallation ?? '').trim();
 
 /// Показывать ли системный запрос разрешения на уведомления.
 ///
@@ -181,6 +189,10 @@ class PushNotificationsController {
     // Прокидываем токен и base URL в изолят сервиса.
     await FlutterForegroundTask.saveData(key: 'sse_base_url', value: baseUrl);
     await FlutterForegroundTask.saveData(key: 'sse_jwt', value: token);
+    await FlutterForegroundTask.saveData(
+      key: pushInstallationKey,
+      value: GlobalState.dataProvider.installationHeaderId ?? '',
+    );
 
     if (await FlutterForegroundTask.isRunningService) {
       debugPrint('[Push] service already running — restart with new token');
@@ -240,6 +252,10 @@ class PushNotificationsController {
         savedJwt: await FlutterForegroundTask.getData<String>(key: 'sse_jwt'),
         currentUrl: API.baseUrl,
         currentJwt: GlobalState.authUser?.JWTToken ?? '',
+        savedInstallation: await FlutterForegroundTask.getData<String>(
+          key: pushInstallationKey,
+        ),
+        currentInstallation: GlobalState.dataProvider.installationHeaderId,
       );
       if (stale) {
         debugPrint('[Push] ensureRunning: stale url or token, restarting');
@@ -300,6 +316,7 @@ class PushNotificationsController {
       }
       await FlutterForegroundTask.removeData(key: 'sse_base_url');
       await FlutterForegroundTask.removeData(key: 'sse_jwt');
+      await FlutterForegroundTask.removeData(key: pushInstallationKey);
     } catch (e) {
       debugPrint('[Push] stop failed: $e');
     }

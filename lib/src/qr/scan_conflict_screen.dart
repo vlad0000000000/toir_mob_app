@@ -129,6 +129,14 @@ class _ScanConflictScreenState extends State<ScanConflictScreen>
   /// передали другому направлению. Повтор остаётся — задачу могут вернуть.
   bool get _isWithdrawn => isTaskWithdrawnReason(_scan.lastError);
 
+  /// Задачу пропустили: по расписанию выдана следующая (бэкенд `5a789dc`).
+  /// Окончательно, как и закрытая другим: снятый экземпляр не вернётся, а
+  /// результат на новую задачу не переносим (решение 18.11).
+  bool get _isMissed => isTaskMissedReason(_scan.lastError);
+
+  /// Повтор ничего не даст — кнопки повтора нет, остаётся удалить.
+  bool get _isFinal => _isClosedByOther || _isMissed;
+
   /// Снимки осмотра. Лежат в записи строками base64 — разбираем один раз на
   /// экран, а не на каждый кадр. Битый кадр пропускаем: экран должен
   /// остаться рабочим, а отправка о нём и так скажет.
@@ -565,7 +573,9 @@ class _ScanConflictScreenState extends State<ScanConflictScreen>
               ? ScanConflictStrings.deleteTakenBody
               : _isWithdrawn
                   ? ScanConflictStrings.deleteWithdrawnBody
-                  : ScanConflictStrings.deleteBody,
+                  : _isMissed
+                      ? ScanConflictStrings.deleteMissedBody
+                      : ScanConflictStrings.deleteBody,
       note: RepairStrings.deleteIrreversible,
     );
     if (!confirmed || !mounted) return;
@@ -702,7 +712,9 @@ class _ScanConflictScreenState extends State<ScanConflictScreen>
                               ? ScanConflictStrings.noRightsHint
                               : _isWithdrawn
                                   ? ScanConflictStrings.withdrawnHint
-                                  : ScanConflictStrings.genericHint,
+                                  : _isMissed
+                                      ? ScanConflictStrings.missedHint
+                                      : ScanConflictStrings.genericHint,
               style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
             ),
           ],
@@ -851,9 +863,9 @@ class _ScanConflictScreenState extends State<ScanConflictScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Задачу закрыл другой — повтор даст тот же отказ, кнопки нет:
-              // остаётся только удалить.
-              if (!_isClosedByOther) ...[
+              // Задачу закрыл другой или её пропустили — повтор даст тот же
+              // отказ, кнопки нет: остаётся только удалить.
+              if (!_isFinal) ...[
                 SizedBox(
                   height: 52,
                   width: double.infinity,

@@ -80,6 +80,16 @@ class UsageUpdate implements QueueOwned {
   @override
   String? ownerServer;
 
+  /// `Idempotency-Key` записи показания (бэкенд `81f644c`). Ставится один раз
+  /// перед первой отправкой и сохраняется в боксе до запроса: ответ мог
+  /// потеряться, а повтор того же показания с тем же ключом сервер узнаёт и
+  /// не записывает второй раз. Тело запроса — `{"current_value": …}` из
+  /// неизменного [usageParameterValue], поэтому оно у повтора то же.
+  ///
+  /// `null` — ещё не отправлялась. Не `final`: ставит очередь на месте. В
+  /// [key] и [toJson] не входит — по той же причине, что [lastError].
+  String? eventId;
+
   bool get isRejected => (lastError ?? '').isNotEmpty;
 
   String key() {
@@ -115,6 +125,7 @@ class UsageUpdate implements QueueOwned {
     this.createdAt,
     this.ownerUuid,
     this.ownerServer,
+    this.eventId,
   });
 
   Map<String, dynamic> toJson() {
@@ -172,6 +183,12 @@ class UsageUpdateAdapter extends TypeAdapter<UsageUpdate> {
     } catch (_) {
       ownerServer = null; // записи до привязки очередей к серверу
     }
+    String? eventId;
+    try {
+      eventId = reader.read() as String?;
+    } catch (_) {
+      eventId = null; // записи до ключа показания — получат его при отправке
+    }
     return UsageUpdate(
       usageParameterUuid: usageParameterUuid,
       usageParameterValue: usageParameterValue,
@@ -180,6 +197,7 @@ class UsageUpdateAdapter extends TypeAdapter<UsageUpdate> {
       createdAt: createdAt,
       ownerUuid: ownerUuid,
       ownerServer: ownerServer,
+      eventId: eventId,
     );
   }
 
@@ -193,5 +211,6 @@ class UsageUpdateAdapter extends TypeAdapter<UsageUpdate> {
     writer.write(obj.createdAt);
     writer.write(obj.ownerUuid);
     writer.write(obj.ownerServer);
+    writer.write(obj.eventId);
   }
 }

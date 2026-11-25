@@ -29,7 +29,8 @@ class MyAppBar {
               confirmIcon: Icons.logout_rounded,
             );
             if (!confirmed) return;
-            await signOut();
+            // Обходчик вышел сам — отзываем сессию и на сервере.
+            await signOut(revokeSession: true);
             if (!context.mounted) return;
             GoRouter.of(context).clearStackAndNavigate('/login');
           },

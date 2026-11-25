@@ -1,5 +1,24 @@
 part of 'api.dart';
 
+/// Заголовки и тело `DELETE /v1/auth/logout/` (бэкенд `8b547e8`): сервер
+/// отзывает сессию по `refresh_token` из тела или по Bearer access-токену —
+/// шлём оба, что есть. `null` — нет ни одного, отзывать нечем.
+({Map<String, String> headers, String? body})? logoutRequest({
+  String? refreshToken,
+  String? accessToken,
+}) {
+  final refresh = (refreshToken ?? '').isEmpty ? null : refreshToken;
+  final access = (accessToken ?? '').isEmpty ? null : accessToken;
+  if (refresh == null && access == null) return null;
+  return (
+    headers: {
+      if (refresh != null) 'Content-Type': 'application/json',
+      if (access != null) 'Authorization': 'Bearer $access',
+    },
+    body: refresh == null ? null : jsonEncode({'refresh_token': refresh}),
+  );
+}
+
 extension AuthApi on API {
   Future<User> me(String meJWTToken) async {
     _guardOffline();
@@ -96,6 +115,31 @@ extension AuthApi on API {
       throw const FormatException('Refresh response without refresh_token');
     }
     return TokenPair(access: access, refresh: refresh);
+  }
+
+  /// Отзывает сессию на сервере (`DELETE /v1/auth/logout/`, бэкенд
+  /// `8b547e8`): после неё ни [refreshToken], ни [accessToken] не примут.
+  /// Повтор безопасен, на неизвестный токен сервер тоже отвечает 204.
+  ///
+  /// Ошибки бросает как есть — глушит вызывающий: выход не должен зависеть
+  /// от сети ([signOut] шлёт запрос фоном). Без обоих токенов — ничего.
+  Future<void> revokeSession({String? refreshToken, String? accessToken}) async {
+    final request = logoutRequest(
+      refreshToken: refreshToken,
+      accessToken: accessToken,
+    );
+    if (request == null) return;
+    _guardOffline();
+    final response = await _client
+        .delete(
+          Uri.parse('${API.baseUrl}/v1/auth/logout/'),
+          headers: request.headers,
+          body: request.body,
+        )
+        .timeout(API._readTimeout);
+    if (response.statusCode != 204 && response.statusCode != 200) {
+      throw Exception('Logout failed: ${response.statusCode}');
+    }
   }
 
   Future<User> login(String username, String password) async {

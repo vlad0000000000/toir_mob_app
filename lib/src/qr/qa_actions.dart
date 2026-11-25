@@ -8,6 +8,7 @@ import '../../src/data/data_provider.dart';
 import '../../src/design/app_constants.dart';
 import '../../src/design/app_theme.dart';
 import '../../src/app_bar/app_bar.dart';
+import '../../src/notifications/announcements_service.dart';
 import '../../src/notifications/notifications_service.dart';
 import '../../src/notifications/push/push_notifications_controller.dart';
 import '../../src/widgets/info_dialog.dart';
@@ -16,6 +17,7 @@ import '../../strings.dart';
 import '../../settings.dart';
 import '../widgets/app_bottom_sheet.dart';
 import '../widgets/no_access.dart';
+import '../widgets/support_status_banner.dart';
 import '../model/usage_update.dart';
 import '../repairs/repair_delete_dialog.dart';
 import 'rejected_problem_reports_sheet.dart';
@@ -156,29 +158,90 @@ class _QRActionsState extends State<QRActions> {
     }
     // Отказ сервера — красным: само не уйдёт. Временный сбой — оранжевым.
     final rejected = troubles.any((trouble) => trouble.rejected);
+    final icon = rejected
+        ? Icons.report_gmailerrorred_rounded
+        : Icons.sync_problem_rounded;
+    final tone = rejected ? DialogTone.error : DialogTone.warning;
+    // Ремонты разбираются в своём разделе — окно ведёт туда кнопкой, а не
+    // только словами «откройте «Ремонты»».
+    final opensRepairs = troubles.any((trouble) => trouble.opensRepairs);
+    // Работа версии ограничена (бэкенд `811c4dc`) — главная кнопка RuStore:
+    // без обновления новых задач не будет. Итог отправки — строкой под
+    // текстом, если всё ушло.
+    final storeUri =
+        troubles.any((trouble) => trouble.opensStore) ? report.storeUri : null;
+    final note = report.sentNote;
+    Future<void> show({String? body, Widget? content, required String title}) async {
+      if (storeUri != null) {
+        // RuStore — главной кнопкой; если есть и ремонты для разбора, переход
+        // в «Ремонты» остаётся второй, а не пропадает.
+        final choice = await showDialog<String>(
+          context: context,
+          builder: (ctx) => InfoDialog(
+            icon: icon,
+            tone: tone,
+            title: title,
+            body: body,
+            content: content,
+            note: note,
+            actions: [
+              DialogPrimaryButton(
+                label: MobileSupportStrings.openStore,
+                icon: Icons.arrow_circle_up_rounded,
+                onPressed: () => Navigator.of(ctx).pop('store'),
+              ),
+              if (opensRepairs)
+                DialogSecondaryButton(
+                  label: DialogStrings.syncOpenRepairs,
+                  onPressed: () => Navigator.of(ctx).pop('repairs'),
+                ),
+              DialogSecondaryButton(
+                label: DialogStrings.syncGotIt,
+                onPressed: () => Navigator.of(ctx).pop(),
+              ),
+            ],
+          ),
+        );
+        if (!mounted) return;
+        if (choice == 'store') await openStoreLink(context, storeUri);
+        if (choice == 'repairs') _onRepairs();
+        return;
+      }
+      if (!opensRepairs) {
+        await showInfoDialog(
+          context,
+          icon: icon,
+          tone: tone,
+          title: title,
+          body: body,
+          content: content,
+          note: note,
+        );
+        return;
+      }
+      final open = await showConfirmDialog(
+        context,
+        icon: icon,
+        tone: tone,
+        title: title,
+        body: body,
+        content: content,
+        confirmLabel: DialogStrings.syncOpenRepairs,
+        cancelLabel: DialogStrings.syncGotIt,
+      );
+      if (open && mounted) _onRepairs();
+    }
+
     if (troubles.length == 1) {
       final trouble = troubles.single;
-      showInfoDialog(
-        context,
-        icon: rejected
-            ? Icons.report_gmailerrorred_rounded
-            : Icons.sync_problem_rounded,
-        tone: rejected ? DialogTone.error : DialogTone.warning,
-        title: trouble.title,
-        body: trouble.body,
-      );
+      await show(title: trouble.title, body: trouble.body);
       return;
     }
     // Не ушло сразу несколько видов данных — перечисляем все, а не первое
     // по порядку: раньше при застрявших осмотрах и заявках окно называло
     // только осмотры.
     final tt = Theme.of(context).textTheme;
-    showInfoDialog(
-      context,
-      icon: rejected
-          ? Icons.report_gmailerrorred_rounded
-          : Icons.sync_problem_rounded,
-      tone: rejected ? DialogTone.error : DialogTone.warning,
+    await show(
       title: DialogStrings.syncSeveralFailedTitle,
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -396,6 +459,10 @@ class _QRActionsState extends State<QRActions> {
                     ),
                   ),
           ),
+          // Поддержка версии — после полос отклонённого: те о данных,
+          // которые сами уже не уйдут, эта — о самом приложении. Над
+          // кнопками разделов (решение 18.11).
+          const SupportStatusBanner(),
           _PrimaryActionCard(
             icon: Icons.qr_code_scanner_rounded,
             title: Strings.scanner,
@@ -887,94 +954,102 @@ class _NotificationsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Непрочитанные объявления — в тот же счётчик (решение 18.11): блок
+    // объявлений стоит в том же разделе.
     return ValueListenableBuilder<int>(
       valueListenable: NotificationsService.instance.unreadCount,
-      builder: (context, count, _) {
-        final cs = Theme.of(context).colorScheme;
-        final tt = Theme.of(context).textTheme;
-        return Material(
-          color: cs.surfaceContainerLow,
-          clipBehavior: Clip.antiAlias,
-          shape: RoundedRectangleBorder(
-            side: BorderSide(color: cs.outlineVariant, width: 0.5),
-            borderRadius: BorderRadius.circular(AppConstants.radiusLG),
-          ),
-          child: InkWell(
-            onTap: onTap,
-            child: Padding(
-              padding: const EdgeInsets.all(AppConstants.spacingMD),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      builder: (context, notificationsCount, _) => ValueListenableBuilder<int>(
+        valueListenable: AnnouncementsService.instance.unreadCount,
+        builder: (context, announcementsCount, _) =>
+            _build(context, notificationsCount + announcementsCount),
+      ),
+    );
+  }
+
+  Widget _build(BuildContext context, int count) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return Material(
+      color: cs.surfaceContainerLow,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: cs.outlineVariant, width: 0.5),
+        borderRadius: BorderRadius.circular(AppConstants.radiusLG),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(AppConstants.spacingMD),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Stack(
+                clipBehavior: Clip.none,
                 children: [
-                  Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: cs.secondaryContainer,
-                          borderRadius:
-                              BorderRadius.circular(AppConstants.radiusMD),
-                        ),
-                        child: Icon(
-                          count > 0
-                              ? Icons.notifications_rounded
-                              : Icons.notifications_outlined,
-                          color: cs.onSecondaryContainer,
-                          size: 24,
-                        ),
-                      ),
-                      if (count > 0)
-                        Positioned(
-                          right: -4,
-                          top: -4,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            constraints: const BoxConstraints(
-                                minWidth: 20, minHeight: 20),
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: cs.error,
-                              shape: BoxShape.rectangle,
-                              borderRadius: BorderRadius.circular(
-                                  AppConstants.radiusFull),
-                              border: Border.all(color: cs.surface, width: 2),
-                            ),
-                            child: Text(
-                              count > 99 ? '99+' : '$count',
-                              style: tt.labelSmall?.copyWith(
-                                color: cs.onError,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 10,
-                                height: 1.1,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: AppConstants.spacingMD),
-                  Text(
-                    'Уведомления',
-                    style: tt.titleMedium,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    count > 0 ? '$count новых' : 'Нет новых',
-                    style: tt.bodySmall?.copyWith(
-                      color: count > 0 ? cs.error : cs.onSurfaceVariant,
-                      fontWeight: count > 0 ? FontWeight.w600 : FontWeight.w400,
+                  Container(
+                    width: 44,
+                    height: 44,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: cs.secondaryContainer,
+                      borderRadius:
+                          BorderRadius.circular(AppConstants.radiusMD),
+                    ),
+                    child: Icon(
+                      count > 0
+                          ? Icons.notifications_rounded
+                          : Icons.notifications_outlined,
+                      color: cs.onSecondaryContainer,
+                      size: 24,
                     ),
                   ),
+                  if (count > 0)
+                    Positioned(
+                      right: -4,
+                      top: -4,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        constraints: const BoxConstraints(
+                            minWidth: 20, minHeight: 20),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: cs.error,
+                          shape: BoxShape.rectangle,
+                          borderRadius: BorderRadius.circular(
+                              AppConstants.radiusFull),
+                          border: Border.all(color: cs.surface, width: 2),
+                        ),
+                        child: Text(
+                          count > 99 ? '99+' : '$count',
+                          style: tt.labelSmall?.copyWith(
+                            color: cs.onError,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 10,
+                            height: 1.1,
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
-            ),
+              const SizedBox(height: AppConstants.spacingMD),
+              Text(
+                'Уведомления',
+                style: tt.titleMedium,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                count > 0 ? '$count новых' : 'Нет новых',
+                style: tt.bodySmall?.copyWith(
+                  color: count > 0 ? cs.error : cs.onSurfaceVariant,
+                  fontWeight: count > 0 ? FontWeight.w600 : FontWeight.w400,
+                ),
+              ),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }

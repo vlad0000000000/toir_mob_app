@@ -389,6 +389,47 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
     setState(() {});
   }
 
+  /// Неотправленное, чьей карточки в списке [repairs] / [drafts] не видно:
+  /// ремонт вне выбранных статусов («На рассмотрении», «Закрыт»), не подходит
+  /// под поиск или его больше нет у обходчика (удалён, передан другому).
+  ///
+  /// Раньше такая правка или черновик были видны только значком на карточке
+  /// своего ремонта — а карточки в списке нет. «Синхронизировать данные» при
+  /// этом говорило «Не все ремонты отправлены», а раздел — «Ремонтов нет».
+  /// Показываем всегда, без фильтра и поиска: это то, что ждёт обходчика.
+  ///
+  /// Ремонт берём из кэша; нет и там — собираем из правки
+  /// ([PendingRepairUpdate.toRepair]), карточка ремонта откроет её так же.
+  List<_HiddenUnsent> _hiddenUnsent(
+    List<Repair> repairs,
+    List<PendingRepair> drafts,
+  ) {
+    final provider = GlobalState.dataProvider;
+    final shown = {for (final repair in repairs) repair.uuid};
+    final shownDrafts = {for (final draft in drafts) draft.localId};
+    final cached = {for (final repair in provider.repairs) repair.uuid: repair};
+    final result = <_HiddenUnsent>[];
+    final seen = <String>{};
+    for (final draft in provider.pendingRepairs) {
+      if (shownDrafts.contains(draft.localId)) continue;
+      final serverUuid = draft.serverUuid ?? '';
+      // Ремонт черновика уже на сервере — показываем карточкой ремонта (она
+      // несёт пометку черновика), если она сама не видна.
+      if (serverUuid.isNotEmpty && cached.containsKey(serverUuid)) {
+        if (shown.contains(serverUuid) || !seen.add(serverUuid)) continue;
+        result.add(_HiddenUnsent.repair(cached[serverUuid]!));
+        continue;
+      }
+      result.add(_HiddenUnsent.draft(draft));
+    }
+    for (final update in provider.myPendingRepairUpdates) {
+      final uuid = update.repairUuid;
+      if (shown.contains(uuid) || !seen.add(uuid)) continue;
+      result.add(_HiddenUnsent.repair(cached[uuid] ?? update.toRepair()));
+    }
+    return result;
+  }
+
   /// Список строится целиком, а не через `itemBuilder`: у обходчика активных
   /// ремонтов единицы-десятки, зато так тривиально вставляются заголовки
   /// групп. Во вкладке «Закрытые» их ровно 10 — тем более не проблема.
@@ -417,9 +458,30 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
     // от обходчика, — остальные уже на сервере. Заголовка над ними нет: сами
     // карточки и так помечены пилюлей «Черновик» и красным значком очереди,
     // а подпись только повторяла это третий раз.
-    final draftChildren = drafts.isEmpty
+    final hidden = _hiddenUnsent(repairs, drafts);
+    final hiddenChildren = hidden.isEmpty
         ? const <Widget>[]
         : <Widget>[
+            const _GroupLabel(RepairStrings.groupUnsent),
+            const SizedBox(height: AppConstants.spacingSM),
+            for (var i = 0; i < hidden.length; i++) ...[
+              if (i > 0) const SizedBox(height: AppConstants.spacingSM),
+              if (hidden[i].repair case final repair?)
+                tile(repair)
+              else
+                _DraftTile(
+                  draft: hidden[i].draft!,
+                  onDelete: () => _deleteDraft(hidden[i].draft!),
+                  onOpen: () => GoRouter.of(context)
+                      .push('/repair_draft/${hidden[i].draft!.localId}'),
+                ),
+            ],
+            const SizedBox(height: AppConstants.spacingLG),
+          ];
+    final draftChildren = drafts.isEmpty
+        ? hiddenChildren
+        : <Widget>[
+            ...hiddenChildren,
             for (var i = 0; i < drafts.length; i++) ...[
               if (i > 0) const SizedBox(height: AppConstants.spacingSM),
               _DraftTile(
@@ -474,9 +536,13 @@ class _RepairsListScreenState extends State<RepairsListScreen> {
     final repairs = _visibleRepairs;
     final onlyClosed = _effectiveStatuses.length == 1 && _needsClosed;
     final busy = _isSyncing || (_needsClosed && _isLoadingClosed);
-    // Пустым список считается, только когда нет и черновиков: иначе
-    // единственный неотправленный ремонт спрятался бы за «Ремонтов нет».
-    final isEmpty = repairs.isEmpty && _visibleDrafts.isEmpty;
+    // Пустым список считается, только когда нет и черновиков, и скрытого
+    // неотправленного: иначе единственный неотправленный ремонт спрятался бы
+    // за «Ремонтов нет».
+    final drafts = _visibleDrafts;
+    final isEmpty = repairs.isEmpty &&
+        drafts.isEmpty &&
+        _hiddenUnsent(repairs, drafts).isEmpty;
     // Пусто из-за поиска, а не потому, что ремонтов нет: в выбранных
     // статусах что-то есть, но под запрос не подошло.
     final nothingFound = isEmpty &&
@@ -949,6 +1015,16 @@ class _DraftTile extends StatelessWidget {
 }
 
 /// Заголовок группы в списке — прописными, как секционные подписи форм.
+/// Неотправленное без видимой карточки — ремонт (с пометкой правки или
+/// черновика) или черновик, ремонт по которому ещё не создан.
+class _HiddenUnsent {
+  final Repair? repair;
+  final PendingRepair? draft;
+
+  const _HiddenUnsent.repair(Repair this.repair) : draft = null;
+  const _HiddenUnsent.draft(PendingRepair this.draft) : repair = null;
+}
+
 class _GroupLabel extends StatelessWidget {
   final String text;
 

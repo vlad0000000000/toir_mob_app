@@ -99,6 +99,8 @@ extension NotificationsApi on API {
       uri,
       headers: {
         'Authorization': 'Bearer ${API.jwtToken}',
+        // Зарегистрированная установка: карточек 1.0 сервер в ленту не кладёт.
+        ...API.installationHeaders(),
       },
     ).timeout(API._readTimeout);
 
@@ -123,6 +125,7 @@ extension NotificationsApi on API {
           '${API.baseUrl}/v1/company/notifications/mobile/$notificationUuid/read'),
       headers: {
         'Authorization': 'Bearer ${API.jwtToken}',
+        ...API.installationHeaders(),
       },
     ).timeout(API._readTimeout);
 
@@ -149,6 +152,9 @@ extension NotificationsApi on API {
     request.headers['Authorization'] = 'Bearer ${API.jwtToken}';
     request.headers['Accept'] = 'text/event-stream';
     request.headers['Cache-Control'] = 'no-cache';
+    // С заголовком установки поток шлёт сигналы `announcements_changed` и
+    // `mobile_support_changed` вместо обновления карточек 1.0.
+    request.headers.addAll(API.installationHeaders());
 
     // Поток живёт долго и закрывается своим `StreamedResponseHandle`, поэтому
     // общий клиент ему не подходит — закрытие ручки убило бы и остальные

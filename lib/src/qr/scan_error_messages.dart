@@ -30,6 +30,11 @@ String scanErrorMessage(Object error) {
   if (isOfflineError(error)) {
     return ScanQueueStrings.errorNoConnection;
   }
+  // Ключ записи уже ушёл с другим телом (бэкенд `81f644c`): текст сервера
+  // говорит про `Idempotency-Key`, обходчику это ни о чём.
+  if (error is ServerFailureException && error.isIdempotencyConflict) {
+    return ScanQueueStrings.errorKeyConflict;
+  }
   final raw = _stripExceptionPrefix(error.toString()).trim();
   for (final entry in _translations.entries) {
     if (raw == entry.key || raw.contains(entry.key)) {
@@ -63,11 +68,33 @@ String scanRejectionMessage(Object error, {required bool closesTask}) =>
 /// найдено», у него своя причина. И не временный сбой: без связи кода ответа
 /// нет, 5xx — повтор.
 bool isTaskWithdrawnError(Object error, {required bool closesTask}) =>
-    closesTask && scanErrorStatusCode(error) == 404;
+    closesTask &&
+    (scanErrorStatusCode(error) == 404 || isInspectionMissedError(error));
+
+/// Сервер сам сказал, что экземпляр снят как пропущенный (409
+/// `inspection_missed`, бэкенд `811c4dc`) — причина известна без второго
+/// запроса ([withdrawnTaskReason]).
+bool isInspectionMissedError(Object error) =>
+    error is ServerFailureException && error.errorCode == inspectionMissedCode;
 
 /// Сохранённая причина — «задачу сняли» ([isTaskWithdrawnError]).
 bool isTaskWithdrawnReason(String? stored) =>
     stored == ScanQueueStrings.errorTaskWithdrawn;
+
+/// Причина отказа 404 по задаче — по статусу экземпляра, перечитанного после
+/// отказа (`GET /fault_inspections/{uuid}` отдаёт и пропущенные, бэкенд
+/// `5a789dc`). `missed` — выдан следующий экземпляр, этот снят
+/// ([ScanQueueStrings.errorTaskMissed]); иначе — общая «задачу сняли»: экземпляр
+/// не найден (удалён, перенесён на чужое направление) или перечитать не вышло
+/// ([refetchedStatus] `null`).
+String withdrawnTaskReason(String? refetchedStatus) =>
+    refetchedStatus == 'missed'
+        ? ScanQueueStrings.errorTaskMissed
+        : ScanQueueStrings.errorTaskWithdrawn;
+
+/// Сохранённая причина — «задача пропущена» ([withdrawnTaskReason]).
+bool isTaskMissedReason(String? stored) =>
+    stored == ScanQueueStrings.errorTaskMissed;
 
 /// Причина отказа, уже лежащая в очереди, — для показа на экране.
 ///
@@ -144,6 +171,9 @@ bool isRetryableScanError(Object error) {
   // запрос с тем же ключом пока не завершился. Это не отказ — сервер прямо
   // просит повторить; пометить осмотр отклонённым значило бы бросить его.
   if (error.toString().contains(_keyInProgress)) return true;
+  // Тот же отказ в новом формате (бэкенд `81f644c`, наработка):
+  // `idempotency_key_in_progress` — [ServerFailureException.isTransient].
+  if (error is ServerFailureException && error.isTransient) return true;
   final status = scanErrorStatusCode(error);
   return status != null && status >= 500;
 }

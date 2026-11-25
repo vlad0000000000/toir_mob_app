@@ -223,6 +223,40 @@ class InvalidCredentialsException implements Exception {
   String toString() => message;
 }
 
+/// 409: запрос с этим `Idempotency-Key` ещё выполняется — повторить тем же
+/// ключом и телом (бэкенд `81f644c`, `reserve_mutation`).
+const String idempotencyKeyInProgressCode = 'idempotency_key_in_progress';
+
+/// 409: этот `Idempotency-Key` уже использован для запроса с другим телом.
+const String idempotencyKeyConflictCode = 'idempotency_key_conflict';
+
+/// 409 на результат по экземпляру задачи, который сервер снял как
+/// пропущенный, выдав по расписанию следующий (бэкенд `811c4dc`). Приходит
+/// только на заголовок `X-Inspection-Conflict-Format: 2`; без него и для
+/// недоступного экземпляра — прежний 404. Окончательно: результат с фото
+/// остаётся на телефоне для разбора.
+const String inspectionMissedCode = 'inspection_missed';
+
+/// Машинный код отказа из тела ответа: `code` наверху (так отвечают отказы
+/// доступа) или внутри объекта `detail` (бэкенд `81f644c`:
+/// `{"detail": {"code", "message"}}`). `null` — кода нет или тело не JSON.
+String? serverErrorCode(String body) {
+  try {
+    final data = jsonDecode(body);
+    if (data is! Map) return null;
+    final top = data['code'];
+    if (top is String && top.isNotEmpty) return top;
+    final detail = data['detail'];
+    if (detail is Map) {
+      final nested = detail['code'];
+      if (nested is String && nested.isNotEmpty) return nested;
+    }
+  } catch (_) {
+    // Тело не JSON — кода нет.
+  }
+  return null;
+}
+
 /// Сервер ответил, но отказал. Хранит код ответа — без него отказ «оборудование
 /// уже в ремонте» (409, повторять бессмысленно) неотличим от «шлюз не достучался
 /// до бэкенда» (502/503/504, повторить обязательно).
@@ -238,15 +272,76 @@ class ServerFailureException implements Exception {
   final int statusCode;
   final String message;
 
-  ServerFailureException(this.statusCode, this.message);
+  /// Машинный код отказа (`code` или `detail.code` в теле, бэкенд `81f644c`).
+  /// `null` — сервер его не прислал.
+  final String? errorCode;
+
+  ServerFailureException(this.statusCode, this.message, {this.errorCode});
 
   /// Сбой на стороне сервера или шлюза, а не отказ по существу запроса.
   /// 408 — таймаут запроса, 429 — «слишком часто»: оба лечатся повтором.
+  /// И 409 [idempotencyKeyInProgressCode]: запрос с тем же ключом ещё
+  /// выполняется, сервер прямо просит повторить.
   bool get isTransient =>
-      statusCode >= 500 || statusCode == 408 || statusCode == 429;
+      statusCode >= 500 ||
+      statusCode == 408 ||
+      statusCode == 429 ||
+      errorCode == idempotencyKeyInProgressCode;
+
+  /// Тот же `Idempotency-Key` уже ушёл с другим телом — окончательный отказ.
+  bool get isIdempotencyConflict => errorCode == idempotencyKeyConflictCode;
 
   @override
   String toString() => 'Exception: $message';
+}
+
+/// 412 `stale_revision` (бэкенд `d22727e`): запись изменилась с тех пор, как
+/// клиент взял её ETag для `If-Match`. В ответе — актуальное состояние
+/// ([current], то же, что отдаёт `edit-state`) и его ETag ([currentEtag]):
+/// по ним можно показать, что сейчас на сервере, и отправить правку поверх
+/// осознанно.
+class StaleRevisionException extends ServerFailureException {
+  static const String code = 'stale_revision';
+
+  final Map<String, dynamic> current;
+  final String currentEtag;
+
+  StaleRevisionException(String message, this.current, this.currentEtag)
+      : super(412, message, errorCode: code);
+
+  /// `null` — не 412 или тело не того вида: такой ответ разбирается как
+  /// обычный отказ.
+  static StaleRevisionException? fromResponse(int statusCode, String body) {
+    if (statusCode != 412) return null;
+    try {
+      final data = jsonDecode(body);
+      if (data is! Map) return null;
+      final detail = data['detail'];
+      if (detail is! Map || detail['code'] != code) return null;
+      final current = detail['current'];
+      final etag = detail['current_etag'];
+      if (current is! Map || etag is! String || etag.isEmpty) return null;
+      final message = detail['message'];
+      return StaleRevisionException(
+        message is String && message.trim().isNotEmpty ? message : code,
+        Map<String, dynamic>.from(current),
+        etag,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+/// 426 (бэкенд `811c4dc`): суперадмин вручную ограничил работу этой версии
+/// приложения. Сервер так отвечает только на «новую работу» — список
+/// плановых задач и взятие ремонта; очередь осмотров, фото и ремонтов
+/// принимает. Не выход и не повод чистить данные: сохранённые задачи
+/// остаются, плашка на главной просит обновиться.
+class WorkBlockedException extends ServerFailureException {
+  static const int status = 426;
+
+  WorkBlockedException(String message) : super(status, message);
 }
 
 /// Сервер отказал в одной операции по модели доступа: у роли нет права, объект

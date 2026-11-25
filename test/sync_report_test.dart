@@ -7,6 +7,46 @@ void main() {
   group('итог ручной синхронизации', () {
     test('всё ушло — бед нет', () {
       expect(const SyncReport(scansWereQueued: true).troubles, isEmpty);
+      expect(const SyncReport(scansWereQueued: true).sentNote, isNull);
+    });
+
+    group('ограничение работы версии (811c4dc)', () {
+      final store = Uri.parse('https://www.rustore.ru/catalog/app/x');
+
+      test('первым пунктом, с кнопкой RuStore, и итог отправки отдельно', () {
+        final report = SyncReport(
+          scansWereQueued: true,
+          workBlocked: true,
+          storeUri: store,
+        );
+        final trouble = report.troubles.single;
+        expect(trouble.title, MobileSupportStrings.workBlockedTitle);
+        expect(trouble.rejected, isTrue);
+        expect(trouble.opensStore, isTrue);
+        // Признак, а не текст заголовка.
+        expect(trouble.isWorkBlocked, isTrue);
+        expect(report.sentNote, DialogStrings.syncScansDone);
+      });
+
+      test('без ссылки — без кнопки, очередь пуста — «все данные»', () {
+        const report = SyncReport(workBlocked: true);
+        expect(report.troubles.single.opensStore, isFalse);
+        expect(report.sentNote, DialogStrings.syncAllDone);
+      });
+
+      test('не всё ушло — строки «отправлено» нет, беды перечислены', () {
+        final report = SyncReport(
+          scansWereQueued: true,
+          scansLeft: true,
+          workBlocked: true,
+          storeUri: store,
+        );
+        expect(
+            report.troubles.first.title, MobileSupportStrings.workBlockedTitle);
+        expect(report.troubles, hasLength(2));
+        expect(report.troubles.last.isWorkBlocked, isFalse);
+        expect(report.sentNote, isNull);
+      });
     });
 
     test('несколько бед — перечислены все, отказы сервера первыми', () {

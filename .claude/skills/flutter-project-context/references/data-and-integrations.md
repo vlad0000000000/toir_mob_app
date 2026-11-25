@@ -60,22 +60,23 @@ http/api.dart          ядро: baseUrl, jwtToken, таймауты, _client, �
 | GET | `/v1/user/me` (профиль доступа и блок `company` — флаги компании, `CompanyFlags`) | `me()` |
 | GET | `/v1/company/me` — только вход и сервер прошлой версии, у которого в `/user/me` нет блока `company` | `getCompany()` |
 | GET | `/v1/company/equipment` | `getEquipment()` |
-| GET | `/v1/company/equipment/states` | `getEquipmentStates()` |
-| GET | `/v1/company/equipment/usage-unit-types` | `getUsageUnitTypes()` |
-| PATCH | `/v1/company/equipment/{uuid}/usage-parameters/{uuid}` | `updateUsageParameter()` |
-| PATCH | `/v1/company/equipment/{uuid}` (multipart, `state`) | `updateEquipmentState()` |
+| GET | `/v1/company/equipment/states` | `getEquipmentStates()` — условный GET: `If-None-Match` с сохранённым ETag, 304 — бокс не трогаем (`conditional_cache.dart`, бэкенд `81f644c`) |
+| GET | `/v1/company/equipment/usage-unit-types` | `getUsageUnitTypes()` — условный GET, как у состояний |
+| PATCH | `/v1/company/equipment/{uuid}/usage-parameters/{uuid}` | `updateUsageParameter()` — `Idempotency-Key` = `UsageUpdate.eventId`, ставится перед первой отправкой и пишется в бокс до запроса (бэкенд `81f644c`) |
+| PATCH | `/v1/company/equipment/{uuid}` (multipart, `state`) | `updateEquipmentState()` — ключ на нажатие, один повтор тем же ключом, если ответ потерялся (`isLostResponseError`) |
 | GET | `/v1/company/fault_inspections/?status=open&responsible_user_uuids=…` | `getCurrentOpenTasks()` |
-| GET | `/v1/company/fault_inspections/?status=scheduled&only_my_roles=true&executable_only=true` | `getCurrentTasks()` |
+| GET | `/v1/company/fault_inspections/?status=scheduled&only_my_roles=true&executable_only=true` | `getCurrentTasks()` с `API.workHeaders()` (`X-Mobile-Installation-ID` даже до регистрации и `X-Mobile-Build-Number`, бэкенд `811c4dc`): здесь сервер проверяет ручное ограничение версии, 426 — `WorkBlockedException` |
 | GET | `/v1/company/fault_inspections/?status=closed&executable_only=true` — возвращённые на доработку | `getReturnedTasks()` |
 | GET | `/v1/company/eq_fault/` | `getTypicalProblems()` |
-| GET | `/v1/company/periodic_task/periodicity-rules` | `getPeriodicityRules()` |
+| GET | `/v1/company/periodic_task/periodicity-rules` | `getPeriodicityRules()` — условный GET, как у состояний |
 | POST | `/v1/company/periodic_task/` (+ `/photos`) | `createPeriodicTask()` |
 | POST / PATCH | `/v1/company/fault_inspections/` (multipart) | `sendScan()` |
 | GET/PATCH/POST | `/v1/company/notifications/mobile/*` | настройки, список, read |
 | GET | `/v1/company/notifications/mobile/stream` (SSE) | `openNotificationStream()` |
+| PUT | `/v1/mobile/installations/{uuid}` — регистрация установки (бэкенд `81f644c`), см. «Установка приложения» | `putMobileInstallation()` |
 | GET | `/v1/repairs/`, `/recent-closed`, `/{uuid}` | список, закрытые, карточка |
 | POST | `/v1/repairs/` | `createRepair()` — `Idempotency-Key` (`localId` черновика); сервер сверяет ключ с телом, поэтому тело **фиксируется в черновике при первой отправке** (`PendingRepair.freezeCreate`: `createComment`, `createNormUuid`, пишется до запроса) и все повторы шлют его, а не текущий комментарий. Комментарий — в самом создании: на него хватает `repair.create`, а `updateRepair()` требует `repair.execute`. Последний шаг очереди (`updateRepair`) уходит, только если есть что менять: комментарий изменился после создания (у черновика прошлой версии исходный неизвестен — уходит всегда, и очищенный тоже: `commentChangedSinceCreate`), есть расход или отправка на рассмотрение. Тот же ключ с другим телом — 409, переводится как «Для этого оборудования уже есть ремонт…»: черновик идёт путём занятого оборудования, с переносом в найденный ремонт. Норма — только с `spare_parts.view` (иначе сервер отклоняет создание целиком; на форме поле с замком) |
-| PATCH | `/v1/repairs/{uuid}` | `updateRepair()`, `claimRepair()` |
+| PATCH | `/v1/repairs/{uuid}` | `sendRepairUpdate()` с телом `repairUpdateBody()` и `Idempotency-Key` (бэкенд `81f644c`): у очереди правок ключ и точное тело — `PendingRepairUpdate.mutationKey`/`requestBody`, фиксируются до запроса, сбрасываются новой формой (`sameFormAs`); онлайн-сохранение карточки — ключ на нажатие, при обрыве правка встаёт в очередь с ним; последний шаг черновика — `repairFinishKey(localId, body)`. `If-Match` (бэкенд `d22727e`) — ETag из `GET /v1/repairs/{uuid}/edit-state` (`getRepairEditState`), 412 — `StaleRevisionException` (`detail.current`, `detail.current_etag`). `claimRepair()` — без ключа, с `API.workHeaders()` (426 при ограничении версии) |
 | POST/DELETE | `/v1/repairs/{uuid}/photos` | фото — `Idempotency-Key` |
 | GET | `/v1/company/consumption_norms/` | нормы расхода по оборудованию |
 | GET | `/v1/company/spare_parts`, `/{uuid}`, `/history` | каталог ЗИП и движение |
@@ -235,7 +236,12 @@ processed» — повторить; 410 «…no longer exists» — достав
 доставлено (повтор создания по чужому оборудованию на сервере до `06b145f`:
 там повтор не видел чужое оборудование — п. 8.2
 `docs/backend-equipment-scope.md`; новый сервер отвечает 200);
-409 «…with a different request» — отказ. 404 «Equipment not found» на прямом
+409 «…with a different request» — отказ. С `811c4dc` оба 409 приходят и с кодом
+наверху (`idempotency_key_in_progress` с `Retry-After: 1`,
+`idempotency_key_conflict`) — `sendScan` бросает `ServerFailureException` с
+`errorCode`, разбор идёт по коду, текст остался запасным. `PATCH` закрытия
+шлёт `X-Inspection-Conflict-Format: 2`: пропущенный экземпляр — 409
+`inspection_missed` вместо 404. 404 «Equipment not found» на прямом
 осмотре — оборудование удалено (на сервере до `06b145f` — ещё и чужое
 подразделение при выключенном «Осмотре без QR»): переводится; сам не
 повторяется, но снимается при смене доступа (`isEquipmentNotFoundReason` в
@@ -307,6 +313,14 @@ processed» — повторить; 410 «…no longer exists» — достав
 JWT Bearer. `POST /v1/auth/login` → `GET /v1/user/me`. `User` кладётся в бокс
 `users` под ключом `username` и отдельно под `auth_user` — это и есть текущий
 пользователь. `API.jwtToken` — геттер по `GlobalState.authUser`.
+
+**Серверные сессии (бэкенд `8b547e8`).** Обмен `refresh_token` сессию не
+меняет. Смена пароля отзывает все сессии — мобилка получает 401 и отказ
+обмена, то есть «Сессия истекла». `signOut(revokeSession: true)` отзывает
+сессию на сервере (`DELETE /v1/auth/logout/`, `revokeSession`,
+`logoutRequest`) — фоном, ошибки глушатся, без связи не отзывает. Включено
+для «Выйти» и выхода по закрытому доступу; при «Сессия истекла» и смене
+сервера — нет (токен прежнего сервера не уходит на чужой).
 
 **Обмен `refresh_token` при 401** (с 08.11). Вход сохраняет `refresh_token`
 в `User.refreshToken` (поле в конце адаптера, у старых записей `null`) рядом
@@ -921,9 +935,38 @@ pendingRepairBox ──► createRepair(Idempotency-Key = localId)
 показывает «Нет доступа к ремонту», если на ней нет неотправленной правки
 (`isRepairOutOfScope`).
 
+**Установка приложения (бэкенд `81f644c`).** Клиента без заголовка
+`X-Mobile-Installation-ID` сервер считает «Версией 1.0» и сам кладёт ему
+объявления и предупреждения о поддержке карточками в ленту. С заголовком
+карточек нет, объявления приложение показывает само. Поэтому:
+
+- UUID установки — `stringBox['mobile_installation_id']`, создаётся на старте
+  (`ensureInstallationId`) и не стирается ни выходом, ни сменой аккаунта;
+- регистрация `PUT /v1/mobile/installations/{uuid}` со сборкой (`MobileBuild`:
+  платформа, пакет, номер сборки, версия) — из `mainSync`
+  (`registerInstallation`), не чаще раза в 5 минут для той же сборки, сразу
+  после смены сборки. Отметка — `installationMarkKey(user, server)`;
+- заголовок (`API.installationHeaders()`, `DataProvider.installationHeaderId`)
+  — только после успешной регистрации у вошедшего на этом сервере: в ленте,
+  отметке прочтения и SSE обоих изолятов. Первая регистрация перезапускает
+  фоновый сервис (`onInstallationRegistered` → `ensureRunning`), его поток
+  переподключается с заголовком. Поток главного изолята получит заголовок со
+  следующим переподключением.
+- рабочие запросы, на которых сервер проверяет ручное ограничение версии
+  (`require_mobile_work`, бэкенд `811c4dc`: плановые задачи и взятие ремонта),
+  идут с `API.workHeaders()` — сырой UUID (`API.rawInstallationId`) **даже до
+  регистрации** и `X-Mobile-Build-Number` (`MobileBuild.known`, читается в
+  `main.dart` до первого запроса). Без заголовка сервер считает обходчика,
+  когда-либо заходившего с 1.0, «Версией 1.0», и после ограничения 1.0
+  новая мобилка получила бы 426;
+- первая регистрация в сессии входа (`_installationSession`) идёт без
+  пятиминутного интервала: сервер связывает установку с последним вошедшим
+  аккаунтом, а на телефоне мог входить другой;
+- `support-status` — с `X-Mobile-Build-Number`.
+
 Push **без FCM**: `flutter_foreground_task` + локальные уведомления. IPC в
 изолят — через `FlutterForegroundTask.saveData` (`sse_base_url`, `sse_jwt`,
-`push_tap_pending`), обратно — `sendDataToMain`. Адрес — `API.baseUrl` (без
+`sse_installation_id`, `push_tap_pending`), обратно — `sendDataToMain`. Адрес — `API.baseUrl` (без
 слеша на конце), не сырой `API_ENDPOINT`. После обновления сборки и
 перезагрузки Android поднимает сервис сам (`autoRunOnMyPackageReplaced`,
 `autoRunOnBoot`) с данными, сохранёнными прошлой сборкой, поэтому

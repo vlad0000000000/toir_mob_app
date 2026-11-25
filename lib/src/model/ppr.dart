@@ -29,6 +29,12 @@ class Ppr {
   final int tasksCount;
   final int completedTasksCount;
 
+  /// Задачи ППР, которые ждут оборудование «В работе» (бэкенд `6296b61`):
+  /// ППР идёт, а экземпляра у задачи ещё нет — сервер выдаст его, когда
+  /// оборудование переведут «В работе». Все задачи ППР, без отбора по области
+  /// обходчика: отбор — `DataProvider.pprWaitingTasksForUser`.
+  final List<PprWaitingTask> waitingTasks;
+
   const Ppr({
     required this.uuid,
     required this.title,
@@ -38,6 +44,7 @@ class Ppr {
     this.completedInspectionUuids = const {},
     this.tasksCount = 0,
     this.completedTasksCount = 0,
+    this.waitingTasks = const [],
   });
 
   static const String statusQueued = 'QUEUED';
@@ -75,8 +82,9 @@ class Ppr {
     Map<String, dynamic> json,
     Set<String> periodicTaskUuids,
     Set<String> inspectionUuids,
-    Set<String> completedInspectionUuids,
-  ) {
+    Set<String> completedInspectionUuids, {
+    List<PprWaitingTask> waitingTasks = const [],
+  }) {
     return Ppr(
       uuid: json['uuid'] as String,
       title: json['title'] as String?,
@@ -86,6 +94,7 @@ class Ppr {
       completedInspectionUuids: completedInspectionUuids,
       tasksCount: (json['tasks_count'] as int?) ?? 0,
       completedTasksCount: (json['completed_tasks_count'] as int?) ?? 0,
+      waitingTasks: waitingTasks,
     );
   }
 
@@ -100,6 +109,7 @@ class Ppr {
         'completed_inspection_uuids': completedInspectionUuids.toList(),
         'tasks_count': tasksCount,
         'completed_tasks_count': completedTasksCount,
+        'waiting_tasks': [for (final task in waitingTasks) task.toJson()],
       };
 
   factory Ppr.fromJson(Map<String, dynamic> json) {
@@ -121,6 +131,73 @@ class Ppr {
               .toSet(),
       tasksCount: (json['tasks_count'] as int?) ?? 0,
       completedTasksCount: (json['completed_tasks_count'] as int?) ?? 0,
+      // Кэш прошлой версии ждущих задач не знает — пусто.
+      waitingTasks: [
+        for (final item in (json['waiting_tasks'] as List<dynamic>?) ?? const [])
+          if (PprWaitingTask.fromJson(item) case final task?) task,
+      ],
+    );
+  }
+}
+
+/// Задача ППР, которая ждёт оборудование «В работе» (бэкенд `6296b61`):
+/// элемент `tasks[]` ответа `GET /v1/company/ppr/{uuid}` с
+/// `waiting_for_equipment` и активным членством.
+class PprWaitingTask {
+  final String periodicTaskUuid;
+  final String title;
+  final String? equipmentName;
+
+  /// Состояние оборудования (`equipment_state`), `null` — не задано.
+  final String? equipmentState;
+
+  const PprWaitingTask({
+    required this.periodicTaskUuid,
+    required this.title,
+    this.equipmentName,
+    this.equipmentState,
+  });
+
+  /// Из элемента `tasks[]` детального ответа ППР. `null` — задача не ждёт
+  /// оборудование, вышла из ППР или без периодической задачи.
+  static PprWaitingTask? fromPprTask(Object? task) {
+    if (task is! Map) return null;
+    if (task['active_membership'] != true) return null;
+    if (task['waiting_for_equipment'] != true) return null;
+    final periodic = task['periodic_task'];
+    if (periodic is! Map) return null;
+    final uuid = periodic['uuid'];
+    if (uuid is! String || uuid.isEmpty) return null;
+    final title = periodic['title'];
+    final equipment = periodic['equipment_name'];
+    final state = task['equipment_state'];
+    return PprWaitingTask(
+      periodicTaskUuid: uuid,
+      title: title is String && title.isNotEmpty ? title : 'Задача ППР',
+      equipmentName: equipment is String && equipment.isNotEmpty ? equipment : null,
+      equipmentState: state is String && state.isNotEmpty ? state : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'periodic_task_uuid': periodicTaskUuid,
+        'title': title,
+        'equipment_name': equipmentName,
+        'equipment_state': equipmentState,
+      };
+
+  static PprWaitingTask? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final uuid = json['periodic_task_uuid'];
+    final title = json['title'];
+    if (uuid is! String || uuid.isEmpty || title is! String) return null;
+    final equipment = json['equipment_name'];
+    final state = json['equipment_state'];
+    return PprWaitingTask(
+      periodicTaskUuid: uuid,
+      title: title,
+      equipmentName: equipment is String ? equipment : null,
+      equipmentState: state is String ? state : null,
     );
   }
 }

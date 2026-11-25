@@ -53,23 +53,6 @@ extension DataProviderRemote on DataProvider {
     return all;
   }
 
-  Future<List<PeriodicityRule>> loadAllPeriodicityRules() async {
-    List<PeriodicityRule> all = [];
-    List<PeriodicityRule> notAll = await api.getPeriodicityRules();
-    for (var periodicityRule in notAll) {
-      all.add(periodicityRule);
-    }
-    return all;
-  }
-
-  Future<List<UsageUnit>> loadAllUsageUnitTypes() async {
-    List<UsageUnit> all = [];
-    List<UsageUnit> notAll = await api.getUsageUnitTypes();
-    for (var usageUnit in notAll) {
-      all.add(usageUnit);
-    }
-    return all;
-  }
 
   /// Открытые задачи обходчика обоих видов назначения — где он ответственный
   /// и где исполнитель (см. [TaskApi.getCurrentOpenTasks]). Одна задача может

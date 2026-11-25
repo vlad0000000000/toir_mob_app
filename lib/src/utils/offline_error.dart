@@ -36,3 +36,18 @@ bool isOfflineError(Object error) {
       text.contains('Network is unreachable') ||
       text.contains('TimeoutException');
 }
+
+/// Запрос мог дойти до сервера, а потерялся ответ: таймаут ожидания или
+/// соединение оборвалось посреди обмена. Тогда повтор тем же
+/// `Idempotency-Key` безопасен и нужен — сервер ответит прежним результатом.
+///
+/// Нет адреса, «соединение отклонено», сеть недоступна — запрос не ушёл
+/// вовсе, и повторять его сразу бессмысленно: ответ будет тот же.
+bool isLostResponseError(Object error) {
+  final text = error.toString();
+  return text.contains('TimeoutException') ||
+      text.contains('Connection closed') ||
+      text.contains('Connection reset') ||
+      text.contains('Connection terminated') ||
+      text.contains('connection abort');
+}

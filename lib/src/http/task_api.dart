@@ -126,10 +126,13 @@ extension TaskApi on API {
       'executable_only': 'true',
     });
 
+    // Установка и сборка — здесь сервер проверяет ручное ограничение работы
+    // версии ([API.workHeaders], бэкенд `811c4dc`): ограничена — 426.
     final response = await _client.get(
       url,
       headers: {
         'Authorization': 'Bearer ${API.jwtToken}',
+        ...API.workHeaders(),
       },
     ).timeout(API._readTimeout);
 
@@ -144,6 +147,10 @@ extension TaskApi on API {
             Task.fromJson(json),
       ];
       return (tasks: scheduled, fetched: data.length);
+    } else if (response.statusCode == WorkBlockedException.status) {
+      // Работа версии ограничена: плановые остаются сохранённые, взятые и
+      // доработки синхронизация перечитывает (`_scheduledOrCached`).
+      _throwServerError(response, MobileSupportStrings.workBlockedShort);
     } else {
       throw Exception(
           'Failed to load scheduled tasks: ${response.statusCode}');
@@ -285,32 +292,32 @@ extension TaskApi on API {
     );
   }
 
-  Future<List<PeriodicityRule>> getPeriodicityRules() async {
+  /// Правила периодичности. [ifNoneMatch] — ETag сохранённых: не менялись —
+  /// 304 без тела ([Conditional.notModified]).
+  Future<Conditional<List<PeriodicityRule>>> getPeriodicityRules({
+    String? ifNoneMatch,
+  }) async {
     _guardOffline();
     if (API.jwtToken == null) {
       throw Exception('Not authenticated');
     }
 
-    final url =
-        Uri.parse('${API.baseUrl}/v1/company/periodic_task/periodicity-rules');
-
-    final response = await _client.get(
-      url,
-      headers: {
-        'Authorization': 'Bearer ${API.jwtToken}',
-      },
-    ).timeout(API._readTimeout);
-
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      const utf8Decoder = Utf8Decoder(allowMalformed: true);
-      final decodedBytes = utf8Decoder.convert(response.bodyBytes);
-      final Map<String, dynamic> data = jsonDecode(decodedBytes);
-      final List<dynamic> rules = data['rules'];
-      return rules.map((json) => PeriodicityRule.fromJson(json)).toList();
-    } else {
-      throw Exception(
-          'Failed to load periodicity rules: ${response.statusCode}');
-    }
+    final response = await _client
+        .get(
+          Uri.parse(
+              '${API.baseUrl}/v1/company/periodic_task/periodicity-rules'),
+          headers: _conditionalHeaders(ifNoneMatch),
+        )
+        .timeout(API._readTimeout);
+    return _conditionalResult(
+      response,
+      ifNoneMatch,
+      (data) => [
+        for (final json in data['rules'] as List<dynamic>)
+          PeriodicityRule.fromJson(json),
+      ],
+      'Failed to load periodicity rules',
+    );
   }
 
   /// Создаёт задачу заявки «Другое». Возвращает uuid созданной задачи;

@@ -27,6 +27,12 @@ String repairErrorMessage(Object error) {
   if (error is RepairNotOpenException) {
     return repairNotOpenMessage(error.status);
   }
+  // Правка уже уходила с этим ключом, но с другим телом (бэкенд `81f644c`,
+  // `idempotency_key_conflict`). Ключ правки меняется вместе с её данными,
+  // так что сюда попадает только испорченная запись очереди.
+  if (error is ServerFailureException && error.isIdempotencyConflict) {
+    return repairKeyConflictMessage;
+  }
   final raw = _stripExceptionPrefix(error.toString()).trim();
   for (final entry in _translations.entries) {
     if (raw == entry.key || raw.contains(entry.key)) {
@@ -73,6 +79,12 @@ bool isEquipmentBusyMessage(String? reason) =>
 const String repairNoRightsMessage =
     'У вашей роли нет прав на это действие с ремонтом. Данные сохранены и '
     'уйдут, когда администратор вернёт доступ';
+
+/// Правка ремонта уже уходила с тем же ключом, но с другими данными (409
+/// `idempotency_key_conflict`, бэкенд `81f644c`). Окончательно.
+const String repairKeyConflictMessage =
+    'Эта правка уже отправлялась с другими данными. Проверьте карточку '
+    'ремонта и внесите изменения заново.';
 
 bool isRepairNoRightsMessage(String? reason) => reason == repairNoRightsMessage;
 

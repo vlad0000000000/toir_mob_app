@@ -43,17 +43,22 @@ These break user data or the build if ignored. Full detail lives in the skill.
 - **Every network call goes through the shared `_client` in `api.dart`**, never
   top-level `http.get/post`: outside it there is no 3-second `connectionTimeout`
   and no server-unreachable window (`API.isServerKnownUnreachable`).
+  The one exception is the background push isolate
+  (`notifications/push/notifications_task_handler.dart`): it runs apart from
+  the main isolate, has no `API`, token refresher or `GlobalState`, and talks to
+  the server with its own `http` calls (SSE stream, notification list,
+  announcements). Every such call there must carry an explicit `.timeout(...)`.
 
 ## Commands
 
 ```bash
 flutter pub get
 flutter analyze     # baseline: 94 infos, zero warnings/errors; any warning is your regression
-flutter test        # baseline: green, 587 tests in 56 files
+flutter test        # baseline: green, 757 tests in 68 files
 flutter run -d <device>
 ```
 
-`flutter test` is green and must stay green — 56 suites under `test/`, covering
+`flutter test` is green and must stay green — 68 suites under `test/`, covering
 the symmetry of the `Repair`, `PendingRepair` and `Scan` Hive adapters, how the
 inspection and repair outboxes classify a failure (retry, reject, or treat as
 already delivered), spare-part consumption and write-off, the insufficient-stock

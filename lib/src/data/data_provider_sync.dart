@@ -252,11 +252,26 @@ extension DataProviderSync on DataProvider {
 
     try {
       final generation = cacheGeneration;
-      final rules = await loadAllPeriodicityRules();
+      final result = await api.getPeriodicityRules(
+        ifNoneMatch: ifNoneMatchFor(
+          storedEtag: stringBox.get(periodicityRulesEtagKey),
+          hasCachedData: periodicityRuleBox.isNotEmpty,
+        ),
+      );
+      // 304 — справочник не менялся, сохранённый в боксе актуален.
+      final rules = result.data;
+      if (rules == null) return;
       await _commit(generation, 'Правила периодичности', () async {
         _periodicityRules = rules;
+        // ETag — снять до перезаписи и поставить после: оборвись запись
+        // посреди, следующий запрос уйдёт без условия, а не получит 304 на
+        // неполный бокс.
+        await stringBox.delete(periodicityRulesEtagKey);
         await periodicityRuleBox.clear();
         await periodicityRuleBox.addAll(rules);
+        if (result.etag != null) {
+          await stringBox.put(periodicityRulesEtagKey, result.etag!);
+        }
       });
     } catch (e) {
       _syncLog.warning('Failed sync periodicity rules: $e');
@@ -270,11 +285,22 @@ extension DataProviderSync on DataProvider {
 
     try {
       final generation = cacheGeneration;
-      final units = await loadAllUsageUnitTypes();
+      final result = await api.getUsageUnitTypes(
+        ifNoneMatch: ifNoneMatchFor(
+          storedEtag: stringBox.get(usageUnitTypesEtagKey),
+          hasCachedData: usageUnitBox.isNotEmpty,
+        ),
+      );
+      final units = result.data;
+      if (units == null) return;
       await _commit(generation, 'Единицы наработки', () async {
         _usageUnits = units;
+        await stringBox.delete(usageUnitTypesEtagKey);
         await usageUnitBox.clear();
         await usageUnitBox.addAll(units);
+        if (result.etag != null) {
+          await stringBox.put(usageUnitTypesEtagKey, result.etag!);
+        }
       });
     } catch (e) {
       _syncLog.warning('Failed sync usage unit types: $e');
@@ -832,10 +858,21 @@ extension DataProviderSync on DataProvider {
 
     try {
       final generation = cacheGeneration;
-      final states = await api.getEquipmentStates();
+      final result = await api.getEquipmentStates(
+        ifNoneMatch: ifNoneMatchFor(
+          storedEtag: stringBox.get(equipmentStatesEtagKey),
+          hasCachedData: equipmentStateBox.containsKey('equipment_state'),
+        ),
+      );
+      final states = result.data;
+      if (states == null) return;
       await _commit(generation, 'Состояния оборудования', () async {
         _equipmentState = states;
+        await stringBox.delete(equipmentStatesEtagKey);
         await equipmentStateBox.put('equipment_state', states);
+        if (result.etag != null) {
+          await stringBox.put(equipmentStatesEtagKey, result.etag!);
+        }
       });
     } catch (e) {
       _syncLog.warning('Failed sync equipment states: $e');
@@ -886,6 +923,20 @@ extension DataProviderSync on DataProvider {
     }
   }
 
+  /// Плановые задачи; работа версии ограничена (426, бэкенд `811c4dc`) —
+  /// сохранённые плановые из ящика. Сервер ограничивает только этот список:
+  /// взятые задачи и доработки [syncTasks] перечитывает как обычно, иначе
+  /// возвращённая на доработку задача не приехала бы на телефон.
+  Future<List<Task>> _scheduledOrCached() async {
+    try {
+      return await loadAllTasks();
+    } on WorkBlockedException {
+      return taskBox.values
+          .where((task) => task.resultStatus == 'scheduled')
+          .toList();
+    }
+  }
+
   // Метод синхронизации задач
   Future<void> syncTasks() async {
     _isLoading = true;
@@ -895,7 +946,7 @@ extension DataProviderSync on DataProvider {
       // один за другим. Третий — возвращённые на доработку: у них статус
       // `closed`, ни в плановые, ни в открытые они не попадают.
       final loaded = await Future.wait<List<Task>?>(
-          [loadAllTasks(), loadAllOpenTasks(), loadReturnedTasks()]);
+          [_scheduledOrCached(), loadAllOpenTasks(), loadReturnedTasks()]);
       // Умеет ли сервер возврат, ещё неизвестно (`null`) — доработки берём из
       // кэша, а не стираем: ящик ниже перезаписывается целиком.
       final reworks = loaded[2] ??
@@ -959,8 +1010,13 @@ extension DataProviderSync on DataProvider {
     _isLoading = true;
     try {
       final generation = cacheGeneration;
+      // Смена доступа во время запроса — ответ ещё прежней области.
+      final accessEpoch = _pprAccessEpoch;
       final pprs = await api.getActivePprs();
       final committed = await _commit(generation, 'ППР', () async {
+        // Сервер отдаёт в ППР только задачи области обходчика
+        // (`ppr_waiting.dart`): ждущие можно показывать.
+        if (accessEpoch == _pprAccessEpoch) _pprAccessStale = false;
         setActivePprs(pprs);
         await stringBox.put(DataProvider.pprCacheKey,
             jsonEncode(pprs.map((ppr) => ppr.toJson()).toList()));
@@ -1140,6 +1196,9 @@ extension DataProviderSync on DataProvider {
       // Полным проход бывает только на первом заходе и после оборванной
       // записи — то есть худший случай остался прежним, но разовым.
       syncSpareParts(),
+      // Установка приложения: сборка и время подключения на сервере. Сама
+      // решает, пора ли (не чаще раза в 5 минут), и ошибок не бросает.
+      registerInstallation(),
     ]);
     // Отметку ставим после всех: она значит «справочники обновлены», а не
     // «начали обновлять». И только своему аккаунту: проход прошлого
@@ -1147,6 +1206,8 @@ extension DataProviderSync on DataProvider {
     await _commit(generation, 'Отметка синхронизации', () async {
       await saveLastSyncDate();
     });
+    // Только своему аккаунту — как и отметка выше.
+    if (!isStaleCacheGeneration(generation)) onMainSyncDone?.call();
   }
 
   /// В очередях отправки нет записей вошедшего обходчика — гонять по ним
@@ -1250,6 +1311,10 @@ extension DataProviderSync on DataProvider {
     // Черновики ремонтов отправляем до справочников, а не после: иначе
     // syncMyRepairs перекачал бы список ещё без только что созданного ремонта,
     // и обходчик не увидел бы его до следующего цикла.
+    // Записи, которые на самом деле дошли («На рассмотрении» с правкой
+    // обходчика), а прежняя версия пометила отклонёнными, — снимаем: иначе
+    // они навсегда давали бы «Не все ремонты отправлены».
+    await dropDeliveredRepairSubmissions();
     await syncPendingRepairs();
     await syncPendingRepairUpdates();
     // Осмотры уезжают параллельно со справочниками: очереди пишут в свои
@@ -1287,11 +1352,25 @@ extension DataProviderSync on DataProvider {
     // считался, и при 503 на создании задачи кнопка отвечала «успешно».
     // Отклонённые — отдельно, с причинами: сами они не уйдут.
     final rejected = rejectedProblemReports;
+    // Ремонты — раздельно: отклонённые ждут решения обходчика, остальные
+    // уйдут сами. Раньше это был один пункт «Не все ремонты отправлены».
+    final drafts = pendingRepairs;
+    final edits = myPendingRepairUpdates;
+    // Статус версии — и при пустой очереди (бэкенд `811c4dc`): работу могли
+    // ограничить, а сигнал до телефона не дошёл. После `mainSync`: он
+    // регистрирует установку, если ещё не.
+    await refreshSupportStatus();
+    // Отладочный показ (`PREVIEW_SUPPORT_STATUS`) — и в окне синхронизации.
+    final support = previewSupportStatus(DateTime.now()) ?? supportStatus.value;
     return SyncReport(
+      workBlocked: support?.workBlocked ?? false,
+      storeUri: support?.safeUpdateUri,
       scansWereQueued: queueWas > 0,
       scansLeft: queueWas > 0 && left > 0,
-      repairsLeft: pendingRepairs.isNotEmpty ||
-          myQueuedRepairEditsCount > 0,
+      repairsRejected: drafts.any((draft) => draft.isRejected) ||
+          edits.any((edit) => edit.isRejected),
+      repairsLeft: drafts.any((draft) => !draft.isRejected) ||
+          edits.any((edit) => !edit.isRejected),
       problemReportsLeft: myQueuedProblemReportsCount - rejected.length > 0,
       problemReportReasons: [
         ...{

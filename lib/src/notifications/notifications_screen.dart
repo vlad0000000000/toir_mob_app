@@ -14,6 +14,10 @@ import '../utils/go_router_ext.dart';
 import '../design/app_constants.dart';
 import '../design/app_theme.dart';
 import '../widgets/empty_state.dart';
+import '../model/announcement.dart';
+import 'announcement_card.dart';
+import 'announcements_service.dart';
+import 'feed_order.dart';
 import 'notifications_service.dart';
 import 'notification_card.dart';
 import 'notification_formatters.dart';
@@ -58,8 +62,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
+  /// Кнопка «Обновить» и жест вниз — и уведомления, и объявления: они на
+  /// одном экране, и после пропущенного сигнала обходчик иначе видел бы
+  /// старые объявления. Перечитка объявлений заодно отправит отметки
+  /// «прочитано», не дошедшие раньше.
   Future<void> _refresh() async {
-    await _service.refreshList();
+    await Future.wait([
+      _service.refreshList(),
+      AnnouncementsService.instance.refresh(),
+    ]);
   }
 
   @override
@@ -91,6 +102,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         children: [
           _HeaderRow(
             unreadCount: _service.unreadCount,
+            announcementsUnread: AnnouncementsService.instance.unreadCount,
             hideRead: _hideRead,
             onHideReadChanged: (v) {
               setState(() => _hideRead = v);
@@ -107,11 +119,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     return ValueListenableBuilder<List<AppNotification>>(
                       valueListenable: _service.notifications,
                       builder: (context, allItems, ___) {
-                        return _buildBody(
-                          context,
-                          allItems: allItems,
-                          loading: loading,
-                          loadedOnce: loadedOnce,
+                        // Объявления — карточками в том же списке, первыми
+                        // (решение 19.11): только с зарегистрированной
+                        // установкой, иначе они приходят карточками ленты.
+                        return ValueListenableBuilder<List<Announcement>>(
+                          valueListenable:
+                              AnnouncementsService.instance.current,
+                          builder: (context, announcements, ____) {
+                            return _buildBody(
+                              context,
+                              allItems: allItems,
+                              announcements: announcements,
+                              loading: loading,
+                              loadedOnce: loadedOnce,
+                            );
+                          },
                         );
                       },
                     );
@@ -128,18 +150,24 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Widget _buildBody(
     BuildContext context, {
     required List<AppNotification> allItems,
+    required List<Announcement> announcements,
     required bool loading,
     required bool loadedOnce,
   }) {
     final items =
         _hideRead ? allItems.where((n) => !n.isRead).toList() : allItems;
+    // «Скрыть прочитанные» — и для объявлений: они такие же карточки.
+    final notices = _hideRead
+        ? announcements.where((a) => !a.isRead).toList()
+        : announcements;
     // Пока сервер не ответил хоть раз — spinner, а не EmptyState.
     // Также показываем spinner, если запрос вышел в полёт, но
-    // список ещё пустой (ручной pull-to-refresh с нуля).
-    if (!loadedOnce || (loading && items.isEmpty)) {
+    // список ещё пустой (ручной pull-to-refresh с нуля). Объявления уже
+    // есть (кэш) — рисуем их сразу, ленту подгрузим следом.
+    if (notices.isEmpty && (!loadedOnce || (loading && items.isEmpty))) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (items.isEmpty) {
+    if (items.isEmpty && notices.isEmpty) {
       return RefreshIndicator(
         onRefresh: _refresh,
         child: ListView(
@@ -164,19 +192,26 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       child: ValueListenableBuilder<bool>(
         valueListenable: _service.isLoadingMore,
         builder: (context, loadingMore, ___) {
+          // Объявления и уведомления — одним списком по времени, новые
+          // сверху, без подъёма важных (`mergeFeed`, решение 19.11).
+          final feed = mergeFeed(notices, items);
           return ListView.separated(
             controller: _scrollController,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-            itemCount: items.length + (loadingMore ? 1 : 0),
+            itemCount: feed.length + (loadingMore ? 1 : 0),
             separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (context, i) {
-              if (i >= items.length) {
+              if (i >= feed.length) {
                 return const Padding(
                   padding: EdgeInsets.symmetric(vertical: 16),
                   child: Center(child: CircularProgressIndicator()),
                 );
               }
-              final n = items[i];
+              final item = feed[i];
+              if (item.announcement case final announcement?) {
+                return AnnouncementCard(announcement: announcement);
+              }
+              final n = item.notification!;
               return NotificationCard(
                 notification: n,
                 onTap: () => _onTap(n),
@@ -541,11 +576,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 /// не помещается и тайтл обрезается на узких экранах.
 class _HeaderRow extends StatelessWidget {
   final ValueNotifier<int> unreadCount;
+
+  /// Непрочитанные объявления — в том же «N новых»: они карточки того же
+  /// списка (решение 19.11).
+  final ValueNotifier<int> announcementsUnread;
   final bool hideRead;
   final ValueChanged<bool> onHideReadChanged;
 
   const _HeaderRow({
     required this.unreadCount,
+    required this.announcementsUnread,
     required this.hideRead,
     required this.onHideReadChanged,
   });
@@ -566,9 +606,10 @@ class _HeaderRow extends StatelessWidget {
               AppConstants.spacingMD, 6, AppConstants.spacingSM, 4),
           child: Row(
             children: [
-              ValueListenableBuilder<int>(
-                valueListenable: unreadCount,
-                builder: (context, count, _) {
+              AnimatedBuilder(
+                animation: Listenable.merge([unreadCount, announcementsUnread]),
+                builder: (context, _) {
+                  final count = unreadCount.value + announcementsUnread.value;
                   if (count <= 0) {
                     return Text(
                       'Все прочитаны',

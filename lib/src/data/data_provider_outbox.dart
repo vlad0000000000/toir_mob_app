@@ -24,9 +24,156 @@ enum _DeniedCheck { wait, noRights, stateChanged, unknown }
 /// периодические задачи, черновики ремонтов. Перекладывание pending ↔ box +
 /// ретраи.
 extension DataProviderOutbox on DataProvider {
+  /// Правка [update] уже на сервере — ремонт [server] «На рассмотрении» с её
+  /// комментарием и расходом ([isSubmissionDelivered]).
+  bool _isDeliveredUpdate(PendingRepairUpdate update, Repair? server) =>
+      isSubmissionDelivered(
+        submitForReview: update.submitForReview,
+        server: server,
+        comment: update.comment,
+        consumptions: sectionAccess.consumptionsToSend(update.consumptions),
+      );
+
+  /// Ремонт с сервера, `null` — не вышло (нет связи, нет доступа, удалён).
+  Future<Repair?> _fetchRepairQuietly(String uuid) async {
+    try {
+      return await api.getRepair(uuid);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Снимает записи очереди ремонтов, которые на самом деле дошли: отправка на
+  /// проверку прошла, а ответ потерялся, и запись прежней версии осталась
+  /// отклонённой ([isSubmissionDelivered]). Из «Синхронизировать данные»: так
+  /// застрявшие на телефонах записи уходят без участия обходчика.
+  ///
+  /// Только отклонённые с «Отправить на проверку»: по каждой — запрос ремонта.
+  /// Сменился аккаунт по ходу — останавливаемся. Возвращает число снятых.
+  Future<int> dropDeliveredRepairSubmissions() async {
+    if (!GlobalState.isAuthorized) return 0;
+    final session = _accessSession;
+    final generation = cacheGeneration;
+    bool switched() =>
+        isStaleCacheGeneration(generation) || session != _accessSession;
+    var dropped = 0;
+    final drafts = [
+      for (final draft in pendingRepairs)
+        if (draft.isRejected &&
+            draft.submitForReview &&
+            (draft.serverUuid ?? '').isNotEmpty)
+          draft,
+    ];
+    for (final draft in drafts) {
+      final server = await _fetchRepairQuietly(draft.serverUuid!);
+      if (switched()) return dropped;
+      if (!isSubmissionDelivered(
+        submitForReview: true,
+        server: server,
+        comment: draft.commentChangedSinceCreate ? draft.comment : null,
+        consumptions: sectionAccess.consumptionsToSend(draft.consumptions),
+      )) {
+        continue;
+      }
+      if (!pendingRepairBox.containsKey(draft.localId)) continue;
+      await deletePendingRepair(draft.localId);
+      dropped++;
+    }
+    final updates = [
+      for (final update in pendingRepairUpdateBox.values)
+        if (isMine(update) && update.isRejected && update.submitForReview)
+          update,
+    ];
+    for (final update in updates) {
+      final server = await _fetchRepairQuietly(update.repairUuid);
+      if (switched()) return dropped;
+      if (!_isDeliveredUpdate(update, server) || !_isQueued(update)) continue;
+      // Пока шёл запрос, правку могли поменять в карточке ([_dropSentUpdate]).
+      await _dropSentUpdate(update, result: server);
+      dropped++;
+    }
+    return dropped;
+  }
+
   /// Правка [update] ещё в очереди — её не удалили с экрана, пока шёл запрос.
   bool _isQueued(PendingRepairUpdate update) =>
       pendingRepairUpdateBox.containsKey(updateKeyOf(update));
+
+  /// Запись очереди сейчас — с теми же полями формы, что ушли в запросе
+  /// [sent]. `null` — записи нет или обходчик поменял правку в карточке, пока
+  /// шёл запрос: тогда отказ или успех относятся к прежней правке, и писать
+  /// поверх новой нельзя — она потерялась бы.
+  PendingRepairUpdate? _sameQueuedEdit(PendingRepairUpdate sent) {
+    final stored = pendingRepairUpdateBox.get(updateKeyOf(sent));
+    return isSameQueuedEdit(stored, sent) ? stored : null;
+  }
+
+  /// Пометка об отказе (или новая основа) — на запись из бокса, а не на
+  /// отправленную копию: снимки, добавленные за время запроса, сохраняются.
+  /// Форму поменяли — не трогаем: новая правка уйдёт следующим проходом.
+  Future<void> _markQueuedEdit(
+    PendingRepairUpdate sent,
+    PendingRepairUpdate Function(PendingRepairUpdate stored) mark,
+  ) async {
+    final stored = _sameQueuedEdit(sent);
+    if (stored == null) return;
+    await pendingRepairUpdateBox.put(updateKeyOf(sent), mark(stored));
+  }
+
+  /// Поля правки [sent] уже на сервере. Запись удаляется, только если за
+  /// время запроса её не меняли: иначе удаление стёрло бы и новую правку, и
+  /// файлы новых снимков. Что делать — решает [afterSentUpdate]
+  /// (`repair_update_queue.dart`).
+  ///
+  /// [result] — ремонт после нашей отправки (ответ `PATCH` или перечитанный
+  /// при «уже дошло»): с ним сверяется ETag для оставшейся правки.
+  Future<void> _dropSentUpdate(
+    PendingRepairUpdate sent, {
+    required Repair? result,
+  }) async {
+    final key = updateKeyOf(sent);
+    final session = _accessSession;
+    final outcome = afterSentUpdate(pendingRepairUpdateBox.get(key), sent);
+    if (outcome == null) return;
+    if (outcome.delete) {
+      await deletePendingRepairUpdate(sent.repairUuid, key: key);
+      return;
+    }
+    var keep = outcome.keep!;
+    // Осталась новая правка, а основа устарела нашей же отправкой. Сначала
+    // основа «неизвестна» ([unknownBaseEtag]): не выйдет взять ETag — правка
+    // получит 412 и покажет, что на сервере, а не затрёт молча чужое.
+    final protect = !keep.isRejected && sent.baseEtag != null;
+    if (protect) keep = keep.withBase(etag: unknownBaseEtag, state: null);
+    await pendingRepairUpdateBox.put(key, keep);
+    if (!protect || result == null) return;
+    final base = await _fetchEditBaseQuietly(sent.repairUuid);
+    if (base == null || session != _accessSession) return;
+    // ETag — только той версии, что дала наша отправка: если между ней и
+    // запросом ETag ремонт успели поменять, он про изменение, которого
+    // обходчик не видел, — оставляем «неизвестную» основу.
+    if (!editStateMatchesRepair(base.state, result)) return;
+    final stored = pendingRepairUpdateBox.get(key);
+    // За время запроса запись могли удалить, отклонить или дать ей основу.
+    if (stored == null ||
+        stored.isRejected ||
+        stored.baseEtag != unknownBaseEtag) {
+      return;
+    }
+    await pendingRepairUpdateBox.put(
+      key,
+      stored.withBase(etag: base.etag, state: base.state),
+    );
+  }
+
+  /// ETag и состояние ремонта (`edit-state`), `null` — не вышло.
+  Future<RepairEditBase?> _fetchEditBaseQuietly(String repairUuid) async {
+    try {
+      return await api.getRepairEditState(repairUuid);
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// Отправляет черновики ремонтов, накопленные без связи.
   ///
@@ -216,11 +363,17 @@ extension DataProviderOutbox on DataProvider {
         // Последний шаг — с токеном того, чей черновик.
         if (switched()) continue;
         final finishSeq = beginRepairRequest();
-        final finished = await api.updateRepair(
-          current.serverUuid!,
+        final finishBody = repairUpdateBody(
           comment: commentChanged ? current.comment : null,
           consumptions: sectionAccess.consumptionsToSend(current.consumptions),
           submitForReview: current.submitForReview,
+        );
+        // Ключ — из черновика и тела ([repairFinishKey]): потерянный ответ
+        // повторится тем же ключом, и «На рассмотрение» не уйдёт дважды.
+        final finished = await api.sendRepairUpdate(
+          current.serverUuid!,
+          finishBody,
+          idempotencyKey: repairFinishKey(current.localId, finishBody),
         );
         await upsertRepair(
           finished,
@@ -249,6 +402,29 @@ extension DataProviderOutbox on DataProvider {
         // сервера) — ждём начала, как и выше. На рассмотрении или закрыт —
         // обычный отказ ниже, с причиной по статусу.
         if (e is RepairNotOpenException && e.isScheduled) continue;
+        // Ремонт создан, а «На рассмотрении» — возможно, наш перевод уже
+        // прошёл, потерялся только ответ. Сверяем с сервером
+        // ([isSubmissionDelivered]): дошло — черновик снимаем как
+        // отправленный, а не прячем отклонённым.
+        if (e is RepairNotOpenException &&
+            e.status == RepairStatuses.underReview &&
+            current.submitForReview &&
+            (current.serverUuid ?? '').isNotEmpty) {
+          final server = await _fetchRepairQuietly(current.serverUuid!);
+          if (switched()) continue;
+          if (isSubmissionDelivered(
+            submitForReview: current.submitForReview,
+            server: server,
+            comment:
+                current.commentChangedSinceCreate ? current.comment : null,
+            consumptions: sectionAccess.consumptionsToSend(current.consumptions),
+          )) {
+            if (!pendingRepairBox.containsKey(current.localId)) continue;
+            await deletePendingRepair(current.localId);
+            sent++;
+            continue;
+          }
+        }
         // Сервер ответил и отказал. Запоминаем причину по-русски и больше не
         // повторяем автоматически.
         //
@@ -653,11 +829,17 @@ extension DataProviderOutbox on DataProvider {
             current.deletedPhotoUuids,
             stop: switched,
           );
-          current = current.copyWith(
-            photoPaths: photosLeft,
-            deletedPhotoUuids: deletesLeft,
+          // Вычёркиваем ушедшее из записи **в боксе**, а не из своей копии:
+          // пока грузились снимки, обходчик мог добавить новые или поменять
+          // правку — запись своей копией их бы затёрла.
+          final stored = pendingRepairUpdateBox.get(updateKeyOf(current));
+          if (stored == null) continue;
+          current = afterPhotoUpload(
+            stored: stored,
+            sent: current,
+            photosLeft: photosLeft,
+            deletesLeft: deletesLeft,
           );
-          if (!_isQueued(current)) continue;
           await pendingRepairUpdateBox.put(updateKeyOf(current), current);
           if (current.hasPhotoWork) {
             // Связь пропала на фотографиях — поля отправим следующим проходом,
@@ -670,9 +852,9 @@ extension DataProviderOutbox on DataProvider {
         // причиной «нет прав» (см. [SectionAccess.consumptionsBlocked]).
         if (sectionAccess.consumptionsBlocked(current.consumptions)) {
           if (!_isQueued(current)) continue;
-          await pendingRepairUpdateBox.put(
-            updateKeyOf(current),
-            current.markRejected(
+          await _markQueuedEdit(
+            current,
+            (stored) => stored.markRejected(
               reason: repairNoRightsMessage,
               conflictKind: RepairConflictKind.other.code,
             ),
@@ -680,22 +862,40 @@ extension DataProviderOutbox on DataProvider {
           continue;
         }
         if (switched()) continue;
+        // Ключ и тело — один раз, до запроса, и в бокс раньше отправки
+        // ([PendingRepairUpdate.mutationKey]): потерянный ответ повторится
+        // тем же ключом и тем же телом, и сервер не применит правку дважды.
+        if (current.mutationKey == null || current.requestBody == null) {
+          current = current.frozen(
+            key: newIdempotencyKey(),
+            body: repairUpdateBody(
+              comment: current.comment,
+              consumptions:
+                  sectionAccess.consumptionsToSend(current.consumptions),
+              submitForReview: current.submitForReview,
+            ),
+          );
+          if (!_isQueued(current)) continue;
+          await pendingRepairUpdateBox.put(updateKeyOf(current), current);
+          if (switched()) continue;
+        }
         final patchSeq = beginRepairRequest();
-        final repair = await api.updateRepair(
+        final repair = await api.sendRepairUpdate(
           current.repairUuid,
-          comment: current.comment,
-          consumptions: sectionAccess.consumptionsToSend(current.consumptions),
-          submitForReview: current.submitForReview,
+          current.requestBody!,
+          idempotencyKey: current.mutationKey,
+          // Основа правки, если карточку открывали со связью (решение 22.11):
+          // ремонт с тех пор изменили — 412, а не тихая перезапись.
+          ifMatch: current.baseEtag,
         );
         await upsertRepair(
           repair,
           generation: generation,
           requestSeq: patchSeq,
         );
-        await deletePendingRepairUpdate(
-          current.repairUuid,
-          key: updateKeyOf(current),
-        );
+        // Правку могли поменять в карточке, пока шёл запрос, — тогда новая
+        // остаётся в очереди ([_dropSentUpdate]).
+        await _dropSentUpdate(current, result: repair);
         sent++;
       } catch (e) {
         // Аккаунт сменился, пока шёл запрос: отказ мог прийти на токен
@@ -706,6 +906,47 @@ extension DataProviderOutbox on DataProvider {
           continue;
         }
         if (isRetryableRepairError(e)) continue;
+        // Ремонт изменили после того, как обходчик открыл карточку (412 на
+        // `If-Match`, бэкенд `d22727e`).
+        if (e is StaleRevisionException) {
+          if (!_isQueued(current)) continue;
+          final state = jsonEncode(e.current);
+          // Сдвинулось только время изменения (например, от снимков этой же
+          // правки) — видимого нечего показывать, уходим на новый ETag.
+          if (isSameRepairEditState(current.baseState, e.current)) {
+            await _markQueuedEdit(
+              current,
+              (stored) => stored.rebased(etag: e.currentEtag, state: state),
+            );
+            continue;
+          }
+          // Правка могла дойти, а ответ потеряться: повтор с тем же ключом
+          // сервер узнаёт раньше ETag, но ключ мог смениться (правку
+          // пересобрали) — сверяем с ремонтом ([isSubmissionDelivered]).
+          final server = await _fetchRepairQuietly(current.repairUuid);
+          if (switched()) continue;
+          if (!_isQueued(current)) continue;
+          if (_isDeliveredUpdate(current, server)) {
+            await _dropSentUpdate(current, result: server);
+            sent++;
+            continue;
+          }
+          final status = e.current['status'];
+          await _markQueuedEdit(
+            current,
+            (stored) => stored.markRejected(
+              reason: RepairCardStrings.changedOnServerReason,
+              serverStatus: status is String ? status : server?.status,
+              conflictKind: RepairConflictKind.changedOnServer.code,
+              serverEtag: e.currentEtag,
+              serverState: state,
+            ),
+          );
+          _outboxLog.severe(
+              'правка ремонта ${current.repairUuid} отклонена: ремонт '
+              'изменили на сервере');
+          continue;
+        }
         // Ремонт ушёл из «Открыт» — 409 `repair_not_open` со статусом
         // (бэкенд `8a88247`). Причина известна из ответа, угадывать её по
         // 403 и перечитанному ремонту ([_checkDenied]) не нужно.
@@ -720,10 +961,24 @@ extension DataProviderOutbox on DataProvider {
           }
           // Снова открыт (успели вернуть на доработку) — следующий проход.
           if (e.status == RepairStatuses.open) continue;
+          // «На рассмотрении», а обходчик и отправлял на проверку — возможно,
+          // правка дошла и потерялся ответ. Сверяем с сервером
+          // ([isSubmissionDelivered]).
+          if (e.status == RepairStatuses.underReview &&
+              current.submitForReview) {
+            final server = await _fetchRepairQuietly(current.repairUuid);
+            if (switched()) continue;
+            if (_isDeliveredUpdate(current, server)) {
+              if (!_isQueued(current)) continue;
+              await _dropSentUpdate(current, result: server);
+              sent++;
+              continue;
+            }
+          }
           if (!_isQueued(current)) continue;
-          await pendingRepairUpdateBox.put(
-            updateKeyOf(current),
-            current.markRejected(
+          await _markQueuedEdit(
+            current,
+            (stored) => stored.markRejected(
               reason: repairNotOpenMessage(e.status),
               serverStatus: e.status,
               conflictKind: e.status == RepairStatuses.closed
@@ -761,9 +1016,16 @@ extension DataProviderOutbox on DataProvider {
           if (switched()) continue;
           if (!_isQueued(current)) continue;
           final changed = check == _DeniedCheck.stateChanged ? fresh : null;
-          await pendingRepairUpdateBox.put(
-            updateKeyOf(current),
-            current.markRejected(
+          // Сервер прошлой версии отвечает на то же 403: отправка на проверку
+          // могла дойти, а ответ потеряться ([isSubmissionDelivered]).
+          if (_isDeliveredUpdate(current, changed)) {
+            await _dropSentUpdate(current, result: changed);
+            sent++;
+            continue;
+          }
+          await _markQueuedEdit(
+            current,
+            (stored) => stored.markRejected(
               reason: changed != null
                   ? repairErrorMessage(e)
                   : repairNoRightsMessage,
@@ -785,10 +1047,12 @@ extension DataProviderOutbox on DataProvider {
         // текущее состояние ремонта — чаще всего окажется, что администратор
         // закрыл ремонт или передал его другому.
         String? serverStatus;
+        Repair? server;
         var kind = RepairConflictKind.other;
         final readSeq = beginRepairRequest();
         try {
           final fresh = await api.getRepair(current.repairUuid);
+          server = fresh;
           serverStatus = fresh.status;
           await upsertRepair(
             fresh,
@@ -810,9 +1074,16 @@ extension DataProviderOutbox on DataProvider {
         // Правку могли удалить с экрана, пока запрос был в полёте, —
         // возвращать её в бокс нельзя.
         if (!_isQueued(current)) continue;
-        await pendingRepairUpdateBox.put(
-          updateKeyOf(current),
-          current.markRejected(
+        // Перечитанный ремонт «На рассмотрении» ровно с правкой обходчика —
+        // она дошла, потерялся ответ ([isSubmissionDelivered]).
+        if (_isDeliveredUpdate(current, server)) {
+          await _dropSentUpdate(current, result: server);
+          sent++;
+          continue;
+        }
+        await _markQueuedEdit(
+          current,
+          (stored) => stored.markRejected(
             reason: repairErrorMessage(e),
             serverStatus: serverStatus,
             conflictKind: kind.code,
@@ -879,6 +1150,9 @@ extension DataProviderOutbox on DataProvider {
       // Намерение отправить на рассмотрение сохраняем от любой из сторон.
       submitForReview:
           (existing?.submitForReview ?? false) || draft.submitForReview,
+      // Основа для If-Match — прошлой правки: на ней она и держится.
+      baseEtag: existing?.baseEtag,
+      baseState: existing?.baseState,
     ));
     // Черновик убираем из бокса напрямую: deletePendingRepair снёс бы и файлы
     // снимков, которые только что перешли к правке.
@@ -895,6 +1169,21 @@ extension DataProviderOutbox on DataProvider {
     await pendingRepairUpdateBox.put(
       updateKeyOf(update),
       update.clearRejection(),
+    );
+    await syncPendingRepairUpdates();
+  }
+
+  /// «Отправить мою правку» после 412 ([RepairConflictKind.changedOnServer]):
+  /// обходчик видел, что на сервере сейчас, и отправляет свою правку поверх —
+  /// с ETag этого состояния. Изменят ремонт ещё раз — снова 412.
+  Future<void> resendRepairUpdateOverServer(String repairUuid) async {
+    final update = pendingUpdateFor(repairUuid);
+    final etag = update?.serverEtag;
+    final state = update?.serverState;
+    if (update == null || etag == null || state == null) return;
+    await pendingRepairUpdateBox.put(
+      updateKeyOf(update),
+      update.rebased(etag: etag, state: state),
     );
     await syncPendingRepairUpdates();
   }
@@ -950,6 +1239,10 @@ extension DataProviderOutbox on DataProvider {
       bool switched() =>
           isStaleCacheGeneration(generation) || session != _accessSession;
       try {
+        // Ключ показания — один раз, до первой отправки, и в бокс вместе с
+        // перекладкой ниже ([UsageUpdate.eventId]): повтор после потерянного
+        // ответа уйдёт тем же ключом, и сервер не запишет показание дважды.
+        usage.eventId ??= newIdempotencyKey();
         // Переносим «сначала положить, потом убрать» — на всех переходах.
         // Наоборот между двумя шагами записи не было бы ни в одном боксе, и
         // осмотр, который ждёт эту наработку (`Scan.usageKeys`), в этот миг
@@ -1216,10 +1509,26 @@ extension DataProviderOutbox on DataProvider {
           // показывая. Запоминаем причину по-русски и ждём решения обходчика.
           // 404 на закрытие задачи — задачу сняли на сервере: своя причина,
           // запись с фото остаётся и ждёт решения обходчика.
-          scan.lastError = scanRejectionMessage(
-            e,
-            closesTask: (scan.taskUuid ?? '').isNotEmpty,
-          );
+          final closesTask = (scan.taskUuid ?? '').isNotEmpty;
+          scan.lastError = scanRejectionMessage(e, closesTask: closesTask);
+          // Сняли — уточняем, как: экземпляр могли пропустить, выдав по
+          // расписанию следующий (`missed`, бэкенд `5a789dc`), и тогда «удалили
+          // или передали» было бы неправдой. Новый сервер говорит это сам —
+          // 409 `inspection_missed` (бэкенд `811c4dc`). На 404 (сервер прошлой
+          // версии или экземпляр вне доступа) — по-прежнему перечитываем:
+          // сервер отдаёт пропущенный по uuid.
+          if (isInspectionMissedError(e)) {
+            scan.lastError = withdrawnTaskReason('missed');
+          } else if (isTaskWithdrawnError(e, closesTask: closesTask)) {
+            final status = await _refetchedTaskStatus(scan.taskUuid!);
+            // Перечитывание — ещё один запрос: вышли или сменили аккаунт за
+            // него — отказ к вошедшему не относится, осмотр без пометки.
+            if (switched()) {
+              await returnToQueue();
+              continue;
+            }
+            scan.lastError = withdrawnTaskReason(status);
+          }
           // Нехватку ЗИП сервер описывает точными числами — сохраняем их
           // вместе с осмотром: экран разрешения конфликта откроют позже и,
           // возможно, без связи.
@@ -1239,6 +1548,18 @@ extension DataProviderOutbox on DataProvider {
         _outboxLog.warning(
             'осмотр ${scan.key()} не отправлен, вернётся через 120 с: $e');
       }
+    }
+  }
+
+  /// Статус экземпляра задачи [taskUuid] на сервере — после отказа 404 на
+  /// закрытие ([withdrawnTaskReason]). `null` — экземпляра нет или перечитать
+  /// не вышло (нет связи): причина останется общей «задачу сняли».
+  Future<String?> _refetchedTaskStatus(String taskUuid) async {
+    try {
+      return (await api.getTaskByUuid(taskUuid))?.resultStatus;
+    } catch (error) {
+      _outboxLog.info('экземпляр $taskUuid после отказа не перечитан: $error');
+      return null;
     }
   }
 

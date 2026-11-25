@@ -27,6 +27,12 @@ extension ScanApi on API {
 
     request.headers['Authorization'] = 'Bearer ${API.jwtToken}';
     request.headers['accept'] = 'application/json';
+    // Пропущенный экземпляр — кодом `inspection_missed` (409), а не 404, как
+    // удалённая задача (бэкенд `811c4dc`): причину обходчику называем без
+    // второго запроса. Сервер прошлой версии заголовок пропустит.
+    if (method == 'PATCH') {
+      request.headers[API.inspectionConflictFormatHeader] = '2';
+    }
     // Постоянный ключ события — и на создание (POST), и на закрытие задачи
     // (PATCH). Потерянный ответ (или ответ 200 с неразборчивым телом) очередь
     // повторит через 120 секунд: без ключа POST завёл бы вторую запись, а
@@ -113,6 +119,20 @@ extension ScanApi on API {
       final denied =
           AccessDeniedException.fromResponse(response.statusCode, responseBody);
       if (denied != null) throw denied;
+
+      // Отказы с машинным кодом (бэкенд `811c4dc`) — по коду, а не по
+      // тексту: пропущенный экземпляр и ключ события, который ещё
+      // выполняется (повторить) или ушёл с другим телом (окончательно).
+      final code = serverErrorCode(responseBody);
+      if (code == inspectionMissedCode ||
+          code == idempotencyKeyInProgressCode ||
+          code == idempotencyKeyConflictCode) {
+        throw ServerFailureException(
+          response.statusCode,
+          _detailFromBody(responseBody, 'Не удалось отправить осмотр'),
+          errorCode: code,
+        );
+      }
 
       // Код ответа приклеиваем к сообщению: по нему очередь отличает
       // временный сбой сервера (5xx) от отказа по существу (4xx). Из текста

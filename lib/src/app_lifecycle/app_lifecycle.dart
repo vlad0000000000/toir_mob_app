@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:logging/logging.dart';
 import 'package:provider/provider.dart';
 import '../../global_state.dart';
+import '../notifications/announcements_service.dart';
 import '../notifications/push/push_notifications_controller.dart';
 
 class AppLifecycleObserver extends StatefulWidget {
@@ -57,6 +58,19 @@ class _AppLifecycleObserverState extends State<AppLifecycleObserver>
     // задачу (см. `DataProvider.pruneClosedTasks`).
     if (state == AppLifecycleState.resumed) {
       PushNotificationsController.instance.ensureRunning();
+      // Статус поддержки версии: дату могли поменять, пока приложение было
+      // свёрнуто. Не чаще раза в минуту — `resumed` приходит и после камеры,
+      // и после системных окон.
+      if (GlobalState.isAuthorized) {
+        GlobalState.dataProvider.refreshSupportStatus(
+          maxAge: const Duration(minutes: 1),
+        );
+        // Объявления — по тому же правилу: свернутое приложение не получало
+        // сигналов потока.
+        AnnouncementsService.instance.refresh(
+          maxAge: const Duration(minutes: 1),
+        );
+      }
     }
   }
 
